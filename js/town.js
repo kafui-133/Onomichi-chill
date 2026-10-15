@@ -841,10 +841,15 @@ export class Town {
     this.signMat.emissiveIntensity = 0.15 + night * 0.6;
     this.arcadeLampMat.color.setScalar(0.7 + night * 0.3);
 
-    // ロープウェイ（行ったり来たり）
+    // ロープウェイ：実際と同じく片道およそ3分。2台が交互に上り下りし、駅で少し停まる
+    const RIDE = 180, DWELL = 25, LEG = RIDE + DWELL;
+    const cyc = elapsed % (LEG * 2);
+    const up = cyc < LEG;
+    const k = Math.min(1, (up ? cyc : cyc - LEG) / RIDE);
+    const eased = k * k * (3 - 2 * k) * 0.08 + k * 0.92; // 発車と到着だけ少しゆっくり
+    const tA = up ? eased : 1 - eased;
     this.gondolas.forEach((gd) => {
-      const ph = (elapsed / 90 + gd.phase) % 1;
-      const t = ph < 0.5 ? ph * 2 : 2 - ph * 2;
+      const t = gd.phase === 0 ? tA : 1 - tA;
       const p = new THREE.Vector3().lerpVectors(this.ropeA, this.ropeB, t);
       p.y -= Math.sin(t * Math.PI) * 4;
       gd.g.position.copy(p);

@@ -69,11 +69,11 @@ const audio = new AudioEngine();
 
 // 町の野良猫たち（その場所から動かない。触れると反応する）
 const STRAYS = [
-  { x: -87.6, z: -112.9, pose: 'loaf', heading: 1.2, level: 3 },     // 猫の細道
-  { x: -119, z: -129.2, pose: 'curl', heading: 0.4, level: 4 },      // ロープウェイの下
+  { x: -85, z: -113.1, pose: 'loaf', heading: 1.2, level: 3 },     // 猫の細道
+  { x: -121.1, z: -130.5, pose: 'curl', heading: 0.4, level: 4 },      // ロープウェイの下
   { x: 121.5, z: -217.3, pose: 'sit', heading: Math.PI, level: 2 },  // 海岸通りのベンチのそば
   { x: -22, z: ARCADE_Z + 1.9, pose: 'loaf', heading: Math.PI, level: 3 }, // 商店街の店先
-  { x: 31.8, z: -100.6, pose: 'sit', heading: -0.4, level: 2 },      // 千光寺新道の石段
+  { x: 31.4, z: -100.5, pose: 'sit', heading: -0.4, level: 2 },      // 千光寺新道の石段
 ];
 const strays = STRAYS.map((c) => new Cat(scene, { fixed: { pos: new THREE.Vector3(c.x, terrainY(c.x, c.z), c.z), pose: c.pose, heading: c.heading, level: c.level } }));
 const allCats = [cat, ...strays];
@@ -196,7 +196,11 @@ function doAction() {
   if (action === 'home') goHome();
   else if (action === 'sit') { walker.sit(walker.nearBench()); toast('ベンチに腰をおろす', 2500); }
   else if (action === 'stand') walker.stand();
+  else if (action === 'crouch') { walker.setCrouch(true); toast('そっと、しゃがむ', 2000); }
+  else if (action === 'rise') walker.setCrouch(false);
 }
+// 近くの猫（しゃがむボタンを出す距離）
+const nearStray = () => (mode === 'walk' ? strays.find((c) => Math.hypot(c.root.position.x - walker.x, c.root.position.z - walker.z) < 2.6) : null);
 $('btn-act').addEventListener('click', doAction);
 const walkBtn = $('btn-walk');
 const holdWalk = (on) => { walker.touchForward = on; walkBtn.classList.toggle('held', on); };
@@ -205,6 +209,7 @@ walkBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); walkBtn.set
 window.addEventListener('keydown', (e) => {
   if (e.repeat || eyesClosed) return;
   if ((e.code === 'KeyE' || e.code === 'Enter') && action) doAction();
+  if (e.code === 'KeyC' && mode === 'walk' && !walker.seat) walker.setCrouch(!walker.crouching);
   if (e.code === 'KeyM') ($('map-view').classList.contains('hidden') ? openMap() : $('map-view').classList.add('hidden'));
 });
 
@@ -379,6 +384,8 @@ function frame() {
     const near = mode === 'walk' && c.root.position.distanceTo(camera.position) < 60;
     c.root.visible = near || mode === 'room';
     if (near) c.update(dt, t, camera);
+    // しゃがんで静かに待っていると、猫のほうから気にかけてくれる
+    if (near && walker.crouching && c.root.position.distanceTo(camera.position) < 3) c.crouchedNear(dt, controls.idleSeconds);
   });
 
   // 電車が近づくと踏切が鳴る。聞いている場所からいちばん近い踏切の音だけ鳴らす
@@ -441,15 +448,15 @@ function frame() {
       const head = name.split('　')[0];
       if (head !== lastPlace.split('　')[0]) toast(head, 2600);
       lastPlace = name;
-      action = walker.seat ? 'stand' : walker.nearDoor() ? 'home' : walker.nearBench() ? 'sit' : null;
+      action = walker.seat ? 'stand' : walker.crouching ? 'rise' : walker.nearDoor() ? 'home' : walker.nearBench() ? 'sit' : nearStray() ? 'crouch' : null;
     } else {
       $('place-label').textContent = '';
       action = null;
     }
     const act = $('btn-act');
     act.hidden = !action;
-    act.textContent = { home: '家に入る', sit: 'ベンチに座る', stand: '立ちあがる' }[action] || '';
-    walkBtn.hidden = mode !== 'walk' || !!walker.seat;
+    act.textContent = { home: '家に入る', sit: 'ベンチに座る', stand: '立ちあがる', crouch: 'しゃがむ', rise: '立ちあがる' }[action] || '';
+    walkBtn.hidden = mode !== 'walk' || !!walker.seat || walker.crouching;
     document.querySelectorAll('[data-time]').forEach((b) => b.classList.toggle('active', b.dataset.time === time.phase));
     const sl = $('sky-label');
     if (!skyShown && time.hour > 17.6 && time.hour < 19) {

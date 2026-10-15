@@ -4,6 +4,7 @@ import { clampToRoads, terrainY, surfaceAt, HOUSE_DOOR, BENCHES, FLAT_Y } from '
 import { damp } from './util.js';
 
 const EYE = 1.55;
+const EYE_CROUCH = 0.68; // しゃがんだときの目の高さ
 const SPEED = 1.8;      // ゆっくり歩く（m/s）
 const STRIDE = 0.68;    // 足音の間隔（m）
 
@@ -19,6 +20,7 @@ export class Walker {
     this.keys = new Set();
     this.touchForward = false;
     this.seat = null;
+    this.crouching = false;
     this.stepDist = 0;
     this.bobPhase = 0;
     this.moving = 0;
@@ -39,6 +41,7 @@ export class Walker {
     this.z = p.z;
     this.vx = this.vz = 0;
     this.seat = null;
+    this.crouching = false;
     this.enabled = true;
     this.controls.keyLook = false;
     this.controls.yaw = this.controls.targetYaw = yaw;
@@ -59,6 +62,14 @@ export class Walker {
     this.controls.targetPitch = -0.06;
   }
 
+  /** しゃがむ／立ちあがる。しゃがんでいるあいだは歩かず、見回すだけ */
+  setCrouch(on) {
+    this.crouching = on;
+    this.vx = this.vz = 0;
+    if (on) this.controls.targetPitch = Math.min(this.controls.targetPitch, -0.28);
+    else this.controls.targetPitch = Math.max(this.controls.targetPitch, -0.06);
+  }
+
   stand() {
     if (!this.seat) return;
     this.x = this.seat.x;
@@ -76,7 +87,7 @@ export class Walker {
 
   _place(dt) {
     const bob = Math.sin(this.bobPhase) * 0.035 * this.moving;
-    const y = terrainY(this.x, this.z) + EYE + bob;
+    const y = terrainY(this.x, this.z) + (this.crouching ? EYE_CROUCH : EYE) + bob;
     const base = this.controls.basePos;
     // 石段の上り下りで視点がガクガクしないように、高さだけなめらかにする
     base.y = dt > 0 ? damp(base.y, y, 12, dt) : y;
@@ -97,7 +108,7 @@ export class Walker {
       if (k.has('ArrowRight')) c.targetYaw -= 1.5 * dt;
     }
     let f = 0, s = 0;
-    if (!this.paused) {
+    if (!this.paused && !this.crouching) {
       if (k.has('KeyW') || k.has('ArrowUp') || this.touchForward) f += 1;
       if (k.has('KeyS') || k.has('ArrowDown')) f -= 1;
       if (k.has('KeyD')) s += 1;

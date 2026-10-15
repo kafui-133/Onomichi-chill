@@ -341,6 +341,16 @@ export class Cat {
   }
   release() { this.holdTime = 0; }
 
+  /** 町で、すぐそばにしゃがんでいるとき（idle: 操作していない秒数） */
+  crouchedNear(dt, idle) {
+    this.glance = Math.max(this.glance, 0.4);          // こちらを見る
+    if (idle > 3) {
+      this.bunt = Math.min(0.6, this.bunt + dt * 0.3); // 鼻先を寄せる
+      if (this.level >= 3) this.purr = Math.min(0.6, this.purr + dt * 0.2);
+      if (this.slowBlink <= 0 && Math.random() < dt * 0.15) this.slowBlink = 1.2;
+    }
+  }
+
   /** 何もしないで、ただ眺めている時間も親密度になる */
   patience(dt, inView) {
     if (inView && !this.moving) this.addAffection(dt * 0.12);
