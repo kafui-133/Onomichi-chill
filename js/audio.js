@@ -22,17 +22,43 @@ export class AudioEngine {
   async start() {
     if (this.started) return;
     const Ctx = window.AudioContext || window.webkitAudioContext;
-    const ctx = (this.ctx = new Ctx());
+    // スマホでは音が途切れて「ブツブツ」しないよう、バッファを大きめにとる
+    this.lite = window.matchMedia('(pointer: coarse)').matches;
+    let ctx;
+    try {
+      ctx = new Ctx({ latencyHint: this.lite ? 'playback' : 'interactive' });
+    } catch {
+      ctx = new Ctx();
+    }
+    this.ctx = ctx;
     if (ctx.state === 'suspended') await ctx.resume();
     this.started = true;
+    this.level = this.lite ? 0.72 : 0.9;
 
     this.master = ctx.createGain();
     this.master.gain.value = 0;
+    // やわらかいコンプで全体をまとめ、最後にリミッターで音割れ（クリップ）を防ぐ
     const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -18;
+    comp.threshold.value = -20;
+    comp.knee.value = 12;
     comp.ratio.value = 3;
-    this.master.connect(comp).connect(ctx.destination);
-    this.master.gain.setTargetAtTime(0.9, ctx.currentTime, 2.5);
+    const limiter = ctx.createDynamicsCompressor();
+    limiter.threshold.value = -6;
+    limiter.knee.value = 0;
+    limiter.ratio.value = 20;
+    limiter.attack.value = 0.002;
+    limiter.release.value = 0.15;
+    let chain = this.master;
+    if (this.lite) {
+      // スマホのスピーカーは低音が出ず、無理に鳴らすと歪むので、80Hz より下を切る
+      const hp = ctx.createBiquadFilter();
+      hp.type = 'highpass';
+      hp.frequency.value = 80;
+      hp.Q.value = 0.7;
+      chain = chain.connect(hp);
+    }
+    chain.connect(comp).connect(limiter).connect(ctx.destination);
+    this.master.gain.setTargetAtTime(this.level, ctx.currentTime, 2.5);
 
     this.outside = ctx.createGain();
     this.inside = ctx.createGain();
@@ -62,7 +88,7 @@ export class AudioEngine {
   setMuted(m) {
     this.muted = m;
     if (!this.ctx) return;
-    this.master.gain.setTargetAtTime(m ? 0 : 0.9, this.ctx.currentTime, 0.4);
+    this.master.gain.setTargetAtTime(m ? 0 : this.level, this.ctx.currentTime, 0.4);
   }
 
   // ---------- ユーティリティ ----------
@@ -301,7 +327,7 @@ export class AudioEngine {
     const morning = smoothstep(5.5, 6.5, h) * (1 - smoothstep(9.5, 11, h));
     tick('bird', () => { if (Math.random() < morning * 0.9 + day * 0.15) this.sparrow(); }, () => rand(1.5, 6));
     tick('kite', () => { if (h > 7 && h < 17.5) this.tonbi(); }, () => rand(25, 60));
-    tick('cricket', () => { if (st.night > 0.35) this.cricket(st.night); }, () => rand(0.35, 1.1));
+    tick('cricket', () => { if (st.night > 0.35) this.cricket(st.night); }, () => rand(0.35, 1.1) * (this.lite ? 1.8 : 1));
     tick('horn', () => this.horn(), () => rand(60, 140));
     tick('bell', () => { if (h > 16 || h < 7) this.templeBell(); }, () => rand(120, 260));
 
@@ -346,7 +372,7 @@ export class AudioEngine {
     const pan = (Math.random() - 0.5) * 0.8;
     this._noiseBurst({ type: 'pink', freq: rand(300, 700), q: 0.9, gain: 0.12 * strength, attack: rand(0.04, 0.12), decay: rand(0.3, 0.7), when, pan });
     // 泡のはじける小さな音
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < (this.lite ? 1 : 3); i++) {
       this._noiseBurst({ type: 'white', freq: rand(1200, 2600), q: 4, gain: 0.03 * strength, attack: 0.005, decay: rand(0.05, 0.15), when: when + 0.1 + Math.random() * 0.35, pan: pan + (Math.random() - 0.5) * 0.3 });
     }
   }
@@ -361,7 +387,7 @@ export class AudioEngine {
       const env = Math.sin(((i + 0.5) / n) * Math.PI);
       const t = delay + i * rand(1.0, 1.6);
       this._noiseBurst({ type: 'pink', freq: rand(250, 520), q: 0.7, gain: 0.25 * env, attack: rand(0.12, 0.25), decay: rand(0.8, 1.4), when: t, pan });
-      for (let k = 0; k < 4; k++) {
+      for (let k = 0; k < (this.lite ? 1 : 4); k++) {
         this._noiseBurst({ type: 'white', freq: rand(1500, 3200), q: 3, gain: 0.04 * env, attack: 0.004, decay: rand(0.06, 0.18), when: t + 0.25 + Math.random() * 0.6, pan: pan + (Math.random() - 0.5) * 0.5 });
       }
     }
