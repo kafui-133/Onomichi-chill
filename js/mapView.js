@@ -35,7 +35,8 @@ export class MapView {
 
   draw(player) {
     if (player) this.player = player;
-    const cssW = Math.min(980, window.innerWidth - 32);
+    // スマホでは地図を画面より広く描いて、横にスクロールして見る
+    const cssW = Math.max(760, Math.min(980, window.innerWidth - 32));
     const k = cssW / (X_WEST - X_EAST);
     const cssH = (Z_NORTH - Z_SOUTH) * k;
     const dpr = (this.dpr = Math.min(2, window.devicePixelRatio || 1));
@@ -129,5 +130,6 @@ export class MapView {
     g.fillStyle = '#c23a2a';
     g.beginPath(); g.moveTo(0, -10); g.lineTo(6, 6); g.lineTo(0, 3); g.lineTo(-6, 6); g.closePath(); g.fill();
     g.restore();
+    return px;
   }
 }

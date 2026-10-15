@@ -21,7 +21,9 @@ const $ = (id) => document.getElementById(id);
 
 // ---------- レンダラ・シーン ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+// スマホ・タブレット（指で操作する端末）では描画を少し軽くする
+const COARSE = window.matchMedia('(pointer: coarse)').matches;
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, COARSE ? 1.5 : 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.NoToneMapping; // 空のグラデーションを狙いどおりの色で出す
@@ -45,7 +47,7 @@ const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1);
 scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xffffff, 2);
 sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.mapSize.set(COARSE ? 1024 : 2048, COARSE ? 1024 : 2048);
 sun.shadow.camera.left = -4.5;
 sun.shadow.camera.right = 4.5;
 sun.shadow.camera.top = 4.5;
@@ -179,8 +181,11 @@ function travel(place) {
 const mapView = new MapView({ canvas: $('map-canvas'), list: $('map-list'), onTravel: travel });
 function openMap() {
   const pos = mode === 'walk' ? { x: walker.x, z: walker.z, yaw: controls.yaw } : { x: 0, z: 0.5, yaw: 0 };
-  mapView.draw(pos);
+  const px = mapView.draw(pos);
   $('map-view').classList.remove('hidden');
+  // 画面より地図が広いとき（スマホ）は、いまいる場所が真ん中に来るようにスクロール
+  const sc = $('map-scroll');
+  sc.scrollLeft = Math.max(0, px - sc.clientWidth / 2);
 }
 $('btn-map').addEventListener('click', openMap);
 $('map-close').addEventListener('click', () => $('map-view').classList.add('hidden'));
@@ -310,7 +315,7 @@ let idleTimer = null;
 function wakeUI() {
   document.body.classList.remove('idle');
   clearTimeout(idleTimer);
-  idleTimer = setTimeout(() => document.body.classList.add('idle'), 4500);
+  idleTimer = setTimeout(() => document.body.classList.add('idle'), COARSE ? 8000 : 4500);
 }
 window.addEventListener('pointermove', wakeUI);
 window.addEventListener('pointerdown', wakeUI);

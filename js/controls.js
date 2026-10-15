@@ -26,7 +26,9 @@ export class LookControls {
     this.basePos = camera.position.clone();
     camera.rotation.order = 'YXZ';
 
+    this.activePointer = null; // 見渡しに使っている指（2本目の指＝「歩く」ボタンなどは無視する）
     dom.addEventListener('pointerdown', (e) => this._down(e));
+    dom.addEventListener('contextmenu', (e) => e.preventDefault()); // 長押しでメニューを出さない
     window.addEventListener('pointermove', (e) => this._move(e));
     window.addEventListener('pointerup', (e) => this._up(e));
     window.addEventListener('pointercancel', (e) => this._up(e));
@@ -57,7 +59,8 @@ export class LookControls {
   }
 
   _down(e) {
-    if (!this.enabled) return;
+    if (!this.enabled || this.activePointer !== null) return;
+    this.activePointer = e.pointerId;
     this.touch();
     this.dom.setPointerCapture?.(e.pointerId);
     this.downAt = { x: e.clientX, y: e.clientY, t: performance.now() };
@@ -73,6 +76,7 @@ export class LookControls {
   }
 
   _move(e) {
+    if (this.activePointer !== null && e.pointerId !== this.activePointer) return;
     if (!this.enabled) return;
     if (this.dragging) {
       this.touch();
@@ -102,7 +106,9 @@ export class LookControls {
     }
   }
 
-  _up() {
+  _up(e) {
+    if (e && this.activePointer !== null && e.pointerId !== this.activePointer) return;
+    this.activePointer = null;
     if (this.petting) {
       const held = performance.now() - this.downAt.t;
       if (held < 350) this.cb.onPoke?.(this.petTarget);
@@ -132,8 +138,12 @@ export class LookControls {
     const breath = Math.sin(elapsed * 0.9);
     this.camera.rotation.set(this.pitch + breath * 0.004, this.yaw + Math.sin(elapsed * 0.37) * 0.003, 0);
     this.camera.position.set(this.basePos.x, this.basePos.y + breath * 0.006, this.basePos.z);
-    if (Math.abs(this.camera.fov - this.fov) > 0.01) {
-      this.camera.fov = this.fov;
+    // 縦長の画面（スマホの縦持ち）でも左右の見える範囲が狭くなりすぎないよう、縦の画角を広げる
+    const hWant = (this.fov / 55) * 72 * (Math.PI / 180);
+    const vFromH = 2 * Math.atan(Math.tan(hWant / 2) / this.camera.aspect) * (180 / Math.PI);
+    const vFov = Math.min(90, Math.max(this.fov, vFromH));
+    if (Math.abs(this.camera.fov - vFov) > 0.01) {
+      this.camera.fov = vFov;
       this.camera.updateProjectionMatrix();
     }
   }

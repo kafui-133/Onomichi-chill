@@ -20,6 +20,8 @@ html, body {
   -webkit-font-smoothing: antialiased;
   user-select: none;
   -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
   touch-action: none;
 }
 
@@ -144,7 +146,8 @@ body.idle #ui .ui-walk button { pointer-events: auto; }
 #fade.on { opacity: 1; pointer-events: auto; }
 
 .map-inner { text-align: center; width: 100%; max-width: 1000px; }
-#map-canvas { display: block; margin: 12px auto 14px; border-radius: 3px; box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45); cursor: pointer; max-width: 100%; }
+#map-scroll { overflow-x: auto; max-width: 100%; touch-action: pan-x; -webkit-overflow-scrolling: touch; }
+#map-canvas { display: block; margin: 12px auto 14px; border-radius: 3px; box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45); cursor: pointer; }
 #map-list { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-bottom: 10px; }
 #map-list button {
   background: rgba(20, 18, 24, 0.45);
@@ -275,9 +278,29 @@ body.idle #ui .ui-walk button { pointer-events: auto; }
   .ui-walk { bottom: 70px; }
 }
 
-@media (max-width: 520px) {
+/* ---------- スマホ ---------- */
+/* ノッチやホームバーを避ける */
+.ui-top { top: max(18px, calc(env(safe-area-inset-top) + 8px)); left: max(22px, calc(env(safe-area-inset-left) + 12px)); }
+.ui-time { bottom: max(20px, calc(env(safe-area-inset-bottom) + 8px)); left: max(20px, calc(env(safe-area-inset-left) + 12px)); }
+.ui-actions { bottom: max(20px, calc(env(safe-area-inset-bottom) + 8px)); right: max(20px, calc(env(safe-area-inset-right) + 12px)); }
+.modal { overflow-y: auto; justify-content: safe center; }
+
+/* 指で押しやすい大きさに */
+@media (pointer: coarse) {
+  #ui button { width: 44px; height: 44px; }
+  #ui .ui-walk button { height: 46px; }
+  #ui .ui-walk .walk { height: 58px; padding: 0 34px; font-size: 16px; }
+}
+
+/* 縦持ちのスマホ：時間帯は右上、操作ボタンは下の中央にまとめる */
+@media (max-width: 560px) {
+  .ui-time { top: max(14px, calc(env(safe-area-inset-top) + 6px)); bottom: auto; right: max(12px, calc(env(safe-area-inset-right) + 8px)); left: auto; gap: 5px; }
+  .ui-top { top: max(70px, calc(env(safe-area-inset-top) + 62px)); left: max(16px, calc(env(safe-area-inset-left) + 10px)); font-size: 12px; }
+  .ui-actions { left: 50%; right: auto; transform: translateX(-50%); gap: 6px; bottom: max(14px, calc(env(safe-area-inset-bottom) + 6px)); }
+  .ui-walk { bottom: max(76px, calc(env(safe-area-inset-bottom) + 68px)); }
+  #toast { bottom: max(150px, calc(env(safe-area-inset-bottom) + 142px)); white-space: normal; width: max-content; max-width: calc(100vw - 32px); text-align: center; line-height: 1.7; }
+}
+
+@media (max-width: 520px) and (pointer: fine) {
   #ui button { width: 36px; height: 36px; }
-  .ui-time, .ui-actions { gap: 5px; bottom: 14px; }
-  .ui-time { left: 12px; }
-  .ui-actions { right: 12px; }
 }
