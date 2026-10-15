@@ -1,6 +1,6 @@
 // 町歩き：道の上だけを歩ける一人称の移動。
 //   W / ↑ 前へ　S / ↓ うしろへ　A・D 横へ　← → 向きを変える　（画面の「歩く」ボタン長押しでも前へ）
-import { clampToRoads, terrainY, surfaceAt, HOUSE_DOOR, BENCHES, FLAT_Y } from './townMap.js';
+import { clampToRoads, groundY, surfaceAt, HOUSE_DOOR, BENCHES } from './townMap.js';
 import { damp } from './util.js';
 
 const EYE = 1.55;
@@ -58,8 +58,10 @@ export class Walker {
 
   sit(bench) {
     this.seat = bench;
-    this.controls.targetYaw = Math.round(this.controls.yaw / (Math.PI * 2)) * Math.PI * 2; // 海（南）を向く
-    this.controls.targetPitch = -0.06;
+    // ベンチの向き（海の方）を、いまの向きからいちばん近い回り方で向く
+    const c = this.controls;
+    c.targetYaw = c.yaw + ((((bench.yaw - c.yaw) % (Math.PI * 2)) + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+    c.targetPitch = -0.06;
   }
 
   /** しゃがむ／立ちあがる。しゃがんでいるあいだは歩かず、見回すだけ */
@@ -72,8 +74,10 @@ export class Walker {
 
   stand() {
     if (!this.seat) return;
-    this.x = this.seat.x;
-    this.z = this.seat.z + 1.2;
+    // ベンチの後ろ（陸側）の道に立つ
+    const p = clampToRoads(this.seat.x + Math.sin(this.seat.yaw) * 1.2, this.seat.z + Math.cos(this.seat.yaw) * 1.2);
+    this.x = p.x;
+    this.z = p.z;
     this.seat = null;
   }
 
@@ -87,7 +91,7 @@ export class Walker {
 
   _place(dt) {
     const bob = Math.sin(this.bobPhase) * 0.035 * this.moving;
-    const y = terrainY(this.x, this.z) + (this.crouching ? EYE_CROUCH : EYE) + bob;
+    const y = groundY(this.x, this.z) + (this.crouching ? EYE_CROUCH : EYE) + bob;
     const base = this.controls.basePos;
     // 石段の上り下りで視点がガクガクしないように、高さだけなめらかにする
     base.y = dt > 0 ? damp(base.y, y, 12, dt) : y;
@@ -99,7 +103,7 @@ export class Walker {
     if (!this.enabled) return;
     const c = this.controls;
     if (this.seat) {
-      c.basePos.set(this.seat.x, FLAT_Y + 1.12, this.seat.z + 0.05);
+      c.basePos.set(this.seat.x, this.seat.y + 1.12, this.seat.z);
       return;
     }
     const k = this.keys;

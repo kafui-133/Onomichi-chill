@@ -1,110 +1,174 @@
-// 尾道の町の「地図データ」：地形の高さ、歩ける道（ポリライン＋幅）、地名。
+// 尾道の町の「地図」：実データ（OpenStreetMap＋国土地理院DEM）から、地形の高さ・歩ける道・地名を作る。
 //
-// 座標系：+x が西（尾道駅側）、-x が東（長江口・尾道大橋側）、-z が南（尾道水道）。
-// 実際の位置関係を簡略化して再現している：
-//   海（尾道水道） ─ 海岸通り ─ 本通り商店街（駅から東へ約1.2km）─ 国道2号 ─ JR山陽本線 ─ 千光寺山の斜面
-//   ・長江口にロープウェイ山麓駅、そのそばに艮神社
-//   ・猫の細道は艮神社のあたりからロープウェイの下をくぐって山へ登る細い路地
-//   ・坂の途中に天寧寺の三重塔
-//   ・主人公の空き家は千光寺山の中腹（原点）。千光寺新道の踏切から石段を登った先
+// 座標系：原点＝空き家（東土堂、中村憲吉旧居のあたり）、+x＝西、-x＝東、+z＝北、-z＝南。
+// y は標高から空き家の床の標高（約59.6m）を引いたもの。海面は SEA_Y。
+// データの作り方は tools/fetch_data.py と tools/build_town_data.py を参照。
+import DATA from './data/onomichi.js';
 
-export const SEA_Y = -60;
-export const FLAT_Y = -58;     // 海沿いの平地の高さ
-export const QUAY_Z = -220;    // 岸壁
-export const ARCADE_Z = -188;  // 本通り商店街の中心線
-export const ROUTE2_Z = -170;  // 国道2号
-export const RAIL_Z = -160;    // JR山陽本線
-export const SLOPE_Z = -156;   // ここから北が斜面
+export { DATA };
+export const SEA_Y = DATA.meta.seaY;
+export const ATTRIBUTION = DATA.meta.attribution;
+const ARCADE_NAMES = ['駅前商店街', '一番街', '中商店街', '本町センター街'];
 
-/** 地形の高さ */
-export function terrainY(x, z) {
-  if (z <= SLOPE_Z) return FLAT_Y;
-  const t = (z - SLOPE_Z) / (2 - SLOPE_Z);
-  let y = FLAT_Y + 58 * Math.pow(t, 1.15);
-  // 尾根と谷のゆるやかな起伏（平地との境目と、空き家のまわりでは消える）
-  const k = Math.min(1, t * 3);
-  const nearHouse = Math.min(1, Math.hypot(x, z) / 40);
-  y += (Math.sin(x * 0.011 + 1.3) * 3.5 + Math.sin(x * 0.027) * 1.5 - 4.3) * k * nearHouse;
-  return y;
+// ---------- 地形 ----------
+const DEM = DATA.dem;
+const HEIGHTS = (() => {
+  const bin = atob(DEM.b64);
+  const buf = new ArrayBuffer(bin.length);
+  const u8 = new Uint8Array(buf);
+  for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  const dv = new DataView(buf);
+  const out = new Float32Array(DEM.nx * DEM.nz);
+  for (let i = 0; i < out.length; i++) out[i] = dv.getInt16(i * 2, true) / 10;
+  return out;
+})();
+export const BOUNDS = { x0: DEM.x0, x1: DEM.x0 + (DEM.nx - 1) * DEM.step, z0: DEM.z0, z1: DEM.z0 + (DEM.nz - 1) * DEM.step };
+
+function demAt(x, z) {
+  const fx = (x - DEM.x0) / DEM.step, fz = (z - DEM.z0) / DEM.step;
+  const i = Math.floor(fx), j = Math.floor(fz);
+  if (i < 0 || j < 0 || i >= DEM.nx - 1 || j >= DEM.nz - 1) return SEA_Y - 4;
+  const tx = fx - i, tz = fz - j;
+  const n = DEM.nx;
+  const a = HEIGHTS[j * n + i], b = HEIGHTS[j * n + i + 1], c = HEIGHTS[(j + 1) * n + i], d = HEIGHTS[(j + 1) * n + i + 1];
+  return (a * (1 - tx) + b * tx) * (1 - tz) + (c * (1 - tx) + d * tx) * tz;
 }
 
-// 本通り商店街の5つの通り（西から東へ）
-export const ARCADE_SECTIONS = [
-  { name: '芙美子通り', x0: 460, x1: 250 },
-  { name: '土堂中商店街', x0: 250, x1: 60 },
-  { name: '本町センター街', x0: 60, x1: -130 },
-  { name: '絵のまち通り', x0: -130, x1: -340 },
-  { name: '尾道通り', x0: -340, x1: -620 },
-];
+/** 地形の高さ。空き家のまわりだけ、家が建つように平らにならしてある */
+export function terrainY(x, z) {
+  const y = demAt(x, z);
+  const d = Math.hypot(x, z - 0.5);
+  if (d > 9) return y;
+  const flat = -0.4;
+  if (d < 4.5) return flat;
+  const t = (d - 4.5) / 4.5;
+  return flat + (y - flat) * t * t * (3 - 2 * t);
+}
 
-const CROSS_X = [455, 300, 150, 40, -120, -260, -420, -560]; // 南北の小路
-export const CROSSINGS = [300, 40, -120]; // 踏切
+/** 歩く高さ・道の高さ：岸壁ぎわで海底の値に引っぱられないよう、海面より少し上を下限にする */
+export function groundY(x, z) {
+  return Math.max(terrainY(x, z), SEA_Y + 1.1);
+}
 
-// prettier-ignore
-export const ROADS = [
-  { id: 'promenade', name: '海岸通り', surface: 'tile', width: 11, pts: [[520, -213.5], [-650, -213.5]] },
-  { id: 'arcade', name: '本通り商店街', surface: 'tile', width: 5, pts: [[455, ARCADE_Z], [-622, ARCADE_Z]] },
-  { id: 'route2', name: '国道2号', surface: 'asphalt', width: 7, pts: [[462, ROUTE2_Z], [-650, ROUTE2_Z]] },
-  ...CROSS_X.map((x) => ({ id: `cross${x}`, name: x === -120 ? '長江口' : x === 455 ? '尾道駅前' : '小路', surface: x === -120 ? 'asphalt' : 'tile', width: x === -120 ? 8 : x === 455 ? 7 : 3.6, pts: [[x, -212], [x, ROUTE2_Z]] })),
-  // 踏切（国道2号から線路を渡る）
-  ...CROSSINGS.map((x) => ({ id: `fumikiri${x}`, name: '踏切', surface: 'asphalt', width: x === -120 ? 6 : 3, pts: [[x, ROUTE2_Z], [x, -153]] })),
-  // 千光寺新道：踏切から石段を折れながら登り、空き家へ
-  { id: 'shindo', name: '千光寺新道', surface: 'stone', width: 2.4, pts: [
-    [40, -153], [36, -136], [44, -118], [31, -100], [38, -82], [22, -64], [28, -46], [13, -31], [17, -17], [4, -9], [-4.5, -3], [-4.8, 1.2],
-  ] },
-  // 猫の細道：長江口の山麓駅・艮神社のわきから、ロープウェイの下をくぐって登る
-  { id: 'nekonohosomichi', name: '猫の細道', surface: 'stone', width: 1.5, pts: [
-    [-120, -153], [-116, -142], [-122, -128], [-108, -118], [-88, -114], [-68, -108], [-50, -104], [-36, -93], [-18, -84], [2, -76], [22, -64],
-  ] },
-  // 土堂の小路（行き止まりの坂）
-  { id: 'dodo', name: '土堂の小路', surface: 'stone', width: 1.8, pts: [[300, -153], [296, -138], [306, -122], [292, -104], [298, -90]] },
-  // 空き家の上の見晴らし（千光寺方面）
-  { id: 'upper', name: '千光寺へ続く坂', surface: 'stone', width: 1.8, pts: [[-4.8, 1.2], [-10, 9], [-8, 20], [-20, 30], [-26, 42]] },
-];
+// ---------- 道 ----------
+const SURFACE = { steps: 'stone', footway: 'stone', path: 'stone', pedestrian: 'tile', track: 'stone' };
+const KIND_LABEL = { steps: '石段', footway: '小径', path: '小径', pedestrian: '通り', residential: '路地', service: '路地', living_street: '路地' };
 
-// 地図から飛べる場所・ベンチ・家の戸口
+// 戸口（家の東側）から、いちばん近い実際の小径の点へ石段でつなぐ
 export const HOUSE_DOOR = { x: -4.4, z: 1.5 };
-export const PLACES = [
-  { id: 'house', name: '坂の上の空き家', x: -4.6, z: 0.2, yaw: -0.9 },
-  { id: 'upper', name: '見晴らしの坂', x: -24, z: 39, yaw: 0.3 },
-  { id: 'shindo', name: '千光寺新道', x: 30, z: -96, yaw: 0.4 },
-  { id: 'fumikiri', name: '千光寺新道の踏切', x: 40, z: -150, yaw: 0 },
-  { id: 'pagoda', name: '天寧寺 三重塔', x: -46, z: -102, yaw: 2.2 },
-  { id: 'neko', name: '猫の細道', x: -88, z: -114, yaw: -1.4 },
-  { id: 'ropeway', name: 'ロープウェイ山麓駅・艮神社', x: -118, z: -150, yaw: Math.PI },
-  { id: 'arcade-w', name: '本通り商店街（西）', x: 380, z: ARCADE_Z, yaw: -Math.PI / 2 },
-  { id: 'arcade-c', name: '本通り商店街（中）', x: 40, z: ARCADE_Z, yaw: -Math.PI / 2 },
-  { id: 'arcade-e', name: '本通り商店街（東）', x: -250, z: ARCADE_Z, yaw: Math.PI / 2 },
-  { id: 'station', name: '尾道駅前', x: 455, z: -200, yaw: -2.26 },
-  { id: 'ferry', name: '渡船のりば', x: 40, z: -216, yaw: 0 },
-  { id: 'bench', name: '海岸通りのベンチ', x: 120, z: -216, yaw: 0 },
-];
+const DOOR_PATH = (() => {
+  let best = null;
+  for (const r of DATA.roads) {
+    if (!['footway', 'steps', 'path', 'residential', 'service', 'pedestrian', 'living_street'].includes(r.k) || r.l) continue;
+    for (let k = 0; k < r.p.length; k += 2) {
+      const d = Math.hypot(r.p[k] - HOUSE_DOOR.x, r.p[k + 1] - HOUSE_DOOR.z);
+      if (!best || d < best.d) best = { d, x: r.p[k], z: r.p[k + 1] };
+    }
+  }
+  const sx = -4.6, sz = 1.4;
+  // 家の東へいったん出てから、小径へ
+  const mx = Math.min(sx - 3, (sx + best.x) / 2), mz = (sz + best.z) / 2;
+  return { k: 'steps', w: 1.8, p: [sx, sz, sx - 2.5, sz, mx, mz, best.x, best.z], n: '空き家への石段' };
+})();
 
-export const BENCHES = [480, 330, 210, 120, -40, -200, -330, -470].map((x) => ({ x, z: -217.2 }));
-export const FERRY_PIERS = [40, -170];
+const ALL_ROADS = [...DATA.roads, DOOR_PATH].map((r, id) => {
+  const pts = [];
+  for (let k = 0; k < r.p.length; k += 2) pts.push([r.p[k], r.p[k + 1]]);
+  return {
+    id, name: r.n || '', label: r.n || KIND_LABEL[r.k] || '道', kind: r.k, width: r.w, pts,
+    surface: SURFACE[r.k] || 'asphalt', covered: !!r.c || ARCADE_NAMES.includes(r.n),
+    layered: !!r.l,
+  };
+});
 
-// ---------- 道との当たり判定 ----------
+// 空き家から歩いて行ける道だけを残す（同じ座標の点を共有する道どうしはつながっている）
+function connectedFrom(roads, start) {
+  const key = (p) => `${Math.round(p[0] * 10)},${Math.round(p[1] * 10)}`;
+  const byPoint = new Map();
+  roads.forEach((r) => r.pts.forEach((p) => {
+    const k = key(p);
+    if (!byPoint.has(k)) byPoint.set(k, []);
+    byPoint.get(k).push(r);
+  }));
+  const seen = new Set([start]);
+  const stack = [start];
+  while (stack.length) {
+    const r = stack.pop();
+    for (const p of r.pts) {
+      for (const o of byPoint.get(key(p))) {
+        if (!seen.has(o)) { seen.add(o); stack.push(o); }
+      }
+    }
+  }
+  return seen;
+}
+const reachable = connectedFrom(ALL_ROADS, ALL_ROADS[ALL_ROADS.length - 1]);
+export const ROADS = ALL_ROADS.filter((r) => reachable.has(r));          // 歩ける道
+export const OTHER_ROADS = ALL_ROADS.filter((r) => !reachable.has(r));   // 見えるだけの道（向島側など）
+export const ARCADE_ROADS = ROADS.filter((r) => r.covered);
+
+// ---------- 当たり判定（空間グリッドで速く引く） ----------
+const CELL = 16;
+const grid = new Map();
 const SEGMENTS = [];
 for (const road of ROADS) {
   for (let i = 0; i < road.pts.length - 1; i++) {
     const [ax, az] = road.pts[i], [bx, bz] = road.pts[i + 1];
     const dx = bx - ax, dz = bz - az;
     const len = Math.hypot(dx, dz);
-    SEGMENTS.push({ road, ax, az, dx, dz, len, half: road.width / 2 });
+    if (len < 0.01) continue;
+    const s = { road, ax, az, dx, dz, len, half: road.width / 2 };
+    SEGMENTS.push(s);
+    const m = s.half + 6;
+    for (let cx = Math.floor((Math.min(ax, bx) - m) / CELL); cx <= Math.floor((Math.max(ax, bx) + m) / CELL); cx++) {
+      for (let cz = Math.floor((Math.min(az, bz) - m) / CELL); cz <= Math.floor((Math.max(az, bz) + m) / CELL); cz++) {
+        const k = cx * 100003 + cz;
+        if (!grid.has(k)) grid.set(k, []);
+        grid.get(k).push(s);
+      }
+    }
   }
 }
 
-/** 点から最も近い道の線分 */
+function project(s, x, z) {
+  let t = ((x - s.ax) * s.dx + (z - s.az) * s.dz) / (s.len * s.len);
+  t = Math.max(0, Math.min(1, t));
+  const px = s.ax + s.dx * t, pz = s.az + s.dz * t;
+  return { px, pz, d: Math.hypot(x - px, z - pz), t };
+}
+
+function candidates(x, z) {
+  const cx = Math.floor(x / CELL), cz = Math.floor(z / CELL);
+  for (let r = 0; r <= 6; r++) {
+    const out = [];
+    for (let i = cx - r; i <= cx + r; i++) {
+      for (let j = cz - r; j <= cz + r; j++) {
+        if (r > 0 && Math.abs(i - cx) < r && Math.abs(j - cz) < r) continue;
+        const list = grid.get(i * 100003 + j);
+        if (list) out.push(...list);
+      }
+    }
+    if (out.length) return r === 0 ? out.concat(candidatesRing(cx, cz)) : out;
+  }
+  return SEGMENTS;
+}
+function candidatesRing(cx, cz) {
+  const out = [];
+  for (let i = cx - 1; i <= cx + 1; i++) for (let j = cz - 1; j <= cz + 1; j++) {
+    if (i === cx && j === cz) continue;
+    const list = grid.get(i * 100003 + j);
+    if (list) out.push(...list);
+  }
+  return out;
+}
+
+/** 点から最も近い（歩ける）道の線分 */
 export function nearestRoad(x, z) {
   let best = null;
-  for (const s of SEGMENTS) {
-    let t = ((x - s.ax) * s.dx + (z - s.az) * s.dz) / (s.len * s.len);
-    t = Math.max(0, Math.min(1, t));
-    const px = s.ax + s.dx * t, pz = s.az + s.dz * t;
-    const d = Math.hypot(x - px, z - pz);
-    // 道の内側にいるかどうかは「中心線からの距離 − 半幅」で比べる
-    const inside = d - s.half;
-    if (!best || inside < best.inside) best = { seg: s, road: s.road, px, pz, d, inside, t };
+  for (const s of candidates(x, z)) {
+    const p = project(s, x, z);
+    const inside = p.d - s.half;
+    if (!best || inside < best.inside) best = { seg: s, road: s.road, px: p.px, pz: p.pz, d: p.d, inside, t: p.t };
   }
   return best;
 }
@@ -119,20 +183,19 @@ export function clampToRoads(x, z) {
 
 /** 道の上（内側＋余白）かどうか。建物を置かない場所の判定に使う */
 export function nearAnyRoad(x, z, margin = 0) {
-  for (const s of SEGMENTS) {
-    let t = ((x - s.ax) * s.dx + (z - s.az) * s.dz) / (s.len * s.len);
-    t = Math.max(0, Math.min(1, t));
-    if (Math.hypot(x - (s.ax + s.dx * t), z - (s.az + s.dz * t)) < s.half + margin) return s.road;
+  for (const s of candidates(x, z)) {
+    if (project(s, x, z).d < s.half + margin) return s.road;
   }
   return null;
 }
 
-/** 道の線に沿って一定間隔で点を取る（石段・石垣・街灯の配置用） */
+/** 道の線に沿って一定間隔で点を取る */
 export function samplePath(pts, step) {
   const out = [];
   for (let i = 0; i < pts.length - 1; i++) {
     const [ax, az] = pts[i], [bx, bz] = pts[i + 1];
     const len = Math.hypot(bx - ax, bz - az);
+    if (len < 0.01) continue;
     const n = Math.max(1, Math.round(len / step));
     for (let k = 0; k < n; k++) {
       const t = k / n;
@@ -140,45 +203,312 @@ export function samplePath(pts, step) {
     }
   }
   const [lx, lz] = pts[pts.length - 1];
-  const [px, pz] = pts[pts.length - 2];
-  out.push({ x: lx, z: lz, angle: Math.atan2(lz - pz, lx - px), len: step });
+  const prev = out[out.length - 1];
+  out.push({ x: lx, z: lz, angle: prev ? prev.angle : 0, len: step });
   return out;
 }
 
-/** いまいる場所の名前 */
-export function placeName(x, z) {
-  const n = nearestRoad(x, z);
-  if (Math.hypot(x - HOUSE_DOOR.x, z - HOUSE_DOOR.z) < 6) return '坂の上の空き家';
-  const id = n.road.id;
-  if (id === 'arcade') {
-    const sec = ARCADE_SECTIONS.find((s) => x <= s.x0 && x > s.x1);
-    return `本通り商店街　${sec ? sec.name : ''}`;
-  }
-  if (id === 'promenade') {
-    if (FERRY_PIERS.some((px) => Math.abs(px - x) < 10)) return '海岸通り　渡船のりば';
-    return x > 420 ? '海岸通り　尾道駅前' : '海岸通り';
-  }
-  if (id.startsWith('fumikiri')) return Math.abs(x - 40) < 5 ? '千光寺新道の踏切' : x < -100 ? '長江口の踏切' : '踏切';
-  if (id === 'nekonohosomichi') {
-    if (Math.hypot(x + 112, z + 144) < 12) return '猫の細道　艮神社';
-    if (Math.hypot(x + 122, z + 128) < 7) return '猫の細道　ロープウェイの下';
-    if (Math.hypot(x + 60, z + 92) < 18) return '猫の細道　天寧寺 三重塔';
-    return '猫の細道';
-  }
-  if (id === 'cross-120') return z > -180 ? '長江口' : '長江口の小路';
-  if (id === 'cross455') return '尾道駅前';
-  return n.road.name;
+export function roadLength(pts) {
+  let L = 0;
+  for (let i = 0; i < pts.length - 1; i++) L += Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
+  return L;
 }
 
-/** 足もとの素材（足音用） */
+/** 道の途中（0〜1）の点と向き */
+export function pointAlong(pts, f) {
+  const total = roadLength(pts);
+  let target = total * f;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const [ax, az] = pts[i], [bx, bz] = pts[i + 1];
+    const len = Math.hypot(bx - ax, bz - az);
+    if (target <= len || i === pts.length - 2) {
+      const t = len > 0 ? Math.min(1, target / len) : 0;
+      return { x: ax + (bx - ax) * t, z: az + (bz - az) * t, angle: Math.atan2(bz - az, bx - ax) };
+    }
+    target -= len;
+  }
+  return { x: pts[0][0], z: pts[0][1], angle: 0 };
+}
+
+// ---------- 海岸線と水道 ----------
+export const COAST = DATA.coast.map((p) => { const a = []; for (let k = 0; k < p.length; k += 2) a.push([p[k], p[k + 1]]); return a; });
+const COAST_CELL = 25;
+const coastGrid = new Map();
+COAST.forEach((line) => samplePath(line, 5).forEach((s) => {
+  const k = Math.floor(s.x / COAST_CELL) * 100003 + Math.floor(s.z / COAST_CELL);
+  if (!coastGrid.has(k)) coastGrid.set(k, []);
+  coastGrid.get(k).push(s);
+}));
+/** 海岸線までの距離（遠ければ 999） */
+export function distToCoast(x, z) {
+  const cx = Math.floor(x / COAST_CELL), cz = Math.floor(z / COAST_CELL);
+  let best = 999;
+  for (let i = cx - 3; i <= cx + 3; i++) for (let j = cz - 3; j <= cz + 3; j++) {
+    const list = coastGrid.get(i * 100003 + j);
+    if (list) for (const s of list) best = Math.min(best, Math.hypot(x - s.x, z - s.z));
+  }
+  return best;
+}
+
+/** 尾道水道の中心線（東西方向に、水面のいちばん広い区間の真ん中をたどる） */
+export const STRAIT = (() => {
+  const out = [];
+  let prev = null;
+  for (let x = BOUNDS.x0 + 20; x <= BOUNDS.x1 - 20; x += 40) {
+    const runs = [];
+    let start = null;
+    for (let z = BOUNDS.z0; z <= BOUNDS.z1; z += 5) {
+      const water = demAt(x, z) < SEA_Y + 0.3;
+      if (water && start === null) start = z;
+      if ((!water || z + 5 > BOUNDS.z1) && start !== null) { runs.push([start, z]); start = null; }
+    }
+    const wide = runs.filter(([a, b]) => b - a > 80);
+    if (!wide.length) continue;
+    // 前の点に近い水面を選ぶ（はじめは原点の南）
+    const ref = prev ? prev[1] : -500;
+    wide.sort((a, b) => Math.abs((a[0] + a[1]) / 2 - ref) - Math.abs((b[0] + b[1]) / 2 - ref));
+    const [a, b] = wide[0];
+    // 南端が範囲外で切れているときは、北岸から 110m 沖を中心とみなす
+    const center = a <= BOUNDS.z0 + 5 ? b - 110 : (a + b) / 2;
+    prev = [x, center];
+    out.push(prev);
+  }
+  return out;
+})();
+/** 水道の中心線上の点（x から） */
+export function straitAt(x) {
+  const s = STRAIT;
+  if (x <= s[0][0]) return { x, z: s[0][1], angle: Math.atan2(s[1][1] - s[0][1], s[1][0] - s[0][0]) };
+  for (let i = 0; i < s.length - 1; i++) {
+    if (x <= s[i + 1][0]) {
+      const t = (x - s[i][0]) / (s[i + 1][0] - s[i][0]);
+      return { x, z: s[i][1] + (s[i + 1][1] - s[i][1]) * t, angle: Math.atan2(s[i + 1][1] - s[i][1], s[i + 1][0] - s[i][0]) };
+    }
+  }
+  const n = s.length - 1;
+  return { x, z: s[n][1], angle: Math.atan2(s[n][1] - s[n - 1][1], s[n][0] - s[n - 1][0]) };
+}
+/** 尾道側（北岸）かどうか */
+export const onOnomichiSide = (x, z) => z > straitAt(x).z;
+
+// ---------- 名所 ----------
+export const POIS = DATA.pois;
+const poi = (name) => POIS.find((p) => p.n === name);
+
+// 渡船：実際の3航路（尾道渡船・福本渡船・向島運航）
+const FERRY_PAIRS = [
+  ['土堂桟橋(尾道渡船)', '兼吉桟橋(尾道渡船)', '尾道渡船'],
+  ['土堂桟橋(福本渡船)', '小歌島桟橋(福本渡船)', '福本渡船'],
+  ['駅前桟橋(向島運航)', '富浜桟橋(向島運航)', '駅前渡船'],
+];
+/** 桟橋の位置を、岸から少し沖へ出した船着き場の点にする */
+function berth(p) {
+  const s = straitAt(p.x);
+  const dir = p.z > s.z ? -1 : 1;
+  return { x: p.x, z: p.z + dir * 6, name: p.n };
+}
+export const FERRY_ROUTES = FERRY_PAIRS.map(([a, b, name]) => ({ a: berth(poi(a)), b: berth(poi(b)), name })).filter((r) => r.a && r.b);
+export const FERRY_PIERS = FERRY_ROUTES.map((r) => r.a);
+
+// 踏切：歩ける道と線路が交わるところ
+export const RAILS = DATA.rails.filter((r) => !r.t).map((r) => { const a = []; for (let k = 0; k < r.p.length; k += 2) a.push([r.p[k], r.p[k + 1]]); return { pts: a, name: r.n }; });
+function segIntersect(a, b, c, d) {
+  const r1 = [b[0] - a[0], b[1] - a[1]], r2 = [d[0] - c[0], d[1] - c[1]];
+  const den = r1[0] * r2[1] - r1[1] * r2[0];
+  if (Math.abs(den) < 1e-9) return null;
+  const t = ((c[0] - a[0]) * r2[1] - (c[1] - a[1]) * r2[0]) / den;
+  const u = ((c[0] - a[0]) * r1[1] - (c[1] - a[1]) * r1[0]) / den;
+  return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? [a[0] + r1[0] * t, a[1] + r1[1] * t] : null;
+}
+export const CROSSINGS = (() => {
+  const out = [];
+  for (const road of ROADS) {
+    if (road.layered) continue;
+    for (let i = 0; i < road.pts.length - 1; i++) {
+      for (const rail of RAILS) {
+        for (let k = 0; k < rail.pts.length - 1; k++) {
+          const p = segIntersect(road.pts[i], road.pts[i + 1], rail.pts[k], rail.pts[k + 1]);
+          if (!p) continue;
+          if (out.some((c) => Math.hypot(c.x - p[0], c.z - p[1]) < 14)) continue;
+          const [ax, az] = rail.pts[k], [bx, bz] = rail.pts[k + 1];
+          out.push({ x: p[0], z: p[1], railAngle: Math.atan2(bz - az, bx - ax), width: road.width, road });
+        }
+      }
+    }
+  }
+  return out;
+})();
+
+/** 電車が走る線路（つながった区間を長くつないだもの、上り線と下り線） */
+export const TRAIN_TRACKS = (() => {
+  const ways = RAILS.filter((r) => r.name === 'JR山陽本線').map((r) => r.pts);
+  const near = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]) < 1;
+  const chains = [];
+  const used = new Set();
+  for (let s = 0; s < ways.length; s++) {
+    if (used.has(s)) continue;
+    used.add(s);
+    let chain = ways[s].slice();
+    let grown = true;
+    while (grown) {
+      grown = false;
+      for (let i = 0; i < ways.length; i++) {
+        if (used.has(i)) continue;
+        const w = ways[i];
+        if (near(chain[chain.length - 1], w[0])) chain = chain.concat(w.slice(1));
+        else if (near(chain[chain.length - 1], w[w.length - 1])) chain = chain.concat(w.slice(0, -1).reverse());
+        else if (near(chain[0], w[w.length - 1])) chain = w.slice(0, -1).concat(chain);
+        else if (near(chain[0], w[0])) chain = w.slice(1).reverse().concat(chain);
+        else continue;
+        used.add(i);
+        grown = true;
+      }
+    }
+    chains.push(chain);
+  }
+  return chains.sort((a, b) => roadLength(b) - roadLength(a)).slice(0, 2);
+})();
+
+// ロープウェイ（低いほうが山麓駅）
+export const ROPEWAY = (() => {
+  const p = DATA.ropeway[0];
+  const a = { x: p[0], z: p[1] }, b = { x: p[p.length - 2], z: p[p.length - 1] };
+  return terrainY(a.x, a.z) < terrainY(b.x, b.z) ? { base: a, top: b } : { base: b, top: a };
+})();
+
+// ---------- 建物の中かどうか（グリッドで引く） ----------
+const BCELL = 40;
+const bgrid = new Map();
+const BUILDINGS = DATA.buildings.map((b) => { const a = []; for (let k = 0; k < b.p.length; k += 2) a.push([b.p[k], b.p[k + 1]]); return a; });
+BUILDINGS.forEach((poly) => {
+  const xs = poly.map((p) => p[0]), zs = poly.map((p) => p[1]);
+  for (let i = Math.floor(Math.min(...xs) / BCELL); i <= Math.floor(Math.max(...xs) / BCELL); i++) {
+    for (let j = Math.floor(Math.min(...zs) / BCELL); j <= Math.floor(Math.max(...zs) / BCELL); j++) {
+      const k = i * 100003 + j;
+      if (!bgrid.has(k)) bgrid.set(k, []);
+      bgrid.get(k).push(poly);
+    }
+  }
+});
+export function inBuilding(x, z) {
+  const list = bgrid.get(Math.floor(x / BCELL) * 100003 + Math.floor(z / BCELL));
+  if (!list) return false;
+  return list.some((poly) => {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const [xi, zi] = poly[i], [xj, zj] = poly[j];
+      if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+    }
+    return inside;
+  });
+}
+
+/** まわりの地形を見て、いちばん海らしい方角を返す（見つからなければ null） */
+function seaDirection(x, z) {
+  let best = null;
+  for (let a = 0; a < Math.PI * 2; a += Math.PI / 12) {
+    const dx = Math.cos(a), dz = Math.sin(a);
+    const h = (demAt(x + dx * 10, z + dz * 10) + demAt(x + dx * 20, z + dz * 20)) / 2;
+    if (!best || h < best.h) best = { a, dx, dz, h };
+  }
+  return best && best.h < SEA_Y ? best : null;
+}
+
+// 海沿いのベンチ：歩ける道が岸に近いところに、海を向けて置く
+export const BENCHES = (() => {
+  const out = [];
+  for (const line of COAST) {
+    for (const s of samplePath(line, 10)) {
+      if (s.x < -650 || s.x > 620 || !onOnomichiSide(s.x, s.z + 30)) continue;
+      const n = nearestRoad(s.x, s.z);
+      // 道の端がほぼ岸壁に接しているところだけ（建物越しにならないように）
+      if (!n || n.d - n.seg.half > 3 || n.road.surface === 'stone') continue;
+      if (out.some((b) => Math.hypot(b.x - n.px, b.z - n.pz) < 90)) continue;
+      // 道の、海側の端に置く（海の方角は地形から確かめる）
+      const sea = seaDirection(n.px, n.pz);
+      if (!sea) continue;
+      const off = Math.max(0, n.seg.half - 0.7);
+      const x = n.px + sea.dx * off, z = n.pz + sea.dz * off;
+      if (inBuilding(x, z) || inBuilding(n.px + sea.dx * 8, n.pz + sea.dz * 8)) continue;
+      out.push({ x, z, y: groundY(x, z), yaw: Math.atan2(-sea.dx, -sea.dz) });
+    }
+  }
+  // 尾道渡船のりばに近い順
+  const pier = FERRY_ROUTES[0] ? FERRY_ROUTES[0].a : { x: 0, z: -400 };
+  return out.sort((p, q) => Math.hypot(p.x - pier.x, p.z - pier.z) - Math.hypot(q.x - pier.x, q.z - pier.z)).slice(0, 10);
+})();
+
+// 地図から飛べる場所
+function placeAt(name, x, z, lookX, lookZ) {
+  const p = clampToRoads(x, z);
+  const yaw = lookX === undefined ? 0 : Math.atan2(-(lookX - p.x), -(lookZ - p.z));
+  return { id: name, name, x: p.x, z: p.z, yaw };
+}
+function placeOnRoad(label, roadName, f, look) {
+  const r = ROADS.find((rr) => rr.name === roadName);
+  if (!r) return null;
+  const q = pointAlong(r.pts, f);
+  return placeAt(label, q.x, q.z, look ? look[0] : q.x - Math.cos(q.angle), look ? look[1] : q.z - Math.sin(q.angle));
+}
+/** 名所から少し離れた（約 dist m）道の上に立って、名所のほうを向く */
+function placeNear(label, poiName, dist = 15) {
+  const p = poi(poiName);
+  if (!p) return null;
+  let best = null;
+  for (const s of SEGMENTS) {
+    for (const t of [0, 0.25, 0.5, 0.75, 1]) {
+      const x = s.ax + s.dx * t, z = s.az + s.dz * t;
+      const d = Math.hypot(x - p.x, z - p.z);
+      if (inBuilding(x, z)) continue;
+      const score = Math.abs(d - dist) + (terrainY(x, z) > terrainY(p.x, p.z) + 3 ? 0 : 2); // 少し高いところから見下ろせると良い
+      if (!best || score < best.score) best = { x, z, score };
+    }
+  }
+  return placeAt(label, best.x, best.z, p.x, p.z);
+}
+export const PLACES = [
+  { ...placeAt('坂の上の空き家', -6.5, -0.6, -60, -300), id: 'house' },
+  placeNear('千光寺', '千光寺'),
+  placeNear('ロープウェイ山頂駅', '千光寺ロープウェイ山頂駅'),
+  placeNear('天寧寺 三重塔', '天寧寺三重塔'),
+  placeOnRoad('猫の細道', '猫の細道', 0.5),
+  placeNear('艮神社', '艮神社'),
+  placeNear('ロープウェイ山麓駅', '千光寺ロープウェイ山麓駅'),
+  placeOnRoad('本町センター街', '本町センター街', 0.5),
+  placeOnRoad('中商店街', '中商店街', 0.5),
+  placeOnRoad('一番街', '一番街', 0.5),
+  placeNear('尾道駅前', 'JR尾道駅', 40),
+  placeNear('渡船のりば（尾道渡船）', '土堂桟橋(尾道渡船)'),
+  BENCHES[0] ? { ...placeAt('海沿いのベンチ', BENCHES[0].x, BENCHES[0].z), yaw: BENCHES[0].yaw } : null,
+].filter(Boolean);
+
+// ---------- 場所の名前・足もと・音 ----------
+export function placeName(x, z) {
+  if (Math.hypot(x - HOUSE_DOOR.x, z - HOUSE_DOOR.z) < 7) return '坂の上の空き家';
+  const n = nearestRoad(x, z);
+  if (n.road.covered) return `本通り商店街　${n.road.name}`;
+  if (FERRY_PIERS.some((p) => Math.hypot(p.x - x, p.z - z) < 25)) return '渡船のりば';
+  if (CROSSINGS.some((c) => Math.hypot(c.x - x, c.z - z) < 8)) return '踏切';
+  let label = n.road.name;
+  // 名前のない道は、近くの名所で呼ぶ
+  let best = null;
+  for (const p of POIS) {
+    const d = Math.hypot(p.x - x, p.z - z);
+    if (d < 45 && (!best || d < best.d)) best = { n: p.n.replace(/\(.*\)|（.*）/g, ''), d };
+  }
+  if (!label) label = best ? `${best.n}のあたり` : distToCoast(x, z) < 30 ? '海沿いの道' : n.road.label;
+  else if (best && best.d < 20) label = `${label}　${best.n}`;
+  return label;
+}
+
 export function surfaceAt(x, z) {
   return nearestRoad(x, z).road.surface;
 }
 
-/** 音の環境：海の近さ／商店街の中／斜面 */
 export function zoneWeights(x, z) {
-  const sea = Math.max(0, Math.min(1, (-z - 192) / 20));
-  const arcade = Math.abs(z - ARCADE_Z) < 3 && x < 468 && x > -622 ? 1 : 0;
-  const slope = Math.max(0, Math.min(1, (z - SLOPE_Z) / 15));
+  const sea = Math.max(0, Math.min(1, 1 - distToCoast(x, z) / 60));
+  const n = nearestRoad(x, z);
+  const arcade = n.road.covered && n.inside < 1 ? 1 : 0;
+  const slope = Math.max(0, Math.min(1, (terrainY(x, z) - SEA_Y - 8) / 12));
   return { sea, arcade, slope };
 }

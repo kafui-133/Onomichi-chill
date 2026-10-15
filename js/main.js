@@ -12,7 +12,7 @@ import { developFilm } from './photo.js';
 import { Town } from './town.js';
 import { Walker } from './walker.js';
 import { MapView } from './mapView.js';
-import { PLACES, RAIL_Z, CROSSINGS, ARCADE_Z, terrainY, placeName, zoneWeights } from './townMap.js';
+import { PLACES, CROSSINGS, ROADS, BENCHES, ROPEWAY, groundY, placeName, zoneWeights, pointAlong, clampToRoads } from './townMap.js';
 import { kanjiNumber, smoothstep, clamp } from './util.js';
 
 const params = new URLSearchParams(location.search);
@@ -70,14 +70,25 @@ const cat = new Cat(scene);
 const audio = new AudioEngine();
 
 // 町の野良猫たち（その場所から動かない。触れると反応する）
+// 置き場所は実際の道の上から選ぶ
+const onRoad = (name, f, side = 0) => {
+  const r = ROADS.find((rr) => rr.name === name);
+  if (!r) return null;
+  const p = pointAlong(r.pts, f);
+  const off = side * (r.width / 2 - 0.4);
+  return { x: p.x - Math.sin(p.angle) * off, z: p.z + Math.cos(p.angle) * off, heading: -p.angle + Math.PI / 2 };
+};
+const nearRopeway = clampToRoads(ROPEWAY.base.x + 6, ROPEWAY.base.z - 6);
+const bench = BENCHES[0];
 const STRAYS = [
-  { x: -85, z: -113.1, pose: 'loaf', heading: 1.2, level: 3 },     // 猫の細道
-  { x: -121.1, z: -130.5, pose: 'curl', heading: 0.4, level: 4 },      // ロープウェイの下
-  { x: 121.5, z: -217.3, pose: 'sit', heading: Math.PI, level: 2 },  // 海岸通りのベンチのそば
-  { x: -22, z: ARCADE_Z + 1.9, pose: 'loaf', heading: Math.PI, level: 3 }, // 商店街の店先
-  { x: 31.4, z: -100.5, pose: 'sit', heading: -0.4, level: 2 },      // 千光寺新道の石段
-];
-const strays = STRAYS.map((c) => new Cat(scene, { fixed: { pos: new THREE.Vector3(c.x, terrainY(c.x, c.z), c.z), pose: c.pose, heading: c.heading, level: c.level } }));
+  { ...onRoad('猫の細道', 0.62, 1), pose: 'loaf', level: 3 },                         // 猫の細道
+  { ...onRoad('猫の細道', 0.25, -1), pose: 'curl', level: 4 },                        // 猫の細道の下のほう
+  { x: nearRopeway.x, z: nearRopeway.z, heading: 0.4, pose: 'sit', level: 2 },       // ロープウェイ山麓駅のそば
+  { ...onRoad('本町センター街', 0.4, 1), pose: 'loaf', level: 3 },                   // 商店街の店先
+  bench && { x: bench.x + Math.cos(bench.yaw) * 1.4, z: bench.z - Math.sin(bench.yaw) * 1.4, heading: bench.yaw + Math.PI, pose: 'sit', level: 2 }, // 海沿いのベンチ
+  { ...onRoad('空き家への石段', 0.8), pose: 'sit', level: 2 },                        // 家の前の石段
+].filter((c) => c && c.x !== undefined);
+const strays = STRAYS.map((c) => new Cat(scene, { fixed: { pos: new THREE.Vector3(c.x, groundY(c.x, c.z), c.z), pose: c.pose, heading: c.heading, level: c.level } }));
 const allCats = [cat, ...strays];
 const catByHitbox = new Map(allCats.map((c) => [c.hitbox, c]));
 
@@ -395,11 +406,12 @@ function frame() {
 
   // 電車が近づくと踏切が鳴る。聞いている場所からいちばん近い踏切の音だけ鳴らす
   const ears = mode === 'walk' ? camera.position : new THREE.Vector3(0, 0, 0);
-  const nearestCrossing = CROSSINGS.reduce((a, b) => (Math.abs(b - ears.x) < Math.abs(a - ears.x) ? b : a));
-  for (const cx of town.update(time, t, dt)) {
-    if (cx !== nearestCrossing) continue;
-    const d = Math.hypot(cx - ears.x, RAIL_Z - ears.z);
-    audio.fumikiri({ gain: 0.08 + 0.8 * clamp(1 - d / 500, 0, 1), dirX: cx - ears.x, dirZ: RAIL_Z - ears.z, near: clamp(1 - d / 120, 0, 1) });
+  const dist = (c) => Math.hypot(c.x - ears.x, c.z - ears.z);
+  const nearestCrossing = CROSSINGS.reduce((a, b) => (dist(b) < dist(a) ? b : a));
+  for (const cr of town.update(time, t, dt)) {
+    if (Math.hypot(cr.x - nearestCrossing.x, cr.z - nearestCrossing.z) > 1) continue;
+    const d = dist(cr);
+    audio.fumikiri({ gain: 0.08 + 0.8 * clamp(1 - d / 500, 0, 1), dirX: cr.x - ears.x, dirZ: cr.z - ears.z, near: clamp(1 - d / 120, 0, 1) });
   }
 
   // 夜道の手もとの灯り

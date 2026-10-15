@@ -2,7 +2,7 @@
 """tools/raw/ の実データ（OpenStreetMap＋国土地理院DEM）を、ゲーム用の js/data/onomichi.js に変換する。
 
 座標系（ゲーム内）
-  原点 = 空き家（中村憲吉旧居のあたり、東土堂の千光寺山中腹）
+  原点 = 空き家（東土堂、千光寺山の中腹。中村憲吉旧居の約60m南で、南に尾道水道が開けている場所）
   +x = 西、-x = 東、+z = 北、-z = 南（尾道水道）
   y   = 標高 − 空き家の床の標高（m）。海面は y = -H0
 
@@ -22,7 +22,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 RAW = os.path.join(HERE, 'raw')
 OUT = os.path.join(HERE, '..', 'js', 'data', 'onomichi.js')
 
-LAT0, LON0 = 34.4103194, 133.1992893   # 原点（空き家）
+# 原点（空き家）。中村憲吉旧居（34.4103194, 133.1992893）は南側に尾根があり海が見えないため、
+# 標高から「南の視界が開けていて、小径に近い」地点を探して少し南へずらした
+LAT0, LON0 = 34.4097587, 133.1993328
 FLOOR_ABOVE_GROUND = 0.4                # 床は地面より少し高い
 M_LAT = 110574.0
 M_LON = 111320.0 * math.cos(math.radians(LAT0))

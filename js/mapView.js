@@ -1,22 +1,53 @@
-// 手帳の地図：道のつながりと名所を描き、行きたい場所を選ぶと移動できる。
-import { ROADS, PLACES, QUAY_Z, RAIL_Z, ARCADE_SECTIONS, ARCADE_Z, FERRY_PIERS } from './townMap.js';
+// 手帳の地図：実データ（OpenStreetMap＋国土地理院の標高）から、海・陸・道・線路・名所を描く。
+// 名所の印か名前を押すと、その場所へ移動できる。
+import { DATA, SEA_Y, ROADS, OTHER_ROADS, RAILS, PLACES, ARCADE_ROADS, FERRY_PIERS, ATTRIBUTION } from './townMap.js';
 
-const X_WEST = 530, X_EAST = -660;   // 西（尾道駅）を左に
-const Z_NORTH = 60, Z_SOUTH = -245;
+// 表示する範囲（尾道駅〜長江口、尾道水道まで）。西を左に描く
+const X_WEST = 640, X_EAST = -720;
+const Z_NORTH = 270, Z_SOUTH = -760;
 
 const STYLE = {
-  stone: { color: '#8a6a4a', dash: [4, 3] },
-  tile: { color: '#b0773e', dash: [] },
-  asphalt: { color: '#7d7f84', dash: [] },
+  stone: { color: '#8a6a4a', dash: [3, 2], min: 1.2 },
+  tile: { color: '#b07038', dash: [], min: 2 },
+  asphalt: { color: '#8d8f94', dash: [], min: 1.4 },
 };
+
+/** 標高から陸と海の下絵を1回だけ作る */
+function baseImage() {
+  const { nx, nz, b64 } = DATA.dem;
+  const c = document.createElement('canvas');
+  c.width = nx;
+  c.height = nz;
+  const g = c.getContext('2d');
+  const img = g.createImageData(nx, nz);
+  const bin = atob(b64);
+  for (let j = 0; j < nz; j++) {
+    for (let i = 0; i < nx; i++) {
+      const k = j * nx + i;
+      const v = ((bin.charCodeAt(k * 2) | (bin.charCodeAt(k * 2 + 1) << 8)) << 16 >> 16) / 10;
+      const above = v - SEA_Y;
+      // 画像は左が西（x が大きい）、上が北（z が大きい）
+      const px = (nx - 1 - i), py = (nz - 1 - j);
+      const o = (py * nx + px) * 4;
+      if (above < 0.3) { img.data[o] = 201; img.data[o + 1] = 219; img.data[o + 2] = 224; }
+      else {
+        const t = Math.min(1, above / 140);
+        img.data[o] = 241 - t * 60; img.data[o + 1] = 234 - t * 40; img.data[o + 2] = 219 - t * 80;
+      }
+      img.data[o + 3] = 255;
+    }
+  }
+  g.putImageData(img, 0, 0);
+  return c;
+}
 
 export class MapView {
   constructor({ canvas, list, onTravel }) {
     this.canvas = canvas;
-    this.list = list;
     this.onTravel = onTravel;
     this.player = { x: 0, z: 0, yaw: 0 };
     this.markers = [];
+    this.base = null;
     canvas.addEventListener('click', (e) => {
       const r = canvas.getBoundingClientRect();
       const mx = (e.clientX - r.left) * (canvas.width / r.width);
@@ -33,12 +64,15 @@ export class MapView {
     });
   }
 
+  /** 描いて、現在地の画面上の x（CSS px）を返す */
   draw(player) {
     if (player) this.player = player;
-    // スマホでは地図を画面より広く描いて、横にスクロールして見る
-    const cssW = Math.max(760, Math.min(980, window.innerWidth - 32));
-    const k = cssW / (X_WEST - X_EAST);
-    const cssH = (Z_NORTH - Z_SOUTH) * k;
+    if (!this.base) this.base = baseImage();
+    const spanX = X_WEST - X_EAST, spanZ = Z_NORTH - Z_SOUTH;
+    // スマホでは画面より広く描いて横にスクロール
+    const cssW = Math.max(760, Math.min(1000, window.innerWidth - 32, (window.innerHeight - 230) * (spanX / spanZ)));
+    const k = cssW / spanX;
+    const cssH = spanZ * k;
     const dpr = (this.dpr = Math.min(2, window.devicePixelRatio || 1));
     const c = this.canvas;
     c.width = cssW * dpr;
@@ -50,60 +84,58 @@ export class MapView {
     const sx = (x) => (X_WEST - x) * k;
     const sy = (z) => (Z_NORTH - z) * k;
 
-    // 紙・山・海
-    g.fillStyle = '#f1eadb';
-    g.fillRect(0, 0, cssW, cssH);
-    const hill = g.createLinearGradient(0, 0, 0, sy(RAIL_Z));
-    hill.addColorStop(0, 'rgba(110,130,90,0.35)');
-    hill.addColorStop(1, 'rgba(110,130,90,0.08)');
-    g.fillStyle = hill;
-    g.fillRect(0, 0, cssW, sy(RAIL_Z - 3));
-    g.fillStyle = '#c9dbe0';
-    g.fillRect(0, sy(QUAY_Z), cssW, cssH - sy(QUAY_Z));
-    g.fillStyle = '#5a7a86';
-    g.font = `${13}px "Shippori Mincho", serif`;
-    g.textAlign = 'left';
-    g.fillText('尾道水道　（この先、向島）', sx(300), sy(QUAY_Z) + 17);
+    // 下絵（DEM のグリッドを地図の範囲に合わせて貼る）
+    const { x0, z0, step, nx, nz } = DATA.dem;
+    const xw = x0 + (nx - 1) * step, zn = z0 + (nz - 1) * step;
+    g.imageSmoothingEnabled = true;
+    g.drawImage(this.base, sx(xw), sy(zn), (xw - x0) * k, (zn - z0) * k);
 
-    // 線路
-    g.strokeStyle = '#3a3a3a';
-    g.lineWidth = 3;
-    g.beginPath(); g.moveTo(0, sy(RAIL_Z)); g.lineTo(cssW, sy(RAIL_Z)); g.stroke();
-    g.strokeStyle = '#f1eadb';
-    g.lineWidth = 1.6;
-    g.setLineDash([6, 6]);
-    g.beginPath(); g.moveTo(0, sy(RAIL_Z)); g.lineTo(cssW, sy(RAIL_Z)); g.stroke();
-    g.setLineDash([]);
-    g.fillStyle = '#3a3a3a';
-    g.font = '11px "Shippori Mincho", serif';
-    g.fillText('JR山陽本線', sx(-520), sy(RAIL_Z) - 5);
-
-    // 道
-    for (const road of ROADS) {
+    // 道（見えるだけの道は細く薄く）
+    const drawRoad = (road, alpha) => {
       const st = STYLE[road.surface];
-      g.strokeStyle = road.id === 'arcade' ? '#c0602a' : st.color;
-      g.lineWidth = Math.max(2, road.width * k * 1.2);
+      g.globalAlpha = alpha;
+      g.strokeStyle = road.covered ? '#c0602a' : st.color;
+      g.lineWidth = Math.max(st.min, road.width * k * 1.1);
       g.setLineDash(st.dash);
       g.lineCap = 'round';
       g.lineJoin = 'round';
       g.beginPath();
       road.pts.forEach(([x, z], i) => (i ? g.lineTo(sx(x), sy(z)) : g.moveTo(sx(x), sy(z))));
       g.stroke();
+    };
+    OTHER_ROADS.forEach((r) => drawRoad(r, 0.35));
+    ROADS.forEach((r) => drawRoad(r, 1));
+    g.globalAlpha = 1;
+    g.setLineDash([]);
+
+    // 線路
+    for (const rail of RAILS) {
+      for (const [w, col, dash] of [[3, '#3a3a3a', []], [1.6, '#f1eadb', [5, 5]]]) {
+        g.strokeStyle = col;
+        g.lineWidth = w;
+        g.setLineDash(dash);
+        g.beginPath();
+        rail.pts.forEach(([x, z], i) => (i ? g.lineTo(sx(x), sy(z)) : g.moveTo(sx(x), sy(z))));
+        g.stroke();
+      }
     }
     g.setLineDash([]);
 
-    // 通りの名前
-    g.fillStyle = '#6a3a1a';
+    // 名前
     g.font = '11px "Shippori Mincho", serif';
     g.textAlign = 'center';
-    ARCADE_SECTIONS.forEach((s) => g.fillText(s.name, sx((s.x0 + s.x1) / 2), sy(ARCADE_Z) + 13));
-    g.fillStyle = '#555';
-    g.fillText('国道2号', sx(-560), sy(-170) - 4);
-    g.fillText('海岸通り', sx(-560), sy(-213.5) - 5);
-    FERRY_PIERS.forEach((x) => { g.fillText('渡船', sx(x), sy(QUAY_Z) + 13); });
-    g.fillStyle = '#5a4a2a';
-    g.fillText('千光寺新道', sx(48) + 30, sy(-100));
-    g.fillText('猫の細道', sx(-80), sy(-104));
+    g.fillStyle = '#6a3a1a';
+    for (const r of ARCADE_ROADS) {
+      if (!r.name) continue;
+      const m = r.pts[Math.floor(r.pts.length / 2)];
+      g.fillText(r.name, sx(m[0]), sy(m[1]) + 14);
+    }
+    g.fillStyle = '#4a6a76';
+    g.font = '13px "Shippori Mincho", serif';
+    g.fillText('尾道水道', sx(-60), sy(-500));
+    g.font = '11px "Shippori Mincho", serif';
+    g.fillText('向島', sx(150), sy(-735));
+    FERRY_PIERS.forEach((p) => g.fillText('渡船', sx(p.x), sy(p.z) + 14));
 
     // 名所の印
     this.markers = [];
@@ -116,16 +148,20 @@ export class MapView {
       g.beginPath(); g.arc(x, y, 5, 0, Math.PI * 2); g.fill(); g.stroke();
       this.markers.push({ sx: x * dpr, sy: y * dpr, place: p });
     });
-    // 空き家
     g.fillStyle = '#2a2420';
     g.font = '12px "Shippori Mincho", serif';
-    g.fillText('空き家', sx(-4) + 8, sy(2) - 6);
+    g.fillText('空き家', sx(0) + 8, sy(4) - 6);
 
-    // 現在地
+    // 出典
+    g.font = '9px sans-serif';
+    g.fillStyle = 'rgba(40,40,40,0.75)';
+    g.textAlign = 'right';
+    g.fillText(ATTRIBUTION, cssW - 6, cssH - 6);
+
+    // 現在地（yaw=0 は南、yaw が増えると東を向く）
     const px = sx(this.player.x), py = sy(this.player.z);
     g.save();
     g.translate(px, py);
-    // yaw=0 は南（下）、yaw が増えると東（右）を向く
     g.rotate(Math.PI - this.player.yaw);
     g.fillStyle = '#c23a2a';
     g.beginPath(); g.moveTo(0, -10); g.lineTo(6, 6); g.lineTo(0, 3); g.lineTo(-6, 6); g.closePath(); g.fill();

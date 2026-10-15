@@ -1,9 +1,9 @@
 // 尾道水道を行き交う船：渡船（向島との往復）、小さな漁船、ゆっくりの貨物船
 import * as THREE from 'three';
-import { SEA_LEVEL, SHORE_Z, FAR_SHORE_Z } from './world.js';
+import { SEA_LEVEL } from './world.js';
+import { FERRY_ROUTES, BOUNDS, straitAt } from './townMap.js';
 import { glowTexture, rand, pick } from './util.js';
 
-const FERRY_DOCKS = [SHORE_Z - 8, FAR_SHORE_Z + 10];
 
 function lightSprite(color, size) {
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color, transparent: true, opacity: 0, depthWrite: false, fog: false }));
@@ -90,11 +90,12 @@ export class Boats {
     this.scene = scene;
     this.list = [];
     this.passListeners = [];
-    // 渡船（2航路）
-    [[40, 0], [-170, 1]].forEach(([x, startSide], i) => {
+    // 渡船：実際の3航路（尾道渡船・福本渡船・駅前渡船）を行き来する
+    FERRY_ROUTES.forEach((route, i) => {
       const b = new Boat(scene, 'ferry');
-      b.ferry = { x, side: startSide, wait: 4 + i * 20, t: 0 };
-      b.group.position.set(x, SEA_LEVEL, FERRY_DOCKS[startSide]);
+      b.ferry = { route, side: i % 2, wait: 4 + i * 15, t: 0 };
+      const p = i % 2 ? route.b : route.a;
+      b.group.position.set(p.x, SEA_LEVEL, p.z);
       b.group.visible = true;
       this.list.push(b);
     });
@@ -111,17 +112,24 @@ export class Boats {
   /** 船が正面を通り過ぎたとき（引き波が岸に届く音を鳴らすため） */
   onPass(fn) { this.passListeners.push(fn); }
 
+  /** 水道の中心線にそって東西に横切る船 */
   _spawnTraverse(b) {
     const dir = Math.random() < 0.5 ? 1 : -1;
-    const z = b.type === 'cargo' ? rand(-380, -420) : rand(-270, -500);
-    b.group.position.set(-dir * 1100, SEA_LEVEL, z);
-    b.speed = b.type === 'cargo' ? rand(5, 7) : rand(7, 11);
+    b.lane = b.type === 'cargo' ? rand(-15, 15) : rand(-70, 70);
     b.dir = dir;
-    b.angle = dir > 0 ? 0 : Math.PI;
-    b.group.rotation.y = dir > 0 ? 0 : Math.PI;
+    b.group.position.x = dir > 0 ? BOUNDS.x0 - 250 : BOUNDS.x1 + 250;
+    b.speed = b.type === 'cargo' ? rand(5, 7) : rand(7, 11);
     b.active = true;
     b.passed = false;
     b.group.visible = true;
+    this._placeOnStrait(b);
+  }
+
+  _placeOnStrait(b) {
+    const s = straitAt(b.group.position.x);
+    b.group.position.z = s.z + b.lane;
+    b.angle = s.angle + (b.dir > 0 ? 0 : Math.PI);
+    b.group.rotation.y = -b.angle;
   }
 
   update(dt, elapsed, night) {
@@ -131,12 +139,14 @@ export class Boats {
         b.wait -= dt;
         if (b.wait <= 0) this._spawnTraverse(b);
       } else {
-        b.group.position.x += b.dir * b.speed * dt;
+        // 中心線の向きに進む（x 方向の成分ぶん進める）
+        b.group.position.x += b.dir * b.speed * dt * Math.abs(Math.cos(straitAt(b.x).angle));
+        this._placeOnStrait(b);
         if (!b.passed && Math.sign(b.x) === b.dir) {
           b.passed = true;
           this.passListeners.forEach((fn) => fn(b));
         }
-        if (Math.abs(b.x) > 1150) {
+        if (b.x < BOUNDS.x0 - 300 || b.x > BOUNDS.x1 + 300) {
           b.active = false;
           b.group.visible = false;
           b.wait = b.type === 'cargo' ? rand(70, 160) : rand(10, 45);
@@ -151,20 +161,24 @@ export class Boats {
 
   _updateFerry(b, dt) {
     const f = b.ferry;
+    const from = f.side ? f.route.b : f.route.a, to = f.side ? f.route.a : f.route.b;
     if (f.wait > 0) {
       f.wait -= dt;
       b.speed = 0;
-      if (f.wait <= 0) { f.t = 0; f.from = FERRY_DOCKS[f.side]; f.to = FERRY_DOCKS[1 - f.side]; b.passed = false; }
+      if (f.wait <= 0) { f.t = 0; b.passed = false; }
       return;
     }
-    const dist = Math.abs(f.to - f.from);
+    const dx = to.x - from.x, dz = to.z - from.z;
+    const dist = Math.hypot(dx, dz);
     const dur = dist / 5.5;
     f.t += dt / dur;
     const t = Math.min(1, f.t);
     const s = t * t * (3 - 2 * t);
-    b.group.position.z = f.from + (f.to - f.from) * s;
-    b.group.position.x = f.x + Math.sin(t * Math.PI) * 18;
-    b.angle = f.to < f.from ? -Math.PI / 2 : Math.PI / 2;
+    // 潮に流されるように、少しふくらんで渡る
+    const bulge = Math.sin(t * Math.PI) * 14;
+    b.group.position.x = from.x + dx * s - (dz / dist) * bulge;
+    b.group.position.z = from.z + dz * s + (dx / dist) * bulge;
+    b.angle = Math.atan2(dz, dx);
     b.group.rotation.y = -b.angle;
     b.speed = 5.5 * 6 * s * (1 - s);
     if (!b.passed && t > 0.5) { b.passed = true; this.passListeners.forEach((fn) => fn(b)); }

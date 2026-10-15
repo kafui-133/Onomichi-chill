@@ -1,10 +1,10 @@
-// 遠景：対岸（向島）の街と造船所クレーン・尾道大橋・瀬戸内の島影（尾道側の町は town.js）
+// 遠景：向島の造船所クレーン・尾道大橋・瀬戸内の島影。
+// 尾道と向島の地形・道・建物は実データから town.js が作る。
 import * as THREE from 'three';
 import { seededRandom, glowTexture } from './util.js';
+import { SEA_Y, BOUNDS, straitAt } from './townMap.js';
 
-export const SEA_LEVEL = -60;
-export const SHORE_Z = -220;       // 尾道側の岸
-export const FAR_SHORE_Z = -560;   // 向島の岸
+export const SEA_LEVEL = SEA_Y;
 
 export class World {
   constructor(scene) {
@@ -15,8 +15,6 @@ export class World {
     this.blinkers = [];
     this.lightMats = [];
 
-    // 尾道側の町（坂・商店街・海岸通り）は town.js が作る
-    this._mukaishima();
     this._cranes();
     this._bridge();
     this._farIslands();
@@ -78,35 +76,6 @@ export class World {
     return mesh;
   }
 
-  _mukaishima() {
-    const r = this.r;
-    // 向島の丘
-    const hillMat = this.mat(0x3d5236);
-    const hills = [
-      [-560, 300, 55, 170], [-180, 320, 75, 200], [200, 260, 50, 160], [520, 340, 80, 220], [880, 300, 60, 180], [-950, 320, 65, 200],
-    ];
-    hills.forEach(([x, sx, sy, sz]) => {
-      const m = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 16), hillMat);
-      m.scale.set(sx, sy, sz);
-      m.position.set(x, SEA_LEVEL - 8, FAR_SHORE_Z - sz - 20);
-      this.group.add(m);
-    });
-    // 対岸の低い街並み
-    const list = [];
-    const walls = ['#d8d4cb', '#c4c0b8', '#e6e2d8', '#a9a49b', '#6f8aa0'];
-    const roofs = ['#55606b', '#3f4650', '#6c7682'];
-    for (let x = -900; x < 900; x += 8 + r() * 10) {
-      if (x > 80 && x < 330) continue; // 造船所のエリア
-      const z = FAR_SHORE_Z - 6 - r() * 25;
-      list.push({ x, z, y: SEA_LEVEL + 0.5, w: 7 + r() * 8, h: 4 + r() * 7, d: 8, rot: 0, roofH: 1.2, wall: walls[Math.floor(r() * walls.length)], roof: roofs[Math.floor(r() * roofs.length)] });
-    }
-    const win = this._houses(list);
-    this._windowLights(win, 0xffe0b0, 2.2);
-    const quay = new THREE.Mesh(new THREE.BoxGeometry(2000, 2, 30), this.mat(0x7d7b76));
-    quay.position.set(0, SEA_LEVEL + 0.2, FAR_SHORE_Z - 10);
-    this.group.add(quay);
-  }
-
   /** 向島の造船所：赤白のゴライアスクレーンとドックの船体 */
   _cranes() {
     const red = this.mat(0xc8463a);
@@ -137,14 +106,16 @@ export class World {
       g.position.set(x, SEA_LEVEL, z);
       this.group.add(g);
     };
-    addCrane(150, FAR_SHORE_Z - 30, 62, 70);
-    addCrane(260, FAR_SHORE_Z - 40, 48, 50);
+    // 向島側の岸辺（水道の中心から南へ）
+    const fz = (x) => straitAt(x).z - 135;
+    addCrane(150, fz(150), 62, 70);
+    addCrane(260, fz(260) - 10, 48, 50);
     // ドックの船体
     const hull = new THREE.Mesh(new THREE.BoxGeometry(110, 12, 22), this.mat(0x2f4a66));
-    hull.position.set(200, SEA_LEVEL + 5, FAR_SHORE_Z - 32);
+    hull.position.set(200, SEA_LEVEL + 5, fz(200) + 8);
     this.group.add(hull);
     const deck = new THREE.Mesh(new THREE.BoxGeometry(18, 14, 16), white);
-    deck.position.set(240, SEA_LEVEL + 17, FAR_SHORE_Z - 32);
+    deck.position.set(240, SEA_LEVEL + 17, fz(240) + 8);
     this.group.add(deck);
   }
 
@@ -152,9 +123,11 @@ export class World {
   _bridge() {
     const g = new THREE.Group();
     const mat = this.mat(0xd9d8d2);
-    const x = -720;
+    // 尾道大橋は町の東のはずれ（データの範囲の外）で水道をまたぐ
+    const x = BOUNDS.x0 - 160;
     const deckY = SEA_LEVEL + 32;
-    const z0 = SHORE_Z + 20, z1 = FAR_SHORE_Z - 20;
+    const c = straitAt(BOUNDS.x0).z;
+    const z0 = c + 170, z1 = c - 170;
     const len = z0 - z1;
     const deck = new THREE.Mesh(new THREE.BoxGeometry(14, 3, len), mat);
     deck.position.set(x, deckY, (z0 + z1) / 2);
@@ -188,9 +161,9 @@ export class World {
   _farIslands() {
     const r = this.r;
     const layers = [
-      { z: -1150, color: 0x4d6a72, count: 7 },
-      { z: -1800, color: 0x6b8590, count: 6 },
-      { z: -2500, color: 0x8399a4, count: 5 },
+      { z: -1750, color: 0x4d6a72, count: 7 },
+      { z: -2300, color: 0x6b8590, count: 6 },
+      { z: -2900, color: 0x8399a4, count: 5 },
     ];
     layers.forEach((L) => {
       const mat = this.mat(L.color);

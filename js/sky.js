@@ -250,10 +250,10 @@ export class Sea {
           #include <colorspace_fragment>
         }`,
     });
-    const geo = new THREE.PlaneGeometry(9000, 6000, 1, 1);
+    const geo = new THREE.PlaneGeometry(14000, 14000, 1, 1);
     geo.rotateX(-Math.PI / 2);
     this.mesh = new THREE.Mesh(geo, mat);
-    this.mesh.position.set(0, seaLevel, -2900);
+    this.mesh.position.set(0, seaLevel, -3000);
     scene.add(this.mesh);
   }
 
