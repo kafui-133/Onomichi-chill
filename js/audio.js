@@ -38,13 +38,16 @@ export class AudioEngine {
     this.inside = ctx.createGain();
     this.outside.connect(this.master);
     this.inside.connect(this.master);
+    // 自分のすぐそばの音（足音・猫）：視線や場所のミックスに左右されない
+    this.near = ctx.createGain();
+    this.near.connect(this.master);
 
     // 部屋鳴り（簡易リバーブ）
     this.reverb = ctx.createConvolver();
     this.reverb.buffer = this._impulse(1.8, 2.5);
     this.reverbSend = ctx.createGain();
     this.reverbSend.gain.value = 0.35;
-    this.reverbSend.connect(this.reverb).connect(this.inside);
+    this.reverbSend.connect(this.reverb).connect(this.master);
 
     this.noise = {
       white: this._noiseBuffer('white'),
@@ -226,11 +229,22 @@ export class AudioEngine {
     this.purrGain = ctx.createGain();
     this.purrGain.gain.value = 0;
     this.purrPan = ctx.createStereoPanner();
-    purrSrc.connect(purrLP).connect(purrAM).connect(this.purrGain).connect(this.purrPan).connect(this.inside);
+    purrSrc.connect(purrLP).connect(purrAM).connect(this.purrGain).connect(this.purrPan).connect(this.near);
+
+    // 商店街のざわめき（人の声のような帯域のノイズをゆらす）
+    const crowd = this._loop(this.noise.pink, 1);
+    const crowdBP = ctx.createBiquadFilter();
+    crowdBP.type = 'bandpass';
+    crowdBP.frequency.value = 650;
+    crowdBP.Q.value = 0.8;
+    this.crowdGain = ctx.createGain();
+    this.crowdGain.gain.value = 0;
+    crowd.connect(crowdBP).connect(this.crowdGain).connect(this.outside);
+    this.crowdGain.connect(this.reverbSend);
   }
 
   _resetTimers() {
-    this.timers = { lap: 0.5, gust: rand(4, 10), fuurin: rand(3, 8), bird: rand(2, 6), kite: rand(15, 40), cricket: 0.5, tick: 0, fumikiri: rand(40, 90), horn: rand(30, 80), bell: rand(60, 140), pompon: 0 };
+    this.timers = { lap: 0.5, gust: rand(4, 10), fuurin: rand(3, 8), bird: rand(2, 6), kite: rand(15, 40), cricket: 0.5, tick: 0, horn: rand(30, 80), bell: rand(60, 140), pompon: 0 };
     this.tickTock = 0;
   }
 
@@ -243,23 +257,31 @@ export class AudioEngine {
     const st = this.state;
     const day = 1 - st.night;
 
-    // 視線による内外のミックス
-    const out = st.eyesClosed ? 1 : 0.32 + 0.68 * st.outside;
-    const inn = st.eyesClosed ? 1 : 1 - 0.55 * st.outside;
+    // 視線による内外のミックス（町を歩いているときは外の音だけ）
+    const walking = !!st.walking;
+    const z = st.zone || { sea: 0, arcade: 0, slope: 1 };
+    const out = walking ? 1 : st.eyesClosed ? 1 : 0.32 + 0.68 * st.outside;
+    const inn = walking ? 0 : st.eyesClosed ? 1 : 1 - 0.55 * st.outside;
     this.outside.gain.setTargetAtTime(out * (st.eyesClosed ? 1.25 : 1), now, 0.4);
     this.inside.gain.setTargetAtTime(inn * (st.eyesClosed ? 1.2 : 1), now, 0.4);
+    this.near.gain.setTargetAtTime(st.eyesClosed ? 1.2 : 1, now, 0.4);
+    // 場所による環境音の重み
+    const seaMul = walking ? (0.45 + 1.4 * z.sea) * (1 - 0.55 * z.arcade) : 1;
+    const windMul = walking ? (0.6 + 0.7 * z.slope) * (1 - 0.7 * z.arcade) : 1;
+    this.crowdGain.gain.setTargetAtTime(walking ? (z.arcade * 0.05 + (1 - z.slope) * 0.008) * (0.4 + day * 0.6) : 0, now, 0.8);
+    this.seaMul = seaMul;
 
     // 風と突風
     this.windTarget = Math.max(0, this.windTarget - dt * 0.12);
     this.wind += (this.windTarget - this.wind) * (1 - Math.exp(-dt * 1.5));
     const swell = 0.5 + 0.5 * Math.sin(now * 0.13) * Math.sin(now * 0.071 + 1);
-    this.windGain.gain.setTargetAtTime(0.03 + swell * 0.03 + this.wind * 0.12, now, 0.3);
+    this.windGain.gain.setTargetAtTime((0.03 + swell * 0.03 + this.wind * 0.12) * windMul, now, 0.3);
     this.windBP.frequency.setTargetAtTime(380 + swell * 250 + this.wind * 400, now, 0.5);
     this.whistleGain.gain.setTargetAtTime(this.wind * this.wind * 0.012, now, 0.5);
 
     // 波のうねり
     const waveSwell = 0.5 + 0.5 * Math.sin(now * 0.4) * Math.sin(now * 0.23 + 2);
-    this.seaGain.gain.setTargetAtTime(0.1 + waveSwell * 0.12, now, 0.6);
+    this.seaGain.gain.setTargetAtTime((0.1 + waveSwell * 0.12) * seaMul, now, 0.6);
     this.seaLP.frequency.setTargetAtTime(380 + waveSwell * 380, now, 0.6);
     this.cityGain.gain.setTargetAtTime(0.012 + day * 0.03, now, 1);
 
@@ -270,9 +292,9 @@ export class AudioEngine {
       if (T[name] <= 0) { fn(); T[name] = next(); }
     };
 
-    tick('lap', () => this.lap(0.5 + Math.random() * 0.5), () => rand(0.5, 2.2));
+    tick('lap', () => this.lap((0.5 + Math.random() * 0.5) * Math.min(1.6, seaMul)), () => rand(0.5, 2.2) / Math.max(1, seaMul));
     tick('gust', () => this.gust(), () => rand(9, 26));
-    tick('fuurin', () => { if (this.wind > 0.15 || Math.random() < 0.3) this.fuurin(0.4 + this.wind * 0.6); }, () => rand(2.5, 9) * (1.2 - this.wind));
+    tick('fuurin', () => { if (!walking && (this.wind > 0.15 || Math.random() < 0.3)) this.fuurin(0.4 + this.wind * 0.6); }, () => rand(2.5, 9) * (1.2 - this.wind));
 
     // 時刻で変わる生き物の音
     const h = st.hour;
@@ -280,7 +302,6 @@ export class AudioEngine {
     tick('bird', () => { if (Math.random() < morning * 0.9 + day * 0.15) this.sparrow(); }, () => rand(1.5, 6));
     tick('kite', () => { if (h > 7 && h < 17.5) this.tonbi(); }, () => rand(25, 60));
     tick('cricket', () => { if (st.night > 0.35) this.cricket(st.night); }, () => rand(0.35, 1.1));
-    tick('fumikiri', () => { if (h > 6 && h < 23) this.fumikiri(); }, () => rand(70, 150));
     tick('horn', () => this.horn(), () => rand(60, 140));
     tick('bell', () => { if (h > 16 || h < 7) this.templeBell(); }, () => rand(120, 260));
 
@@ -297,7 +318,7 @@ export class AudioEngine {
     if (T.tick <= 0) {
       T.tick += 1;
       this.tickTock ^= 1;
-      this._noiseBurst({ type: 'white', freq: this.tickTock ? 3200 : 2600, q: 8, gain: 0.025, attack: 0.001, decay: 0.04, pan: 0.6 * this._pan(1, 0) / 0.85, dest: this.inside });
+      if (!walking) this._noiseBurst({ type: 'white', freq: this.tickTock ? 3200 : 2600, q: 8, gain: 0.025, attack: 0.001, decay: 0.04, pan: 0.6 * this._pan(1, 0) / 0.85, dest: this.inside });
     }
 
     // ポンポン船（近くの漁船のエンジン音）
@@ -452,14 +473,16 @@ export class AudioEngine {
   }
 
   /** 遠くの踏切（JR山陽本線）と、通り過ぎる電車 */
-  fumikiri() {
-    const pan = this._pan(-0.3, -1) * 0.5;
+  /** gain: 踏切までの近さ（0〜1）、dirX/dirZ: 踏切の方向 */
+  fumikiri({ gain = 0.35, dirX = -0.3, dirZ = -1, near = 0 } = {}) {
+    if (!this.started) return;
+    const pan = this._pan(dirX, dirZ) * 0.7;
     const ctx = this.ctx;
     const lp = ctx.createBiquadFilter();
     lp.type = 'lowpass';
-    lp.frequency.value = 1400;
+    lp.frequency.value = 1400 + near * 2600;
     const bus = ctx.createGain();
-    bus.gain.value = 0.35;
+    bus.gain.value = gain;
     lp.connect(bus).connect(this._panner(pan, this.outside));
     const dur = 9;
     for (let i = 0; i < dur * 2.2; i++) {
@@ -535,27 +558,37 @@ export class AudioEngine {
     g.gain.setValueAtTime(0.1, t + len * 0.6);
     g.gain.exponentialRampToValueAtTime(0.0001, t + len + 0.1);
     o.connect(f1).connect(g);
-    const p = this._panner(pan, this.inside);
+    const p = this._panner(pan, this.near);
     g.connect(p);
     g.connect(this.reverbSend);
     o.start(t);
     o.stop(t + len + 0.15);
   }
 
+  /** 足音：石段・タイル・アスファルト。商店街ではすこし響く */
+  footstep(surface, echo = 0) {
+    if (!this.started) return;
+    const s = { stone: [900, 0.11, 'brown'], tile: [1800, 0.07, 'pink'], asphalt: [700, 0.08, 'brown'], wood: [500, 0.1, 'brown'] }[surface] || [900, 0.1, 'brown'];
+    const pan = (Math.random() - 0.5) * 0.15;
+    const n = this._noiseBurst({ type: s[2], freq: s[0] * rand(0.85, 1.15), q: 1.2, gain: s[1], attack: 0.003, decay: rand(0.06, 0.1), pan, dest: this.near });
+    if (echo > 0) n.g.connect(this.reverbSend);
+    if (surface === 'stone') this._noiseBurst({ type: 'white', freq: 3500, q: 3, gain: 0.015, attack: 0.001, decay: 0.03, when: 0.02, pan, dest: this.near });
+  }
+
   tailSlap(dirX, dirZ) {
     if (!this.started) return;
-    this._noiseBurst({ type: 'brown', freq: 500, q: 0.8, filter: 'lowpass', gain: 0.12, attack: 0.002, decay: 0.08, pan: this._pan(dirX, dirZ) * 0.6, dest: this.inside });
+    this._noiseBurst({ type: 'brown', freq: 500, q: 0.8, filter: 'lowpass', gain: 0.12, attack: 0.002, decay: 0.08, pan: this._pan(dirX, dirZ) * 0.6, dest: this.near });
   }
 
   land(dirX, dirZ) {
     if (!this.started) return;
-    this._noiseBurst({ type: 'brown', freq: 300, q: 0.8, filter: 'lowpass', gain: 0.2, attack: 0.002, decay: 0.12, pan: this._pan(dirX, dirZ) * 0.6, dest: this.inside });
+    this._noiseBurst({ type: 'brown', freq: 300, q: 0.8, filter: 'lowpass', gain: 0.2, attack: 0.002, decay: 0.12, pan: this._pan(dirX, dirZ) * 0.6, dest: this.near });
   }
 
   shutter() {
     if (!this.started) return;
-    this._noiseBurst({ type: 'white', freq: 2500, q: 1.5, gain: 0.25, attack: 0.001, decay: 0.05, dest: this.inside });
-    this._noiseBurst({ type: 'white', freq: 1800, q: 1.5, gain: 0.18, attack: 0.001, decay: 0.07, when: 0.09, dest: this.inside });
-    this._noiseBurst({ type: 'brown', freq: 600, q: 1, filter: 'lowpass', gain: 0.15, attack: 0.01, decay: 0.25, when: 0.15, dest: this.inside });
+    this._noiseBurst({ type: 'white', freq: 2500, q: 1.5, gain: 0.25, attack: 0.001, decay: 0.05, dest: this.near });
+    this._noiseBurst({ type: 'white', freq: 1800, q: 1.5, gain: 0.18, attack: 0.001, decay: 0.07, when: 0.09, dest: this.near });
+    this._noiseBurst({ type: 'brown', freq: 600, q: 1, filter: 'lowpass', gain: 0.15, attack: 0.01, decay: 0.25, when: 0.15, dest: this.near });
   }
 }

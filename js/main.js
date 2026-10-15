@@ -9,6 +9,10 @@ import { Cat } from './cat.js';
 import { AudioEngine } from './audio.js';
 import { LookControls } from './controls.js';
 import { developFilm } from './photo.js';
+import { Town } from './town.js';
+import { Walker } from './walker.js';
+import { MapView } from './mapView.js';
+import { PLACES, RAIL_Z, CROSSINGS, ARCADE_Z, terrainY, placeName, zoneWeights } from './townMap.js';
 import { kanjiNumber, smoothstep, clamp } from './util.js';
 
 const params = new URLSearchParams(location.search);
@@ -59,8 +63,26 @@ const sea = new Sea(scene, SEA_LEVEL);
 const world = new World(scene);
 const room = new Room(scene);
 const boats = new Boats(scene);
+const town = new Town(scene, world);
 const cat = new Cat(scene);
 const audio = new AudioEngine();
+
+// 町の野良猫たち（その場所から動かない。触れると反応する）
+const STRAYS = [
+  { x: -87.6, z: -112.9, pose: 'loaf', heading: 1.2, level: 3 },     // 猫の細道
+  { x: -119, z: -129.2, pose: 'curl', heading: 0.4, level: 4 },      // ロープウェイの下
+  { x: 121.5, z: -217.3, pose: 'sit', heading: Math.PI, level: 2 },  // 海岸通りのベンチのそば
+  { x: -22, z: ARCADE_Z + 1.9, pose: 'loaf', heading: Math.PI, level: 3 }, // 商店街の店先
+  { x: 31.8, z: -100.6, pose: 'sit', heading: -0.4, level: 2 },      // 千光寺新道の石段
+];
+const strays = STRAYS.map((c) => new Cat(scene, { fixed: { pos: new THREE.Vector3(c.x, terrainY(c.x, c.z), c.z), pose: c.pose, heading: c.heading, level: c.level } }));
+const allCats = [cat, ...strays];
+const catByHitbox = new Map(allCats.map((c) => [c.hitbox, c]));
+
+// 歩いているときの手もとの灯り（夜だけ）
+const walkLight = new THREE.PointLight(0xffd29a, 0, 22, 1.4);
+scene.add(walkLight);
+let mode = 'room'; // 'room' | 'walk'
 
 // 窓から差し込む光の中の埃
 const dust = (() => {
@@ -81,21 +103,110 @@ const dust = (() => {
 
 // ---------- 操作 ----------
 const controls = new LookControls(camera, renderer.domElement, {
-  pickables: () => [cat.hitbox],
-  onPoke: () => cat.poke(),
-  onStroke: (dt) => cat.stroke(dt),
-  onRelease: () => cat.release(),
+  pickables: () => (mode === 'room' ? [cat.hitbox] : strays.filter((c) => c.root.position.distanceTo(camera.position) < 6).map((c) => c.hitbox)),
+  onPoke: (h) => catByHitbox.get(h)?.poke(),
+  onStroke: (dt, h) => catByHitbox.get(h)?.stroke(dt),
+  onRelease: (h) => catByHitbox.get(h)?.release(),
   onHover: (h) => document.body.classList.toggle('hover-cat', h),
 });
 
 // ---------- 猫と音をつなぐ ----------
-const catDir = () => new THREE.Vector3().subVectors(cat.root.position, camera.position);
+const catDir = (c = cat) => new THREE.Vector3().subVectors(c.root.position, camera.position);
+const audible = (c) => (mode === 'room' ? c === cat : c !== cat && catDir(c).length() < 14);
 cat.on('levelup', (lv, text) => text && toast(text, 6000));
 cat.on('notice', (text) => toast(text, 3500));
-cat.on('meow', (lv) => { const d = catDir(); audio.meow(lv, d.x, d.z); });
-cat.on('slap', () => { const d = catDir(); audio.tailSlap(d.x, d.z); });
-cat.on('land', () => { const d = catDir(); audio.land(d.x, d.z); });
 cat.on('flinch', () => toast('（びくっ）……そっとしておこう', 3000));
+allCats.forEach((c) => {
+  c.on('meow', (lv) => { if (audible(c)) { const d = catDir(c); audio.meow(lv, d.x, d.z); } });
+  c.on('slap', () => { if (audible(c) && catDir(c).length() < 5) { const d = catDir(c); audio.tailSlap(d.x, d.z); } });
+  c.on('land', () => { if (audible(c)) { const d = catDir(c); audio.land(d.x, d.z); } });
+});
+
+// ---------- 町歩き ----------
+const walker = new Walker(controls);
+walker.onStep = (surface) => audio.footstep(surface, zoneWeights(walker.x, walker.z).arcade);
+
+function fadeTo(fn) {
+  const f = $('fade');
+  f.classList.add('on');
+  setTimeout(() => {
+    fn();
+    setTimeout(() => f.classList.remove('on'), 120);
+  }, 750);
+}
+
+function setShadowRange(range, dist) {
+  const c = sun.shadow.camera;
+  c.left = c.bottom = -range;
+  c.right = c.top = range;
+  c.far = dist * 2.5;
+  c.updateProjectionMatrix();
+  sun.userData.dist = dist;
+}
+sun.userData.dist = 12;
+
+let lastPlace = '';
+function enterTown(place) {
+  mode = 'walk';
+  document.body.classList.add('walking');
+  walker.enter(place.x, place.z, place.yaw);
+  controls.targetFov = 60;
+  setShadowRange(28, 45);
+  lastPlace = '';
+}
+
+function goHome() {
+  fadeTo(() => {
+    mode = 'room';
+    document.body.classList.remove('walking');
+    walker.exit();
+    controls.basePos.set(0, 1.08, 0.78);
+    controls.yaw = controls.targetYaw = 0;
+    controls.pitch = controls.targetPitch = -0.1;
+    controls.targetFov = 55;
+    sun.target.position.set(0, 0.6, 0.4);
+    setShadowRange(4.5, 12);
+    toast('ただいま', 2500);
+  });
+}
+
+function travel(place) {
+  $('map-view').classList.add('hidden');
+  if (place.id === 'house' && mode === 'room') return;
+  fadeTo(() => enterTown(place));
+}
+
+const mapView = new MapView({ canvas: $('map-canvas'), list: $('map-list'), onTravel: travel });
+function openMap() {
+  const pos = mode === 'walk' ? { x: walker.x, z: walker.z, yaw: controls.yaw } : { x: 0, z: 0.5, yaw: 0 };
+  mapView.draw(pos);
+  $('map-view').classList.remove('hidden');
+}
+$('btn-map').addEventListener('click', openMap);
+$('map-close').addEventListener('click', () => $('map-view').classList.add('hidden'));
+$('map-view').addEventListener('click', (e) => { if (e.target === e.currentTarget) $('map-view').classList.add('hidden'); });
+$('btn-out').addEventListener('click', () => {
+  fadeTo(() => enterTown(PLACES.find((p) => p.id === 'house')));
+  setTimeout(() => toast('戸をあけて、坂の町へ', 3000), 900);
+});
+
+// 文脈に応じた行動ボタン
+let action = null;
+function doAction() {
+  if (action === 'home') goHome();
+  else if (action === 'sit') { walker.sit(walker.nearBench()); toast('ベンチに腰をおろす', 2500); }
+  else if (action === 'stand') walker.stand();
+}
+$('btn-act').addEventListener('click', doAction);
+const walkBtn = $('btn-walk');
+const holdWalk = (on) => { walker.touchForward = on; walkBtn.classList.toggle('held', on); };
+walkBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); walkBtn.setPointerCapture?.(e.pointerId); holdWalk(true); });
+['pointerup', 'pointercancel', 'lostpointercapture'].forEach((ev) => walkBtn.addEventListener(ev, () => holdWalk(false)));
+window.addEventListener('keydown', (e) => {
+  if (e.repeat || eyesClosed) return;
+  if ((e.code === 'KeyE' || e.code === 'Enter') && action) doAction();
+  if (e.code === 'KeyM') ($('map-view').classList.contains('hidden') ? openMap() : $('map-view').classList.add('hidden'));
+});
 
 // 船が正面を通ると、遅れて引き波の音が岸に届く
 boats.onPass((b) => {
@@ -138,6 +249,7 @@ $('btn-sound').addEventListener('click', (e) => {
 let eyesClosed = false;
 function setEyes(closed) {
   eyesClosed = closed;
+  walker.paused = closed;
   $('eyes').classList.toggle('on', closed);
   controls.enabled = !closed;
   $('ui').style.visibility = closed ? 'hidden' : '';
@@ -215,14 +327,15 @@ let skyShown = false;
 if (DEBUG) {
   $('debug').classList.remove('hidden');
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'l') cat.addAffection(2);
-    if (e.key === 'r') cat.reset();
-    if (e.key === 't') time.hour = (time.hour + 1) % 24;
-    if (e.key === 'w') audio.wake(250, 0, -250);
-    if (e.key === 'b') audio.templeBell(true);
-    if (e.key === 'f') audio.fumikiri();
+    if (e.key === '1') cat.addAffection(2);
+    if (e.key === '2') cat.reset();
+    if (e.key === '3') time.hour = (time.hour + 1) % 24;
+    if (e.key === '4') audio.wake(250, 0, -250);
+    if (e.key === '5') audio.templeBell(true);
+    if (e.key === '6') audio.fumikiri({ gain: 0.6, near: 0.5 });
+    if (e.key === '7') town.train.timer = 0;
   });
-  Object.assign(window, { THREE, scene, camera, time, cat, audio, boats, controls, renderer });
+  Object.assign(window, { THREE, scene, camera, time, cat, audio, boats, controls, renderer, town, walker, strays, travel, PLACES });
 }
 
 window.addEventListener('resize', () => {
@@ -250,9 +363,11 @@ function frame() {
   hemi.intensity = p.hemi;
   sun.color.copy(time.sunUp ? p.sun : new THREE.Color(0x9fb4e0));
   sun.intensity = p.light;
-  sun.position.copy(sun.target.position).addScaledVector(time.lightDir, 12);
+  if (mode === 'walk') sun.target.position.set(walker.x, controls.basePos.y - 1.5, walker.z);
+  sun.position.copy(sun.target.position).addScaledVector(time.lightDir, sun.userData.dist);
   scene.fog.color.copy(p.horizon).lerp(p.mid, 0.2);
 
+  walker.update(dt);
   controls.update(dt, t);
   sky.update(time, camera, t);
   world.update(time, t);
@@ -260,9 +375,29 @@ function frame() {
   sea.update(time, scene.fog, t, boats.wakes(camera.position));
   room.update(time, t, dt, audio.wind);
   cat.update(dt, t, camera);
+  strays.forEach((c) => {
+    const near = mode === 'walk' && c.root.position.distanceTo(camera.position) < 60;
+    c.root.visible = near || mode === 'room';
+    if (near) c.update(dt, t, camera);
+  });
+
+  // 電車が近づくと踏切が鳴る。聞いている場所からいちばん近い踏切の音だけ鳴らす
+  const ears = mode === 'walk' ? camera.position : new THREE.Vector3(0, 0, 0);
+  const nearestCrossing = CROSSINGS.reduce((a, b) => (Math.abs(b - ears.x) < Math.abs(a - ears.x) ? b : a));
+  for (const cx of town.update(time, t, dt)) {
+    if (cx !== nearestCrossing) continue;
+    const d = Math.hypot(cx - ears.x, RAIL_Z - ears.z);
+    audio.fumikiri({ gain: 0.08 + 0.8 * clamp(1 - d / 500, 0, 1), dirX: cx - ears.x, dirZ: RAIL_Z - ears.z, near: clamp(1 - d / 120, 0, 1) });
+  }
+
+  // 夜道の手もとの灯り
+  walkLight.position.set(camera.position.x, camera.position.y + 0.6, camera.position.z);
+  const inArcade = mode === 'walk' && zoneWeights(walker.x, walker.z).arcade > 0;
+  walkLight.intensity = mode === 'walk' ? p.night * (inArcade ? 6 : 2.5) + (inArcade ? (1 - p.night) * 0.6 : 0) : 0;
 
   // 何もしないで猫を眺めていると、少しずつ心を許してくれる
-  if (!eyesClosed && controls.idleSeconds > 6) cat.patience(dt, cat.inView(camera));
+  if (mode === 'room' && !eyesClosed && controls.idleSeconds > 6) cat.patience(dt, cat.inView(camera));
+  dust.visible = mode === 'room';
 
   // 埃は日が差しているときだけ見える
   dust.rotation.y = t * 0.01;
@@ -271,11 +406,20 @@ function frame() {
 
   // 視線が窓の外に向いている度合い
   controls.forward(fwd);
-  const outside = smoothstep(0.15, 0.85, -fwd.z) * (1 - smoothstep(0.35, 0.85, -fwd.y));
-  const cd = catDir();
+  const outside = mode === 'walk' ? 1 : smoothstep(0.15, 0.85, -fwd.z) * (1 - smoothstep(0.35, 0.85, -fwd.y));
+  // ゴロゴロは、いちばん近い猫のものを聞く
+  let purrCat = cat, purr = mode === 'room' ? cat.purr : 0;
+  if (mode === 'walk') {
+    for (const c of strays) {
+      const d = catDir(c).length();
+      const v = c.purr * clamp(1 - d / 4, 0, 1);
+      if (v > purr) { purr = v; purrCat = c; }
+    }
+  }
   audio.update(dt, {
     outside, hour: time.hour, night: p.night, eyesClosed, yaw: controls.yaw,
-    purr: cat.purr, catDir: cd, fishing: boats.nearestFishing(camera.position),
+    purr, catDir: catDir(purrCat), fishing: boats.nearestFishing(camera.position),
+    walking: mode === 'walk', zone: mode === 'walk' ? zoneWeights(walker.x, walker.z) : null,
   });
 
   renderer.render(scene, camera);
@@ -290,6 +434,22 @@ function frame() {
   if (labelTimer <= 0) {
     labelTimer = 0.5;
     $('date-label').textContent = dateLabel();
+    // 町では、いまいる場所の名前と、その場でできること
+    if (mode === 'walk') {
+      const name = placeName(walker.x, walker.z);
+      $('place-label').textContent = name;
+      const head = name.split('　')[0];
+      if (head !== lastPlace.split('　')[0]) toast(head, 2600);
+      lastPlace = name;
+      action = walker.seat ? 'stand' : walker.nearDoor() ? 'home' : walker.nearBench() ? 'sit' : null;
+    } else {
+      $('place-label').textContent = '';
+      action = null;
+    }
+    const act = $('btn-act');
+    act.hidden = !action;
+    act.textContent = { home: '家に入る', sit: 'ベンチに座る', stand: '立ちあがる' }[action] || '';
+    walkBtn.hidden = mode !== 'walk' || !!walker.seat;
     document.querySelectorAll('[data-time]').forEach((b) => b.classList.toggle('active', b.dataset.time === time.phase));
     const sl = $('sky-label');
     if (!skyShown && time.hour > 17.6 && time.hour < 19) {
@@ -310,8 +470,9 @@ function frame() {
       `cat      Lv.${cat.level}  affection ${cat.affection.toFixed(2)}`,
       `outside  ${outside.toFixed(2)}  wind ${audio.wind.toFixed(2)}`,
       `idle     ${controls.idleSeconds.toFixed(1)}s`,
+      `pos      ${mode} ${camera.position.x.toFixed(1)}, ${camera.position.y.toFixed(1)}, ${camera.position.z.toFixed(1)}`,
       `calls    ${renderer.info.render.calls}`,
-      `[l]+affection [r]reset cat [t]+1h [w]wake [b]bell [f]踏切`,
+      `[1]+affection [2]reset cat [3]+1h [4]wake [5]bell [6]踏切 [7]電車`,
     ].join('\n');
   }
 

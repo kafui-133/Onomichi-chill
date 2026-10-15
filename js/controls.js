@@ -35,7 +35,9 @@ export class LookControls {
       this.targetFov = clamp(this.targetFov + e.deltaY * 0.02, 32, 62);
       this.touch();
     }, { passive: false });
+    this.keyLook = true; // 歩いているときは矢印キーを移動に使う
     window.addEventListener('keydown', (e) => {
+      if (!this.keyLook || !this.enabled) return;
       const step = 0.25;
       if (e.key === 'ArrowLeft') this.targetYaw += step;
       if (e.key === 'ArrowRight') this.targetYaw -= step;
@@ -59,8 +61,10 @@ export class LookControls {
     this.touch();
     this.dom.setPointerCapture?.(e.pointerId);
     this.downAt = { x: e.clientX, y: e.clientY, t: performance.now() };
-    if (this._hit(e)) {
+    const hit = this._hit(e);
+    if (hit) {
       this.petting = true;
+      this.petTarget = hit.object;
       return;
     }
     this.dragging = true;
@@ -86,7 +90,7 @@ export class LookControls {
       // なでている途中で大きく動かしたら、見渡しに切り替える
       if (Math.hypot(e.clientX - this.downAt.x, e.clientY - this.downAt.y) > 40) {
         this.petting = false;
-        this.cb.onRelease?.();
+        this.cb.onRelease?.(this.petTarget);
         this.dragging = true;
         this.last = { x: e.clientX, y: e.clientY };
         document.body.classList.add('dragging');
@@ -101,8 +105,8 @@ export class LookControls {
   _up() {
     if (this.petting) {
       const held = performance.now() - this.downAt.t;
-      if (held < 350) this.cb.onPoke?.();
-      this.cb.onRelease?.();
+      if (held < 350) this.cb.onPoke?.(this.petTarget);
+      this.cb.onRelease?.(this.petTarget);
     } else if (this.dragging) {
       // 手を離したあと、すこしだけ慣性で流れる
       this.targetYaw += this.velYaw * 8;
@@ -120,7 +124,7 @@ export class LookControls {
   }
 
   update(dt, elapsed) {
-    if (this.petting) this.cb.onStroke?.(dt);
+    if (this.petting) this.cb.onStroke?.(dt, this.petTarget);
     this.yaw = damp(this.yaw, this.targetYaw, 4, dt);
     this.pitch = damp(this.pitch, this.targetPitch, 4, dt);
     this.fov = damp(this.fov, this.targetFov, 4, dt);

@@ -98,22 +98,26 @@ const TAIL_CURVES = {
 };
 
 export class Cat {
-  constructor(scene) {
+  /**
+   * @param opts.fixed 町の野良猫用。{ pos, pose: 'sit'|'loaf'|'curl', heading, level } で、
+   *                   その場所から動かず、親密度も保存しない。
+   */
+  constructor(scene, opts = {}) {
     this.root = new THREE.Group();
     scene.add(this.root);
     this.listeners = {};
-    this.affection = this._load();
-    this.level = this.levelFor(this.affection);
+    this.fixed = opts.fixed || null;
+    this.affection = this.fixed ? LEVEL_THRESHOLDS[this.fixed.level - 1] : this._load();
+    this.level = this.fixed ? this.fixed.level : this.levelFor(this.affection);
 
     this._build();
     this.parts = { body: this.body, head: this.head, fl: this.legs.fl, fr: this.legs.fr, bl: this.legs.bl, br: this.legs.br, tail: this.tail };
-    this.cur = JSON.parse(JSON.stringify(POSES[SPOTS[this.level].pose]));
-    this.tailCur = TAIL_CURVES[SPOTS[this.level].pose].map((a) => a.slice());
-    this.poseName = SPOTS[this.level].pose;
-
-    const spot = SPOTS[this.level];
+    const spot = this._spot();
+    this.cur = JSON.parse(JSON.stringify(POSES[spot.pose]));
+    this.tailCur = TAIL_CURVES[spot.pose].map((a) => a.slice());
+    this.poseName = spot.pose;
     this.root.position.copy(spot.pos);
-    this.heading = Math.PI;
+    this.heading = this.fixed ? this.fixed.heading : Math.PI;
     this.path = [];
     this.walkPhase = 0;
     this.moving = false;
@@ -140,6 +144,11 @@ export class Cat {
   on(name, fn) { (this.listeners[name] ||= []).push(fn); }
   emit(name, ...a) { (this.listeners[name] || []).forEach((fn) => fn(...a)); }
 
+  _spot() {
+    if (this.fixed) return { pos: this.fixed.pos, face: 'fixed', pose: this.fixed.pose };
+    return SPOTS[this.level];
+  }
+
   levelFor(a) {
     let lv = 1;
     LEVEL_THRESHOLDS.forEach((t, i) => { if (a >= t) lv = i + 1; });
@@ -150,6 +159,7 @@ export class Cat {
     try { return parseFloat(localStorage.getItem(STORAGE_KEY)) || 0; } catch { return 0; }
   }
   _save() {
+    if (this.fixed) return;
     try { localStorage.setItem(STORAGE_KEY, this.affection.toFixed(2)); } catch { /* ignore */ }
   }
   reset() {
@@ -256,6 +266,7 @@ export class Cat {
   // ---------- 親密度 ----------
   addAffection(v) {
     this.affection = Math.max(0, this.affection + v);
+    if (this.fixed) return;
     this._save();
     const lv = this.levelFor(this.affection);
     if (lv > this.level) this._levelUp(lv);
@@ -345,15 +356,16 @@ export class Cat {
 
     // 移動
     this.moving = this.path.length > 0;
-    let poseName = SPOTS[this.level].pose;
+    let poseName = this._spot().pose;
     if (this.moving) {
       poseName = 'stand';
       this._followPath(dt);
     } else {
       // 定位置での向き
-      const spot = SPOTS[this.level];
+      const spot = this._spot();
       let targetHeading = this.heading;
-      if (spot.face === 'sea') targetHeading = Math.PI + 0.25;
+      if (spot.face === 'fixed') targetHeading = this.fixed.heading;
+      else if (spot.face === 'sea') targetHeading = Math.PI + 0.25;
       else if (spot.face === 'camera') targetHeading = Math.atan2(camera.position.x - this.root.position.x, camera.position.z - this.root.position.z);
       else targetHeading = -2.3;
       this.heading = this._dampAngle(this.heading, targetHeading, 2, dt);
