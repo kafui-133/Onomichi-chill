@@ -13,7 +13,7 @@ import { Town } from './town.js';
 import { Food } from './food.js';
 import { Walker } from './walker.js';
 import { MapView } from './mapView.js';
-import { PLACES, CROSSINGS, ROADS, BENCHES, ROPEWAY, groundY, placeName, zoneWeights, pointAlong, clampToRoads } from './townMap.js';
+import { PLACES, CROSSINGS, ROADS, BENCHES, ROPEWAY, ROPEWAY_STOPS, groundY, placeName, zoneWeights, pointAlong, clampToRoads } from './townMap.js';
 import { kanjiNumber, smoothstep, clamp } from './util.js';
 
 const params = new URLSearchParams(location.search);
@@ -212,9 +212,47 @@ $('btn-out').addEventListener('click', () => {
 const food = new Food({ audio, toast: (t, ms) => toast(t, ms), context: () => ({ seated: !!walker.seat, walking: mode === 'walk' }) });
 const nearShop = () => (mode === 'walk' && !walker.seat ? town.interactables.find((s) => Math.hypot(s.x - walker.x, s.z - walker.z) < s.radius) : null);
 
+// ---------- 千光寺山ロープウェイに乗る（片道およそ3分） ----------
+const RIDE_SECONDS = 180;
+let ride = null;
+function nearRopewayStop() {
+  if (mode !== 'walk' || ride || walker.seat) return null;
+  if (Math.hypot(walker.x - ROPEWAY_STOPS.base.x, walker.z - ROPEWAY_STOPS.base.z) < 20) return 'up';
+  if (Math.hypot(walker.x - ROPEWAY_STOPS.top.x, walker.z - ROPEWAY_STOPS.top.z) < 20) return 'down';
+  return null;
+}
+function startRide(dir) {
+  ride = { dir: dir === 'up' ? 1 : -1, t: dir === 'up' ? 0 : 1 };
+  town.ride = ride;
+  walker.enabled = false;
+  walkBtn.hidden = true;
+  // 尾道水道（南）のほうを向いて座る
+  controls.targetYaw = Math.round(controls.yaw / (Math.PI * 2)) * Math.PI * 2;
+  controls.targetPitch = -0.12;
+  audio.chime();
+  toast(dir === 'up' ? 'ロープウェイで山頂へ。およそ3分の空中散歩' : 'ロープウェイで山麓へ。およそ3分', 4000);
+}
+function updateRide(dt) {
+  if (!ride) return;
+  ride.t = clamp(ride.t + (ride.dir * dt) / RIDE_SECONDS, 0, 1);
+  const p = town.cablePoint(ride.t);
+  controls.basePos.set(p.x, p.y - 2.75, p.z);
+  if ((ride.dir > 0 && ride.t >= 1) || (ride.dir < 0 && ride.t <= 0)) {
+    const stop = ride.dir > 0 ? ROPEWAY_STOPS.top : ROPEWAY_STOPS.base;
+    const up = ride.dir > 0;
+    ride = null;
+    town.ride = null;
+    walker.enter(stop.x, stop.z, controls.yaw);
+    toast(up ? '山頂駅に着いた。頂上の展望台はすぐそこ' : '山麓駅に着いた', 3500);
+  }
+}
+
 let action = null;
 let actionShop = null;
+let rideDir = null;
 function doAction() {
+  if (action === 'ropeway' && rideDir) { startRide(rideDir); return; }
+  if (action === 'deck' && actionShop) { walker.sit(actionShop.seat); toast('展望台から、尾道水道を見わたす', 3000); return; }
   if (action === 'shop' && actionShop) { food.openShop(actionShop); return; }
   if (action === 'home') goHome();
   else if (action === 'sit') { walker.sit(walker.nearBench()); toast('ベンチに腰をおろす', 2500); }
@@ -392,11 +430,12 @@ function frame() {
   hemi.intensity = p.hemi;
   sun.color.copy(time.sunUp ? p.sun : new THREE.Color(0x9fb4e0));
   sun.intensity = p.light;
-  if (mode === 'walk') sun.target.position.set(walker.x, controls.basePos.y - 1.5, walker.z);
+  if (mode === 'walk') sun.target.position.set(controls.basePos.x, controls.basePos.y - 1.5, controls.basePos.z);
   sun.position.copy(sun.target.position).addScaledVector(time.lightDir, sun.userData.dist);
   scene.fog.color.copy(p.horizon).lerp(p.mid, 0.2);
 
   walker.update(dt);
+  updateRide(dt);
   controls.update(dt, t);
   sky.update(time, camera, t);
   world.update(time, t);
@@ -474,17 +513,22 @@ function frame() {
       if (head !== lastPlace.split('　')[0]) toast(head, 2600);
       lastPlace = name;
       actionShop = nearShop();
-      action = walker.seat ? 'stand' : walker.crouching ? 'rise' : actionShop ? 'shop' : walker.nearDoor() ? 'home' : walker.nearBench() ? 'sit' : nearStray() ? 'crouch' : null;
+      rideDir = nearRopewayStop();
+      action = ride ? null : walker.seat ? 'stand' : walker.crouching ? 'rise' : rideDir ? 'ropeway'
+        : actionShop ? (actionShop.type === 'deck' ? 'deck' : 'shop') : walker.nearDoor() ? 'home' : walker.nearBench() ? 'sit' : nearStray() ? 'crouch' : null;
     } else {
       $('place-label').textContent = '';
       action = null;
     }
     const act = $('btn-act');
     act.hidden = !action;
-    act.textContent = action === 'shop'
+    act.textContent = action === 'ropeway' ? (rideDir === 'up' ? 'ロープウェイに乗る（山頂へ）' : 'ロープウェイに乗る（山麓へ）')
+      : action === 'deck' ? '展望台にのぼる'
+      : action === 'stand' && walker.seat && walker.seat.kind === 'deck' ? '展望台をおりる'
+      : action === 'shop'
       ? { bakery: `${actionShop.name}に入る`, ramen: `${actionShop.name}で食べる`, vending: '自販機で買う' }[actionShop.type]
       : { home: '家に入る', sit: 'ベンチに座る', stand: '立ちあがる', crouch: 'しゃがむ', rise: '立ちあがる' }[action] || '';
-    walkBtn.hidden = mode !== 'walk' || !!walker.seat || walker.crouching;
+    walkBtn.hidden = mode !== 'walk' || !!walker.seat || walker.crouching || !!ride;
     document.querySelectorAll('[data-time]').forEach((b) => b.classList.toggle('active', b.dataset.time === time.phase));
     const sl = $('sky-label');
     if (!skyShown && time.hour > 17.6 && time.hour < 19) {

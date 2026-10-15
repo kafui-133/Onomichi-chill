@@ -6,7 +6,7 @@ import { canvasTexture, glowTexture, seededRandom, speckle } from './util.js';
 import { lam, buildSignAtlas, labelTexture, QuadBatch, instancedBoxes, instancedChunks } from './townKit.js';
 import {
   DATA, SEA_Y, BOUNDS, terrainY, groundY, ROADS, OTHER_ROADS, ARCADE_ROADS, nearAnyRoad, samplePath, roadLength,
-  ALLEYS, COAST, RAILS, CROSSINGS, TRAIN_TRACKS, ROPEWAY, BENCHES, FERRY_ROUTES, POIS, onOnomichiSide, nearestRoad, inBuilding,
+  ALLEYS, COAST, RAILS, CROSSINGS, TRAIN_TRACKS, ROPEWAY, SUMMIT, BENCHES, FERRY_ROUTES, POIS, onOnomichiSide, nearestRoad, inBuilding,
 } from './townMap.js';
 
 const SURFACE_LIFT = { asphalt: 0.05, tile: 0.07, stone: 0.09 };
@@ -101,6 +101,7 @@ export class Town {
     this._nekoStones();
     this._pine();
     this._vendingMachines();
+    this._summitDeck();
     this._lamps();
     this._train();
   }
@@ -384,6 +385,7 @@ export class Town {
     }
     for (const b of DATA.buildings) {
       if (b.k === 'pagoda') continue; // 三重塔は模型で置く
+      if (b.n === '展望台') continue;  // 頂上の展望台は、見晴らしのデッキとして別に作る
       const poly = [];
       for (let k = 0; k < b.p.length; k += 2) poly.push([b.p[k], b.p[k + 1]]);
       if (poly.length < 3) continue;
@@ -517,6 +519,9 @@ export class Town {
       if (Math.hypot(x, z) < 10) continue;
       if (this.occupied.has(Math.floor(x / 4) * 100003 + Math.floor(z / 4))) continue;
       if (nearAnyRoad(x, z, 2.5)) continue;
+      // 山頂の展望台からの眺め（南の尾道水道）をさえぎらない
+      const dd = Math.hypot(x - SUMMIT.deck.x, z - SUMMIT.deck.z);
+      if (dd < 25 || (dd < 90 && z < SUMMIT.deck.z + 5)) continue;
       const s = 1.8 + r() * (above > 80 ? 4 : 2.8);
       if (ground + s * 1.5 > viewCap(x, z)) continue;
       const c = new THREE.Color().setHSL(0.24 + r() * 0.08, 0.3 + r() * 0.15, 0.17 + r() * 0.1);
@@ -846,11 +851,12 @@ export class Town {
   _ropeway() {
     const { base, top } = ROPEWAY;
     const by = terrainY(base.x, base.z), ty = terrainY(top.x, top.z);
+    // 駅舎そのものは OpenStreetMap の建物で立っているので、ここではゴンドラの乗り場の屋根だけ
     const st = (p, y) => {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(9, 7, 9), lam(0xd8d4ca));
-      m.position.set(p.x, y + 3, p.z);
-      m.castShadow = m.receiveShadow = true;
-      this.group.add(m);
+      const roof = new THREE.Mesh(new THREE.BoxGeometry(6, 0.3, 5), lam(0x7a2a22));
+      roof.position.set(p.x, y + 6.2, p.z);
+      roof.castShadow = true;
+      this.group.add(roof);
     };
     st(base, by);
     st(top, ty);
@@ -881,6 +887,44 @@ export class Town {
       this.group.add(g);
       return { g, phase };
     });
+  }
+
+  /** ロープウェイのケーブル上の点（t=0 山麓駅、1 山頂駅）。少したわませる */
+  cablePoint(t) {
+    const p = new THREE.Vector3().lerpVectors(this.ropeA, this.ropeB, t);
+    p.y -= Math.sin(t * Math.PI) * 5;
+    return p;
+  }
+
+  /** 千光寺山の頂上の展望台（デッキ）。海側へ張り出した木のデッキと手すり */
+  _summitDeck() {
+    const d = SUMMIT.deck;
+    const gy = terrainY(d.x, d.z);
+    const top = gy + 4;
+    this.deckTop = top;
+    const g = new THREE.Group();
+    const wood = lam(0x9a7a58), metal = lam(0x50565c);
+    const floor = new THREE.Mesh(new THREE.BoxGeometry(18, 0.3, 4.5), wood);
+    floor.position.y = top - gy;
+    floor.castShadow = floor.receiveShadow = true;
+    g.add(floor);
+    for (const x of [-8, -2.7, 2.7, 8]) for (const z of [-1.9, 1.9]) {
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, top - gy + 2, 8), metal);
+      post.position.set(x, (top - gy) / 2 - 1, z);
+      g.add(post);
+    }
+    for (const z of [-2.2, 2.2]) {
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(18, 0.06, 0.06), metal);
+      rail.position.set(0, top - gy + 1.05, z);
+      const glass = new THREE.Mesh(new THREE.PlaneGeometry(18, 0.9), new THREE.MeshLambertMaterial({ color: 0xe4eef2, transparent: true, opacity: 0.07, side: THREE.DoubleSide, depthWrite: false }));
+      glass.position.set(0, top - gy + 0.55, z);
+      g.add(rail, glass);
+    }
+    // デッキは尾道水道（南南西）へ向ける
+    g.rotation.y = 0.35;
+    g.position.set(d.x, gy, d.z);
+    this.group.add(g);
+    this.interactables.push({ type: 'deck', name: '展望台', x: SUMMIT.x, z: SUMMIT.z, radius: 9, seat: { x: d.x + Math.sin(0.35) * -1.6, z: d.z - Math.cos(0.35) * 1.6, y: top + 0.43, yaw: 0, kind: 'deck' } });
   }
 
   // ---------- 名所：天寧寺の三重塔、艮神社、千光寺 ----------
@@ -1165,10 +1209,9 @@ export class Town {
     const eased = k * k * (3 - 2 * k) * 0.08 + k * 0.92;
     const tA = up ? eased : 1 - eased;
     this.gondolas.forEach((gd) => {
-      const t = gd.phase === 0 ? tA : 1 - tA;
-      const p = new THREE.Vector3().lerpVectors(this.ropeA, this.ropeB, t);
-      p.y -= Math.sin(t * Math.PI) * 5;
-      gd.g.position.copy(p);
+      // 乗っているあいだは、1台目がこちらの乗っているゴンドラになる
+      const t = gd.phase === 0 && this.ride ? this.ride.t : gd.phase === 0 ? tA : 1 - tA;
+      gd.g.position.copy(this.cablePoint(t));
     });
 
     // 電車

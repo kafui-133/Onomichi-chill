@@ -459,6 +459,25 @@ function seaDirection(x, z) {
   return best && best.h < SEA_Y ? best : null;
 }
 
+// ロープウェイの乗り場（駅前の道の上）と、山頂の展望台
+export const ROPEWAY_STOPS = (() => {
+  const stand = (p) => { const c = clampToRoads(p.x, p.z); return { x: c.x, z: c.z }; };
+  return { base: stand(ROPEWAY.base), top: stand(ROPEWAY.top) };
+})();
+export const SUMMIT = (() => {
+  // 千光寺山のいちばん高いところ（展望台のあたり）の、歩ける道の上
+  const vp = POIS.find((p) => p.n === '展望台' && p.k === 'viewpoint');
+  let best = null;
+  for (let x = ROPEWAY.top.x - 40; x < ROPEWAY.top.x + 160; x += 4) {
+    for (let z = ROPEWAY.top.z - 60; z < ROPEWAY.top.z + 100; z += 4) {
+      const y = terrainY(x, z);
+      if (!best || y > best.y) best = { x, z, y };
+    }
+  }
+  const c = clampToRoads(vp ? vp.x : best.x, vp ? vp.z : best.z);
+  return { x: c.x, z: c.z, deck: vp ? { x: vp.x, z: vp.z } : { x: best.x, z: best.z } };
+})();
+
 // 海沿いのベンチ：歩ける道が岸に近いところに、海を向けて置く
 export const BENCHES = (() => {
   const out = [];
@@ -514,11 +533,12 @@ function placeNear(label, poiName, dist = 15) {
 export const PLACES = [
   { ...placeAt('坂の上の空き家', -6.5, -0.6, -60, -300), id: 'house' },
   placeNear('千光寺', '千光寺'),
-  placeNear('ロープウェイ山頂駅', '千光寺ロープウェイ山頂駅'),
+  placeAt('ロープウェイ山頂駅', ROPEWAY_STOPS.top.x, ROPEWAY_STOPS.top.z, ROPEWAY.top.x, ROPEWAY.top.z),
+  { ...placeAt('千光寺山 頂上（展望台）', SUMMIT.x, SUMMIT.z, 0, -600), id: 'summit' },
   placeNear('天寧寺 三重塔', '天寧寺三重塔'),
   placeOnRoad('猫の細道', '猫の細道', 0.5),
   placeNear('艮神社', '艮神社'),
-  placeNear('ロープウェイ山麓駅', '千光寺ロープウェイ山麓駅'),
+  placeAt('ロープウェイ山麓駅', ROPEWAY_STOPS.base.x, ROPEWAY_STOPS.base.z, ROPEWAY.base.x, ROPEWAY.base.z),
   placeOnRoad('本町センター街', '本町センター街', 0.5),
   placeOnRoad('尾道ラーメン 汐', '本町センター街', 0.52),
   placeOnRoad('パン 潮風', '中商店街', 0.44),

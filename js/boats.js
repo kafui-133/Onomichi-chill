@@ -170,7 +170,8 @@ export class Boats {
     }
     const dx = to.x - from.x, dz = to.z - from.z;
     const dist = Math.hypot(dx, dz);
-    const dur = dist / 5.5;
+    const FERRY_SPEED = 1.8; // m/s。実際の渡船のように、ゆっくり渡る
+    const dur = dist / FERRY_SPEED;
     f.t += dt / dur;
     const t = Math.min(1, f.t);
     const s = t * t * (3 - 2 * t);
@@ -180,7 +181,7 @@ export class Boats {
     b.group.position.z = from.z + dz * s + (dx / dist) * bulge;
     b.angle = Math.atan2(dz, dx);
     b.group.rotation.y = -b.angle;
-    b.speed = 5.5 * 6 * s * (1 - s);
+    b.speed = FERRY_SPEED * 6 * s * (1 - s);
     if (!b.passed && t > 0.5) { b.passed = true; this.passListeners.forEach((fn) => fn(b)); }
     if (t >= 1) { f.side = 1 - f.side; f.wait = 18 + Math.random() * 10; }
   }
