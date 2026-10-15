@@ -31,7 +31,9 @@ function demAt(x, z) {
   const tx = fx - i, tz = fz - j;
   const n = DEM.nx;
   const a = HEIGHTS[j * n + i], b = HEIGHTS[j * n + i + 1], c = HEIGHTS[(j + 1) * n + i], d = HEIGHTS[(j + 1) * n + i + 1];
-  return (a * (1 - tx) + b * tx) * (1 - tz) + (c * (1 - tx) + d * tx) * tz;
+  // 地面メッシュと同じ三角形分割（a-c-b と b-c-d）で補間する。道や石段が地面に埋もれないように
+  if (tx + tz <= 1) return a + (b - a) * tx + (c - a) * tz;
+  return d + (c - d) * (1 - tx) + (b - d) * (1 - tz);
 }
 
 /** 地形の高さ。空き家のまわりだけ、家が建つように平らにならしてある */
@@ -111,7 +113,9 @@ export const ARCADE_ROADS = ROADS.filter((r) => r.covered);
 const CELL = 16;
 const grid = new Map();
 const SEGMENTS = [];
-for (const road of ROADS) {
+for (const road of ROADS) addToGrid(road);
+
+function addToGrid(road) {
   for (let i = 0; i < road.pts.length - 1; i++) {
     const [ax, az] = road.pts[i], [bx, bz] = road.pts[i + 1];
     const dx = bx - ax, dz = bz - az;
@@ -188,6 +192,47 @@ export function nearAnyRoad(x, z, margin = 0) {
   }
   return null;
 }
+
+// ---------- 商店街の路地 ----------
+// 本通りのアーケードから、海側にも坂側にも抜けられる細い路地を、およそ30mごとに通す。
+// 実際の本通りも、店と店のあいだに細い小路が何本も海側・山側へのびている。
+export const ALLEYS = [];
+(function makeAlleys() {
+  const arcades = ROADS.filter((r) => r.covered && r.name);
+  let n = 0;
+  for (const road of arcades) {
+    const hw = road.width / 2;
+    for (const p of samplePath(road.pts, 30).slice(1, -1)) {
+      for (const side of [-1, 1]) {
+        const nx = -Math.sin(p.angle) * side, nz = Math.cos(p.angle) * side;
+        // すぐ近くに横道があれば、それで抜けられるので足さない
+        let exists = false;
+        for (const t of [-10, -5, 0, 5, 10]) {
+          const qx = p.x + Math.cos(p.angle) * t + nx * (hw + 4), qz = p.z + Math.sin(p.angle) * t + nz * (hw + 4);
+          const r = nearAnyRoad(qx, qz, 0.5);
+          if (r && !r.covered) { exists = true; break; }
+        }
+        if (exists) continue;
+        // 横へまっすぐ進んで、最初に出会う道まで
+        let hit = null;
+        for (let d = hw + 2; d < 70; d += 0.5) {
+          const qx = p.x + nx * d, qz = p.z + nz * d;
+          if (demAt(qx, qz) < SEA_Y + 0.4) break;          // 海に出てしまう
+          const r = nearAnyRoad(qx, qz, 0);
+          if (r && !r.covered) { hit = [qx + nx * 0.5, qz + nz * 0.5]; break; }
+        }
+        if (!hit) continue;
+        const alley = {
+          id: 100000 + n++, name: '小路', label: '小路', kind: 'alley', width: 1.7, surface: 'stone',
+          pts: [[p.x, p.z], hit], covered: false, layered: false, alley: true,
+        };
+        ALLEYS.push(alley);
+        ROADS.push(alley);
+        addToGrid(alley);
+      }
+    }
+  }
+})();
 
 /** 道の線に沿って一定間隔で点を取る */
 export function samplePath(pts, step) {

@@ -6,10 +6,10 @@ import { canvasTexture, glowTexture, seededRandom, speckle } from './util.js';
 import { lam, buildSignAtlas, labelTexture, QuadBatch, instancedBoxes, instancedChunks } from './townKit.js';
 import {
   DATA, SEA_Y, BOUNDS, terrainY, groundY, ROADS, OTHER_ROADS, ARCADE_ROADS, nearAnyRoad, samplePath, roadLength,
-  COAST, RAILS, CROSSINGS, TRAIN_TRACKS, ROPEWAY, BENCHES, FERRY_ROUTES, POIS, onOnomichiSide,
+  ALLEYS, COAST, RAILS, CROSSINGS, TRAIN_TRACKS, ROPEWAY, BENCHES, FERRY_ROUTES, POIS, onOnomichiSide,
 } from './townMap.js';
 
-const SURFACE_LIFT = { asphalt: 0.06, tile: 0.08, stone: 0.1 };
+const SURFACE_LIFT = { asphalt: 0.05, tile: 0.07, stone: 0.09 };
 
 /**
  * 空き家の窓から見下ろす視界（南へ開いた扇形）に入るものの、許される高さの上限。
@@ -166,52 +166,80 @@ export class Town {
   }
 
   // ---------- 道（地形に沿う帯） ----------
-  _texture(base, line, kind) {
+  _texture(kind) {
     const r = seededRandom('tex' + kind);
-    return canvasTexture(128, 128, (g, w, h) => {
-      g.fillStyle = base;
-      g.fillRect(0, 0, w, h);
-      speckle(g, w, h, 700, 0.1, r);
-      g.strokeStyle = line;
-      g.lineWidth = 2;
-      if (kind === 'tile') {
-        for (let i = 0; i <= 4; i++) {
-          g.beginPath(); g.moveTo(0, i * 32); g.lineTo(w, i * 32); g.stroke();
-          g.beginPath(); g.moveTo(i * 32, 0); g.lineTo(i * 32, h); g.stroke();
+    return canvasTexture(256, 256, (g, w, h) => {
+      if (kind === 'asphalt') {
+        // アスファルト：細かい粒と、両端の白線（u=0..1 が道の幅）
+        g.fillStyle = '#56575b';
+        g.fillRect(0, 0, w, h);
+        speckle(g, w, h, 3000, 0.12, r);
+        g.fillStyle = 'rgba(236,232,220,0.85)';
+        g.fillRect(6, 0, 5, h);
+        g.fillRect(w - 11, 0, 5, h);
+        g.fillStyle = 'rgba(40,40,44,0.5)';
+        g.fillRect(0, 0, 4, h);
+        g.fillRect(w - 4, 0, 4, h);
+      } else if (kind === 'tile') {
+        // 商店街・広場のタイル（1マス＝0.5m）
+        g.fillStyle = '#bcb19c';
+        g.fillRect(0, 0, w, h);
+        for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) {
+          const v = 175 + r() * 25;
+          g.fillStyle = `rgb(${v},${v - 9},${v - 28})`;
+          g.fillRect(x * 64 + 2, y * 64 + 2, 60, 60);
         }
-      } else if (kind === 'stone') {
-        for (let y = 0; y < h; y += 22) {
-          const off = (y / 22) % 2 ? 0 : 18;
-          g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke();
-          for (let x = off; x < w; x += 36) { g.beginPath(); g.moveTo(x, y); g.lineTo(x, y + 22); g.stroke(); }
+        speckle(g, w, h, 900, 0.06, r);
+      } else {
+        // 石畳・石段の小径：割り石と目地（u=0..1 が道の幅、両端に縁石）
+        g.fillStyle = '#6d675e';
+        g.fillRect(0, 0, w, h);
+        for (let y = 0; y < h; y += 26) {
+          let x = 22 + ((y / 26) % 2) * 18;
+          while (x < w - 22) {
+            const sw = 28 + r() * 30;
+            const v = 135 + r() * 40;
+            g.fillStyle = `rgb(${v},${v - 4},${v - 14})`;
+            g.fillRect(x + 1.5, y + 1.5, Math.min(sw, w - 22 - x) - 3, 23);
+            x += sw;
+          }
         }
+        g.fillStyle = '#8e887c';
+        g.fillRect(0, 0, 20, h);
+        g.fillRect(w - 20, 0, 20, h);
+        speckle(g, w, h, 1500, 0.08, r);
       }
     });
   }
 
+  /** 道：地面メッシュと同じ高さ（三角形補間）に、細かく分けた帯を少し浮かせて敷く */
   _roads() {
-    const mats = {
-      asphalt: new THREE.MeshLambertMaterial({ map: this._texture('#55565a', '#4a4b4f', 'asphalt'), polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }),
-      tile: new THREE.MeshLambertMaterial({ map: this._texture('#b8ad98', '#a39985', 'tile'), polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 }),
-      stone: new THREE.MeshLambertMaterial({ map: this._texture('#9c968b', '#7e786e', 'stone'), polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -6 }),
-    };
+    const mk = (kind, f) => new THREE.MeshLambertMaterial({ map: this._texture(kind), polygonOffset: true, polygonOffsetFactor: f, polygonOffsetUnits: f * 2 });
+    const mats = { asphalt: mk('asphalt', -1), tile: mk('tile', -2), stone: mk('stone', -3) };
     const batches = { asphalt: new TriBatch(), tile: new TriBatch(), stone: new TriBatch() };
     const white = new THREE.Color(1, 1, 1);
+    // v 方向（道の長さ）の模様の大きさ
+    const vScale = { asphalt: 8, tile: 2, stone: 1.6 };
     for (const road of [...ROADS, ...OTHER_ROADS]) {
       const tb = batches[road.surface];
       const lift = SURFACE_LIFT[road.surface];
       const hw = road.width / 2;
-      const s = samplePath(road.pts, 2.5);
+      const across = Math.max(1, Math.ceil(road.width / 2.2));
+      const s = samplePath(road.pts, 1.25);
+      const uMax = road.surface === 'tile' ? road.width / 2 : 1;
       let v = 0;
       for (let i = 0; i < s.length - 1; i++) {
         const a = s[i], b = s[i + 1];
-        const na = { x: -Math.sin(a.angle) * hw, z: Math.cos(a.angle) * hw };
-        const nb = { x: -Math.sin(b.angle) * hw, z: Math.cos(b.angle) * hw };
         const L = Math.hypot(b.x - a.x, b.z - a.z);
-        const v1 = v + L / 4;
-        const P = (x, z) => [x, groundY(x, z) + lift, z];
-        tb.quad(P(a.x + na.x, a.z + na.z), P(a.x - na.x, a.z - na.z), P(b.x - nb.x, b.z - nb.z), P(b.x + nb.x, b.z + nb.z), white,
-          [0, v, road.width / 4, v, road.width / 4, v1, 0, v1]);
+        const v1 = v + L / vScale[road.surface];
+        const na = { x: -Math.sin(a.angle), z: Math.cos(a.angle) }, nb = { x: -Math.sin(b.angle), z: Math.cos(b.angle) };
+        for (let k = 0; k < across; k++) {
+          const o0 = -hw + (road.width * k) / across, o1 = -hw + (road.width * (k + 1)) / across;
+          const P = (p, n, o) => { const x = p.x + n.x * o, z = p.z + n.z * o; return [x, groundY(x, z) + lift, z]; };
+          const u0 = (k / across) * uMax, u1 = ((k + 1) / across) * uMax;
+          // 上を向く面になる順番（左→右→右先→左先）
+          tb.quad(P(a, na, o0), P(a, na, o1), P(b, nb, o1), P(b, nb, o0), white, [u0, v, u1, v, u1, v1, u0, v1]);
+        }
         v = v1;
       }
     }
@@ -222,36 +250,113 @@ export class Town {
     }
   }
 
-  /** 急な小径には石の段と石垣を置く（坂の町らしさ） */
+  /**
+   * 石段：蹴上げ約17cm ごとに水平な踏み面を置く本物の階段にする。
+   * 階段（steps）は全部、ふつうの小径でも勾配が急なところ（約1/6より急）は段にする。
+   * 長い石段には手すり、斜面側には石垣。
+   */
   _steps() {
-    const steps = [], walls = [];
+    const RISE = 0.17;
+    const treads = [], walls = [], rails = [], lanterns = [];
+    this.stepLanterns = lanterns;
     const r = this.r;
     for (const road of ROADS) {
       if (road.surface !== 'stone') continue;
-      const s = samplePath(road.pts, 0.7);
-      for (let i = 0; i < s.length - 1; i++) {
-        const a = s[i], b = s[i + 1];
-        const ya = terrainY(a.x, a.z), yb = terrainY(b.x, b.z);
-        const grade = Math.abs(yb - ya) / Math.max(0.1, a.len);
-        if (road.kind !== 'steps' && grade < 0.16) continue;
-        const v = 0.42 + r() * 0.12;
-        steps.push({ x: a.x, y: ya + 0.12 - 0.35, z: a.z, sx: a.len + 0.06, sy: 0.7, sz: road.width, ry: -a.angle, color: new THREE.Color(v, v * 0.98, v * 0.92) });
-        if (i % 3 === 0 && grade > 0.16) {
-          for (const side of [-1, 1]) {
-            const nx = -Math.sin(a.angle) * side, nz = Math.cos(a.angle) * side;
-            const wx = a.x + nx * (road.width / 2 + 0.2), wz = a.z + nz * (road.width / 2 + 0.2);
-            const other = nearAnyRoad(wx, wz, 0.3);
-            if ((other && other !== road) || r() < 0.15) continue;
-            const ground = Math.max(terrainY(wx, wz), ya);
-            const h = 0.7 + r() * 0.7, bottom = ya - 2.2;
-            const g = 0.36 + r() * 0.12;
-            walls.push({ x: wx, y: (ground + h + bottom) / 2, z: wz, sx: 2.15, sy: ground + h - bottom, sz: 0.36, ry: -a.angle, color: new THREE.Color(g * 1.02, g, g * 0.9) });
-          }
+      const s = samplePath(road.pts, 0.1);
+      const H = s.map((p) => groundY(p.x, p.z));
+      const steep = (i) => {
+        if (road.kind === 'steps') return true;
+        const j = Math.min(s.length - 1, i + 15), k = Math.max(0, i - 15);
+        return Math.abs(H[j] - H[k]) / Math.max(0.5, (j - k) * 0.1) > 0.17;
+      };
+      let start = -1;   // いまの踏み面の始まり
+      let base = 0;     // いまの踏み面の高さの基準
+      let flights = 0;
+      const flush = (i0, i1) => {
+        if (i1 - i0 < 2) return;
+        const a = s[i0], b = s[i1];
+        let top = -Infinity;
+        for (let k = i0; k <= i1; k++) top = Math.max(top, H[k]);
+        const len = Math.hypot(b.x - a.x, b.z - a.z);
+        const v = 0.44 + r() * 0.1;
+        treads.push({ x: (a.x + b.x) / 2, y: top + 0.04 - 0.35, z: (a.z + b.z) / 2, sx: len + 0.04, sy: 0.7, sz: road.width + 0.1, ry: -Math.atan2(b.z - a.z, b.x - a.x),
+          color: new THREE.Color(v, v * 0.97, v * 0.9) });
+        flights++;
+      };
+      for (let i = 0; i < s.length; i++) {
+        if (!steep(i)) {
+          if (start >= 0) { flush(start, i - 1); start = -1; }
+          continue;
         }
+        if (start < 0) { start = i; base = H[i]; continue; }
+        if (Math.abs(H[i] - base) >= RISE) { flush(start, i); start = i; base = H[i]; }
       }
+      if (start >= 0) flush(start, s.length - 1);
+      if (!flights) continue;
+
+      // 石段の端の小さな石灯籠（間隔をあけて、片側ずつ交互に）
+      if (road.kind === 'steps' || flights > 12) {
+        const spots = samplePath(road.pts, 14 + r() * 6);
+        spots.forEach((p, i) => {
+          if (i === 0 || !steep(Math.min(s.length - 1, Math.round(i * (s.length / spots.length))))) return;
+          const side = i % 2 ? 1 : -1;
+          const off = road.width / 2 - 0.18;
+          const x = p.x - Math.sin(p.angle) * side * off, z = p.z + Math.cos(p.angle) * side * off;
+          lanterns.push({ x, z, y: groundY(x, z), ry: -p.angle });
+        });
+      }
+
+      // 石垣（斜面側＝高いほうの横）と、長い石段の手すり
+      const coarse = samplePath(road.pts, 2);
+      coarse.forEach((a, i) => {
+        if (i === coarse.length - 1) return;
+        const b = coarse[i + 1];
+        const ya = groundY(a.x, a.z), yb = groundY(b.x, b.z);
+        const grade = Math.abs(yb - ya) / Math.max(0.1, a.len);
+        if (grade < 0.1 && road.kind !== 'steps') return;
+        for (const side of [-1, 1]) {
+          const nx = -Math.sin(a.angle) * side, nz = Math.cos(a.angle) * side;
+          const wx = a.x + nx * (road.width / 2 + 0.22), wz = a.z + nz * (road.width / 2 + 0.22);
+          const other = nearAnyRoad(wx, wz, 0.25);
+          if (other && other !== road) continue;
+          const beside = terrainY(wx + nx * 1.5, wz + nz * 1.5);
+          const top = Math.max(beside, Math.max(ya, yb)) + 0.5 + r() * 0.5;
+          const bottom = Math.min(ya, yb) - 1.5;
+          const g = 0.37 + r() * 0.1;
+          walls.push({ x: wx, y: (top + bottom) / 2, z: wz, sx: a.len + 0.05, sy: top - bottom, sz: 0.4, ry: -a.angle, color: new THREE.Color(g * 1.03, g, g * 0.88) });
+        }
+        if (road.kind === 'steps' && road.width >= 1.6 && i % 1 === 0) {
+          const rise = yb - ya;
+          rails.push({ x: (a.x + b.x) / 2, y: (ya + yb) / 2 + 0.9, z: (a.z + b.z) / 2, sx: Math.hypot(a.len, rise), sy: 0.05, sz: 0.05, ry: -a.angle, rz: Math.atan2(rise, a.len), color: '#3a3f44' });
+          if (i % 2 === 0) rails.push({ x: a.x, y: ya + 0.45, z: a.z, sx: 0.05, sy: 0.9, sz: 0.05, ry: -a.angle, color: '#3a3f44' });
+        }
+      });
     }
-    this.group.add(instancedChunks(steps, lam(0xffffff), { cast: false }));
+    this.group.add(instancedChunks(treads, lam(0xffffff)));
     this.group.add(instancedChunks(walls, lam(0xffffff)));
+    this.group.add(instancedChunks(rails, lam(0xffffff), { receive: false }));
+    this._lanterns(lanterns);
+  }
+
+  /** 高さ50cmほどの小さな石灯籠。夜は火袋がぼんやり灯る */
+  _lanterns(list) {
+    const stone = lam(0x8f897d);
+    const parts = { base: [], post: [], box: [], cap: [] };
+    for (const l of list) {
+      parts.base.push({ x: l.x, y: l.y + 0.05, z: l.z, sx: 0.26, sy: 0.1, sz: 0.26, ry: l.ry });
+      parts.post.push({ x: l.x, y: l.y + 0.2, z: l.z, sx: 0.1, sy: 0.22, sz: 0.1, ry: l.ry });
+      parts.box.push({ x: l.x, y: l.y + 0.38, z: l.z, sx: 0.2, sy: 0.14, sz: 0.2, ry: l.ry });
+      parts.cap.push({ x: l.x, y: l.y + 0.5, z: l.z, sx: 0.32, sy: 0.08, sz: 0.32, ry: l.ry + Math.PI / 4 });
+    }
+    this.group.add(instancedChunks(parts.base, stone), instancedChunks(parts.post, stone), instancedChunks(parts.cap, stone));
+    // 火袋（夜に灯る部分）
+    this.lanternMat = new THREE.MeshLambertMaterial({ color: 0x8f897d, emissive: 0xffb45c, emissiveIntensity: 0 });
+    this.group.add(instancedChunks(parts.box, this.lanternMat, { cast: false }));
+    // 足もとをほのかに照らす光の粒（夜だけ見える）
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(list.flatMap((l) => [l.x, l.y + 0.4, l.z]), 3));
+    this.lanternGlow = new THREE.PointsMaterial({ map: glowTexture(), color: 0xffb060, size: 0.9, transparent: true, opacity: 0, depthWrite: false });
+    this.group.add(new THREE.Points(geo, this.lanternGlow));
   }
 
   // ---------- 建物（OpenStreetMap の輪郭を立ち上げる） ----------
@@ -261,11 +366,17 @@ export class Town {
     const walls = ['#e6e0d4', '#d6cebd', '#cbc3b2', '#6f5a47', '#5c4b3d', '#efe9df', '#bdb5a6', '#d8d4cc'];
     const roofTile = new THREE.Color('#4b5159'), roofFlat = new THREE.Color('#8d8a85');
     const winList = [];
+    const alleyPts = [];
+    for (const al of ALLEYS) for (const p of samplePath(al.pts, 0.8)) {
+      for (const o of [-0.7, 0, 0.7]) alleyPts.push([p.x - Math.sin(p.angle) * o, p.z + Math.cos(p.angle) * o]);
+    }
     for (const b of DATA.buildings) {
       if (b.k === 'pagoda') continue; // 三重塔は模型で置く
       const poly = [];
       for (let k = 0; k < b.p.length; k += 2) poly.push([b.p[k], b.p[k + 1]]);
       if (poly.length < 3) continue;
+      // 商店街の路地がふさがれないように、路地にかかる建物は置かない
+      if (alleyPts.some(([x, z]) => pointInPoly(x, z, poly))) continue;
       const area = Math.abs(signedArea(poly));
       if (area < 4) continue;
       const ys = poly.map(([x, z]) => terrainY(x, z));
@@ -466,7 +577,17 @@ export class Town {
           const nx = -Math.sin(p.angle) * side, nz = Math.cos(p.angle) * side;   // 通りの外向き
           const off = hw + 0.35;
           const fx = p.x + nx * off, fz = p.z + nz * off;
-          if (nearAnyRoad(fx + nx * 2, fz + nz * 2, 0.2) && !nearAnyRoad(fx + nx * 2, fz + nz * 2, 0.2).covered) continue; // 横道の入口はあける
+          // 店の間口と奥行きのどこかに路地・横道がかかるなら、そこは空けて通れるようにする
+          const ca = Math.cos(p.angle), sa = Math.sin(p.angle);
+          let blocked = false;
+          for (const t of [-3.1, -1.5, 0, 1.5, 3.1]) {
+            for (const d of [0.8, 3, 6, 8.5]) {
+              const r0 = nearAnyRoad(fx + nx * d + ca * t, fz + nz * d + sa * t, 0.2);
+              if (r0 && !r0.covered) { blocked = true; break; }
+            }
+            if (blocked) break;
+          }
+          if (blocked) continue;
           const gy = groundY(fx, fz);
           // 通りを向く面：法線 = -(外向き) → 横ベクトル r = (nz, -nx)·(-1)
           const rx = -nz, rz = nx;
@@ -523,11 +644,11 @@ export class Town {
         const a = s[i], b = s[i + 1];
         const na = { x: -Math.sin(a.angle), z: Math.cos(a.angle) }, nb = { x: -Math.sin(b.angle), z: Math.cos(b.angle) };
         const ya = terrainY(a.x, a.z) + 0.12, yb = terrainY(b.x, b.z) + 0.12;
-        ballast.quad([a.x + na.x * 1.5, ya, a.z + na.z * 1.5], [a.x - na.x * 1.5, ya, a.z - na.z * 1.5], [b.x - nb.x * 1.5, yb, b.z - nb.z * 1.5], [b.x + nb.x * 1.5, yb, b.z + nb.z * 1.5], cb);
+        ballast.quad([a.x - na.x * 1.5, ya, a.z - na.z * 1.5], [a.x + na.x * 1.5, ya, a.z + na.z * 1.5], [b.x + nb.x * 1.5, yb, b.z + nb.z * 1.5], [b.x - nb.x * 1.5, yb, b.z - nb.z * 1.5], cb);
         for (const o of [-0.53, 0.53]) {
           const w = 0.05;
-          steel.quad([a.x + na.x * (o + w), ya + 0.16, a.z + na.z * (o + w)], [a.x + na.x * (o - w), ya + 0.16, a.z + na.z * (o - w)],
-            [b.x + nb.x * (o - w), yb + 0.16, b.z + nb.z * (o - w)], [b.x + nb.x * (o + w), yb + 0.16, b.z + nb.z * (o + w)], cs);
+          steel.quad([a.x + na.x * (o - w), ya + 0.16, a.z + na.z * (o - w)], [a.x + na.x * (o + w), ya + 0.16, a.z + na.z * (o + w)],
+            [b.x + nb.x * (o + w), yb + 0.16, b.z + nb.z * (o + w)], [b.x + nb.x * (o - w), yb + 0.16, b.z + nb.z * (o - w)], cs);
         }
       }
     }
@@ -890,6 +1011,8 @@ export class Town {
     const night = time.p.night;
     this.nightMats.forEach(({ mat, max }) => { mat.opacity = Math.min(max, night * 1.2); });
     this.lampMat.opacity = Math.min(1, night * 1.3);
+    this.lanternMat.emissiveIntensity = night * 1.1;
+    this.lanternGlow.opacity = Math.min(0.85, night * 1.1);
     this.trainWinMat.opacity = Math.min(1, night * 1.2);
     this.signMat.emissiveIntensity = 0.15 + night * 0.6;
     this.arcadeLampMat.color.setScalar(0.7 + night * 0.3);
