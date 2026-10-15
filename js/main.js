@@ -10,6 +10,7 @@ import { AudioEngine } from './audio.js';
 import { LookControls } from './controls.js';
 import { developFilm } from './photo.js';
 import { Town } from './town.js';
+import { Food } from './food.js';
 import { Walker } from './walker.js';
 import { MapView } from './mapView.js';
 import { PLACES, CROSSINGS, ROADS, BENCHES, ROPEWAY, groundY, placeName, zoneWeights, pointAlong, clampToRoads } from './townMap.js';
@@ -207,8 +208,14 @@ $('btn-out').addEventListener('click', () => {
 });
 
 // 文脈に応じた行動ボタン
+// 食べる・飲む・買う
+const food = new Food({ audio, toast: (t, ms) => toast(t, ms), context: () => ({ seated: !!walker.seat, walking: mode === 'walk' }) });
+const nearShop = () => (mode === 'walk' && !walker.seat ? town.interactables.find((s) => Math.hypot(s.x - walker.x, s.z - walker.z) < s.radius) : null);
+
 let action = null;
+let actionShop = null;
 function doAction() {
+  if (action === 'shop' && actionShop) { food.openShop(actionShop); return; }
   if (action === 'home') goHome();
   else if (action === 'sit') { walker.sit(walker.nearBench()); toast('ベンチに腰をおろす', 2500); }
   else if (action === 'stand') walker.stand();
@@ -226,6 +233,7 @@ window.addEventListener('keydown', (e) => {
   if (e.repeat || eyesClosed) return;
   if ((e.code === 'KeyE' || e.code === 'Enter') && action) doAction();
   if (e.code === 'KeyC' && mode === 'walk' && !walker.seat) walker.setCrouch(!walker.crouching);
+  if (e.code === 'KeyB') ($('bag-view').classList.contains('hidden') ? food.openBag() : $('bag-view').classList.add('hidden'));
   if (e.code === 'KeyM') ($('map-view').classList.contains('hidden') ? openMap() : $('map-view').classList.add('hidden'));
 });
 
@@ -356,7 +364,7 @@ if (DEBUG) {
     if (e.key === '6') audio.fumikiri({ gain: 0.6, near: 0.5 });
     if (e.key === '7') town.train.timer = 0;
   });
-  Object.assign(window, { THREE, scene, camera, time, cat, audio, boats, controls, renderer, town, walker, strays, travel, PLACES });
+  Object.assign(window, { THREE, scene, camera, time, cat, audio, boats, controls, renderer, town, walker, strays, travel, PLACES, food });
 }
 
 window.addEventListener('resize', () => {
@@ -465,14 +473,17 @@ function frame() {
       const head = name.split('　')[0];
       if (head !== lastPlace.split('　')[0]) toast(head, 2600);
       lastPlace = name;
-      action = walker.seat ? 'stand' : walker.crouching ? 'rise' : walker.nearDoor() ? 'home' : walker.nearBench() ? 'sit' : nearStray() ? 'crouch' : null;
+      actionShop = nearShop();
+      action = walker.seat ? 'stand' : walker.crouching ? 'rise' : actionShop ? 'shop' : walker.nearDoor() ? 'home' : walker.nearBench() ? 'sit' : nearStray() ? 'crouch' : null;
     } else {
       $('place-label').textContent = '';
       action = null;
     }
     const act = $('btn-act');
     act.hidden = !action;
-    act.textContent = { home: '家に入る', sit: 'ベンチに座る', stand: '立ちあがる', crouch: 'しゃがむ', rise: '立ちあがる' }[action] || '';
+    act.textContent = action === 'shop'
+      ? { bakery: `${actionShop.name}に入る`, ramen: `${actionShop.name}で食べる`, vending: '自販機で買う' }[actionShop.type]
+      : { home: '家に入る', sit: 'ベンチに座る', stand: '立ちあがる', crouch: 'しゃがむ', rise: '立ちあがる' }[action] || '';
     walkBtn.hidden = mode !== 'walk' || !!walker.seat || walker.crouching;
     document.querySelectorAll('[data-time]').forEach((b) => b.classList.toggle('active', b.dataset.time === time.phase));
     const sl = $('sky-label');

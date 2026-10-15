@@ -6,10 +6,18 @@ import { canvasTexture, glowTexture, seededRandom, speckle } from './util.js';
 import { lam, buildSignAtlas, labelTexture, QuadBatch, instancedBoxes, instancedChunks } from './townKit.js';
 import {
   DATA, SEA_Y, BOUNDS, terrainY, groundY, ROADS, OTHER_ROADS, ARCADE_ROADS, nearAnyRoad, samplePath, roadLength,
-  ALLEYS, COAST, RAILS, CROSSINGS, TRAIN_TRACKS, ROPEWAY, BENCHES, FERRY_ROUTES, POIS, onOnomichiSide,
+  ALLEYS, COAST, RAILS, CROSSINGS, TRAIN_TRACKS, ROPEWAY, BENCHES, FERRY_ROUTES, POIS, onOnomichiSide, nearestRoad, inBuilding,
 } from './townMap.js';
 
 const SURFACE_LIFT = { asphalt: 0.05, tile: 0.07, stone: 0.09 };
+
+// 本通り商店街の、食べられるお店（店名は架空）。f は通りの中での位置（0〜1）、side は通りのどちら側か
+const SPECIAL_SHOPS = {
+  '本町センター街': [{ f: 0.5, side: 1, type: 'ramen', name: '尾道ラーメン 汐' }],
+  '中商店街': [{ f: 0.42, side: -1, type: 'bakery', name: 'パン 潮風' }, { f: 0.15, side: 1, type: 'ramen', name: '中華そば 坂の上' }],
+  '一番街': [{ f: 0.55, side: 1, type: 'bakery', name: 'パン屋 あさなぎ' }],
+};
+const VENDING_COLORS = [0xc8302a, 0x2a5aa8, 0xf2f0ea, 0x3a8a4a];
 
 /**
  * 空き家の窓から見下ろす視界（南へ開いた扇形）に入るものの、許される高さの上限。
@@ -73,6 +81,9 @@ export class Town {
     this.lampPositions = [];
     this.nightMats = [];
     this.occupied = new Set(); // 建物のある 4m マス
+    this.interactables = [];   // 立ち寄れる場所（パン屋・ラーメン屋・自販機）
+    this.specialSignMats = [];
+    this.vendingMats = [];
 
     this._terrain();
     this._coastWalls();
@@ -89,6 +100,7 @@ export class Town {
     this._piersAndBenches();
     this._nekoStones();
     this._pine();
+    this._vendingMachines();
     this._lamps();
     this._train();
   }
@@ -569,11 +581,13 @@ export class Town {
         if (i % 2 === 0) ribs.push({ x: a.x, y: ya + 0.2, z: a.z, sx: 0.14, sy: 0.2, sz: road.width + 2.4, ry: -a.angle, color: '#5a5f66' });
         if (i % 4 === 1) lamps.push({ x: a.x, y: ya - 1.2, z: a.z });
       }
-      // 両側の店先（約6.5m ごと）
+      // 両側の店先（約6.5m ごと）。決まった場所はパン屋とラーメン屋にする
+      const specials = (SPECIAL_SHOPS[road.name] || []).map((sp) => ({ ...sp }));
       for (const side of [-1, 1]) {
         const shops = samplePath(road.pts, 6.5);
         for (let i = 0; i < shops.length - 1; i++) {
           const p = shops[i];
+          const frac = i / Math.max(1, shops.length - 2);
           const nx = -Math.sin(p.angle) * side, nz = Math.cos(p.angle) * side;   // 通りの外向き
           const off = hw + 0.35;
           const fx = p.x + nx * off, fz = p.z + nz * off;
@@ -594,7 +608,13 @@ export class Town {
           const warm = 0.85 + r() * 0.15;
           glassDay.addOriented(fx - nx * 0.02, gy + 1.35, fz - nz * 0.02, rx, rz, 5.2, 2.3, undefined, [0.16, 0.15, 0.14]);
           glassNight.addOriented(fx - nx * 0.04, gy + 1.35, fz - nz * 0.04, rx, rz, 5.2, 2.3, undefined, [warm, 0.78 * warm, 0.5 * warm]);
-          signs.addOriented(fx - nx * 0.06, gy + 3.35, fz - nz * 0.06, rx, rz, 3.3, 0.82, atlas.uv(signIdx++));
+          const sp = specials.find((q) => q.side === side && !q.done && frac >= q.f);
+          if (sp) {
+            sp.done = true;
+            this._specialShop(sp, p, fx, fz, gy, nx, nz, hw);
+          } else {
+            signs.addOriented(fx - nx * 0.06, gy + 3.35, fz - nz * 0.06, rx, rz, 3.3, 0.82, atlas.uv(signIdx++));
+          }
           awnings.push({ x: fx - nx * 0.5, y: gy + 2.75, z: fz - nz * 0.5, sx: 5.6, sy: 0.07, sz: 0.95, ry: -p.angle, rx: side * 0.35, color: awningColors[Math.floor(r() * awningColors.length)] });
           const h = 5.5 + r() * 5;
           fronts.push({ x: fx + nx * 4, y: gy + h / 2 - 1, z: fz + nz * 4, sx: 6.3, sy: h + 2, sz: 8, ry: -p.angle, color: facadeColors[Math.floor(r() * facadeColors.length)] });
@@ -632,6 +652,124 @@ export class Town {
     this.arcadeLampMat = new THREE.MeshBasicMaterial({ color: 0xfff0d0 });
     this.group.add(instancedBoxes(lamps.map((l) => ({ ...l, sx: 0.35, sy: 0.35, sz: 0.35 })), this.arcadeLampMat, { cast: false, receive: false, geo: new THREE.SphereGeometry(0.5, 10, 8) }));
     lamps.forEach((l, i) => { if (i % 2 === 0) this.lampPositions.push([l.x, l.y - 0.2, l.z]); });
+  }
+
+  /** パン屋・ラーメン屋の店構え（看板・のれん・ショーケース）と、立ち寄れる場所 */
+  _specialShop(sp, p, fx, fz, gy, nx, nz, hw) {
+    const yaw = -p.angle + (nz * Math.cos(p.angle) - nx * Math.sin(p.angle) > 0 ? Math.PI : 0);
+    const face = Math.atan2(-nx, -nz); // 通りに向いた面の向き
+    const g = new THREE.Group();
+    g.position.set(fx - nx * 0.08, gy, fz - nz * 0.08);
+    g.rotation.y = face;
+    const ramen = sp.type === 'ramen';
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 0.9), new THREE.MeshLambertMaterial({
+      map: labelTexture(sp.name, { w: 640, h: 160, size: 84, bg: ramen ? '#7a1e18' : '#f4ead2', fg: ramen ? '#fbeedc' : '#5a3a1a' }),
+      emissive: 0xffffff, emissiveIntensity: 0.2,
+    }));
+    sign.position.set(0, 3.35, 0.02);
+    sign.material.emissiveMap = sign.material.map;
+    this.specialSignMats.push(sign.material);
+    g.add(sign);
+    if (ramen) {
+      // 赤いのれん（3枚）
+      const tex = labelTexture('ら ー め ん', { w: 512, h: 128, size: 72, bg: '#a82a22', fg: '#fff4e4' });
+      const noren = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 0.75), new THREE.MeshLambertMaterial({ map: tex, side: THREE.DoubleSide }));
+      noren.position.set(0, 2.15, 0.25);
+      g.add(noren);
+      // 赤ちょうちん
+      for (const x of [-1.9, 1.9]) {
+        const lan = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 10), new THREE.MeshLambertMaterial({ color: 0xd8402e, emissive: 0xff5a30, emissiveIntensity: 0.3 }));
+        lan.scale.y = 1.3;
+        lan.position.set(x, 2.5, 0.35);
+        this.specialSignMats.push(lan.material);
+        g.add(lan);
+      }
+    } else {
+      // パンの並んだショーケース
+      const shelf = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.9, 0.5), lam(0x8a6a4a));
+      shelf.position.set(-0.6, 0.45, 0.3);
+      g.add(shelf);
+      const breadMat = lam(0xd09a52);
+      for (let k = 0; k < 10; k++) {
+        const b = new THREE.Mesh(new THREE.SphereGeometry(0.09 + this.r() * 0.04, 10, 8), breadMat);
+        b.scale.y = 0.6;
+        b.position.set(-1.6 + (k % 5) * 0.45, 0.95, 0.15 + Math.floor(k / 5) * 0.25);
+        g.add(b);
+      }
+      const awn = new THREE.Mesh(new THREE.BoxGeometry(5.4, 0.06, 1.0), lam(0xf0e2c0, { side: THREE.DoubleSide }));
+      awn.position.set(0, 2.7, 0.5);
+      awn.rotation.x = 0.35;
+      g.add(awn);
+    }
+    this.group.add(g);
+    // 立ち寄る場所：店の前の通りの上
+    const sx = p.x + nx * (hw - 0.9), sz = p.z + nz * (hw - 0.9);
+    this.interactables.push({ type: sp.type, name: sp.name, x: sx, z: sz, yaw: Math.atan2(-nx, -nz), radius: 2.4 });
+    void yaw;
+  }
+
+  /** 自販機：海沿いのベンチの近く、渡船のりば、ロープウェイ山麓駅、駅前、家の前の石段、路地の入口 */
+  _vendingMachines() {
+    const spots = [];
+    BENCHES.slice(0, 4).forEach((b) => spots.push([b.x + Math.sin(b.yaw) * 2.5, b.z + Math.cos(b.yaw) * 2.5]));
+    FERRY_ROUTES.forEach((r) => spots.push([r.a.x, r.a.z]));
+    spots.push([ROPEWAY.base.x, ROPEWAY.base.z]);
+    const station = POIS.find((p) => p.n === 'JR尾道駅');
+    if (station) spots.push([station.x, station.z]);
+    spots.push([-14, -3]);
+    ALLEYS.filter((_, i) => i % 5 === 2).forEach((a) => spots.push(a.pts[1]));
+    const panel = canvasTexture(128, 256, (g, w, h) => {
+      g.fillStyle = '#1c2228';
+      g.fillRect(0, 0, w, h);
+      const cols = ['#5a3a24', '#2a3a5a', '#f08a1c', '#3f7a3a', '#7ac8e8', '#b88a5a', '#c8302a', '#e8d040'];
+      for (let row = 0; row < 3; row++) {
+        g.fillStyle = '#e8eef2';
+        g.fillRect(6, 14 + row * 58, w - 12, 50);
+        for (let c = 0; c < 4; c++) {
+          g.fillStyle = cols[(row * 4 + c) % cols.length];
+          g.fillRect(12 + c * 28, 20 + row * 58, 18, 34);
+          g.fillStyle = row === 0 ? '#e83a2a' : '#2a6ae8';
+          g.fillRect(12 + c * 28, 57 + row * 58, 18, 4);
+        }
+      }
+      g.fillStyle = '#0c0e10';
+      g.fillRect(14, h - 50, w - 28, 30);
+      g.fillStyle = '#9aa';
+      g.fillRect(w - 30, 190, 12, 18);
+    });
+    const placed = [];
+    for (const [x0, z0] of spots) {
+      const n = nearestRoad(x0, z0);
+      if (!n || n.d > 30) continue;
+      // 道の端に、道のほうを向けて置く（建物や海にかからない側）
+      let best = null;
+      for (const side of [-1, 1]) {
+        const s = n.seg;
+        const ang = Math.atan2(s.dz, s.dx);
+        const nx = -Math.sin(ang) * side, nz = Math.cos(ang) * side;
+        const x = n.px + nx * (s.half + 0.55), z = n.pz + nz * (s.half + 0.55);
+        if (inBuilding(x, z) || terrainY(x, z) < SEA_Y + 0.5 || nearAnyRoad(x, z, 0.1)) continue;
+        best = { x, z, nx, nz, ang };
+        break;
+      }
+      if (!best || placed.some((p) => Math.hypot(p.x - best.x, p.z - best.z) < 25)) continue;
+      placed.push(best);
+      const y = groundY(best.x, best.z);
+      const g = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.BoxGeometry(1.0, 1.83, 0.75), lam(VENDING_COLORS[placed.length % VENDING_COLORS.length]));
+      body.position.y = 0.915;
+      body.castShadow = true;
+      const front = new THREE.Mesh(new THREE.PlaneGeometry(0.86, 1.6), new THREE.MeshLambertMaterial({ map: panel, emissive: 0xffffff, emissiveMap: panel, emissiveIntensity: 0.25 }));
+      front.position.set(0, 0.95, 0.38);
+      this.vendingMats.push(front.material);
+      g.add(body, front);
+      g.position.set(best.x, y, best.z);
+      g.rotation.y = Math.atan2(-best.nx, -best.nz); // 正面（+z）を道へ
+      this.group.add(g);
+      this.lampPositions.push([best.x - best.nx * 0.5, y + 1.2, best.z - best.nz * 0.5]);
+      const sx = best.x - best.nx * 1.1, sz = best.z - best.nz * 1.1;
+      this.interactables.push({ type: 'vending', name: '自販機', x: sx, z: sz, yaw: Math.atan2(-best.nx, -best.nz), radius: 1.8 });
+    }
   }
 
   // ---------- 線路・踏切 ----------
@@ -1012,6 +1150,8 @@ export class Town {
     this.nightMats.forEach(({ mat, max }) => { mat.opacity = Math.min(max, night * 1.2); });
     this.lampMat.opacity = Math.min(1, night * 1.3);
     this.lanternMat.emissiveIntensity = night * 1.1;
+    this.specialSignMats.forEach((m) => { m.emissiveIntensity = 0.2 + night * 0.7; });
+    this.vendingMats.forEach((m) => { m.emissiveIntensity = 0.25 + night * 0.85; });
     this.lanternGlow.opacity = Math.min(0.85, night * 1.1);
     this.trainWinMat.opacity = Math.min(1, night * 1.2);
     this.signMat.emissiveIntensity = 0.15 + night * 0.6;

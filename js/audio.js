@@ -611,6 +611,54 @@ export class AudioEngine {
     this._noiseBurst({ type: 'brown', freq: 300, q: 0.8, filter: 'lowpass', gain: 0.2, attack: 0.002, decay: 0.12, pan: this._pan(dirX, dirZ) * 0.6, dest: this.near });
   }
 
+  // ---------- 食べる・飲む・買う ----------
+  /** パンをかじる（さくっ） */
+  bite(crisp = 1) {
+    if (!this.started) return;
+    this._noiseBurst({ type: 'white', freq: 2600, q: 1.2, gain: 0.08 * crisp, attack: 0.002, decay: 0.07, dest: this.near });
+    this._noiseBurst({ type: 'pink', freq: 900, q: 1, gain: 0.07, attack: 0.004, decay: 0.12, when: 0.03, dest: this.near });
+  }
+
+  /** ごくっ */
+  sip() {
+    if (!this.started) return;
+    const node = this._tone({ freq: 180, gain: 0.12, attack: 0.01, decay: 0.16, dest: this.near });
+    node.o.frequency.exponentialRampToValueAtTime(90, node.t + 0.15);
+    this._noiseBurst({ type: 'brown', freq: 400, q: 1, filter: 'lowpass', gain: 0.06, attack: 0.01, decay: 0.12, when: 0.05, dest: this.near });
+  }
+
+  /** プシュッ（缶をあける） */
+  canOpen() {
+    if (!this.started) return;
+    this._noiseBurst({ type: 'white', freq: 900, q: 0.4, filter: 'highpass', gain: 0.14, attack: 0.002, decay: 0.22, dest: this.near });
+    this._noiseBurst({ type: 'white', freq: 3200, q: 4, gain: 0.08, attack: 0.001, decay: 0.03, dest: this.near });
+  }
+
+  /** ガコン（自販機から缶が落ちる） */
+  vendDrop() {
+    if (!this.started) return;
+    this._noiseBurst({ type: 'brown', freq: 220, q: 1, filter: 'lowpass', gain: 0.32, attack: 0.002, decay: 0.25, when: 0.25, dest: this.near });
+    this._tone({ freq: 620, gain: 0.03, attack: 0.002, decay: 0.3, when: 0.26, dest: this.near });
+    this._tone({ freq: 880, gain: 0.03, attack: 0.002, decay: 0.12, dest: this.near }); // ボタンの電子音
+  }
+
+  /** ずずっ（麺をすする） */
+  slurp() {
+    if (!this.started) return;
+    const n = this._noiseBurst({ type: 'pink', freq: 700, q: 3, gain: 0.12, attack: 0.05, decay: 0.45, dest: this.near });
+    n.f.frequency.setValueAtTime(600, n.t);
+    n.f.frequency.exponentialRampToValueAtTime(2600, n.t + 0.4);
+  }
+
+  /** 店の戸をあけたときの鈴 */
+  chime() {
+    if (!this.started) return;
+    [1320, 990].forEach((f, i) => {
+      const node = this._tone({ freq: f, gain: 0.05, attack: 0.002, decay: 0.9, when: i * 0.12, dest: this.near });
+      node.g.connect(this.reverbSend);
+    });
+  }
+
   shutter() {
     if (!this.started) return;
     this._noiseBurst({ type: 'white', freq: 2500, q: 1.5, gain: 0.25, attack: 0.001, decay: 0.05, dest: this.near });

@@ -71,6 +71,10 @@
       <button id="btn-map" title="地図（M）">
         <svg viewBox="0 0 24 24"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z" /><path d="M9 4v14M15 6v14" /></svg>
       </button>
+      <button id="btn-bag" title="持ち物（B）">
+        <svg viewBox="0 0 24 24"><path d="M5 8h14l-1.2 12H6.2z" /><path d="M9 8V6.5a3 3 0 0 1 6 0V8" /></svg>
+        <span id="bag-count"></span>
+      </button>
       <button id="btn-photo" title="写真を撮る">
         <svg viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2" /><circle cx="12" cy="13.5" r="3.6" /><path d="M8.5 7l1.5-2.5h4L15.5 7" /></svg>
       </button>
@@ -110,6 +114,32 @@
       <p id="album-empty">まだ写真はありません</p>
       <button id="album-close">とじる</button>
     </div>
+  </div>
+
+  <!-- お店（パン屋・自販機） -->
+  <div id="shop-view" class="modal hidden">
+    <div class="shop-inner">
+      <p id="shop-title" class="album-title"></p>
+      <p id="shop-note" class="shop-note"></p>
+      <div id="shop-list"></div>
+      <button id="shop-close" class="pill">とじる</button>
+    </div>
+  </div>
+
+  <!-- 持ち物 -->
+  <div id="bag-view" class="modal hidden">
+    <div class="shop-inner">
+      <p class="album-title">持ち物</p>
+      <div id="bag-list"></div>
+      <p id="bag-empty" class="shop-note">なにも持っていません。商店街のパン屋や、町の自販機で手に入ります。</p>
+      <button id="bag-close" class="pill">とじる</button>
+    </div>
+  </div>
+
+  <!-- 食べている・飲んでいるところ（食べ歩きでも邪魔にならないよう、画面の下に小さく） -->
+  <div id="eat" aria-live="polite">
+    <canvas id="eat-canvas" width="256" height="256"></canvas>
+    <p id="eat-text"></p>
   </div>
 
   <!-- 地図 -->

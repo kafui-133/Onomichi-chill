@@ -520,6 +520,8 @@ export const PLACES = [
   placeNear('艮神社', '艮神社'),
   placeNear('ロープウェイ山麓駅', '千光寺ロープウェイ山麓駅'),
   placeOnRoad('本町センター街', '本町センター街', 0.5),
+  placeOnRoad('尾道ラーメン 汐', '本町センター街', 0.52),
+  placeOnRoad('パン 潮風', '中商店街', 0.44),
   placeOnRoad('中商店街', '中商店街', 0.5),
   placeOnRoad('一番街', '一番街', 0.5),
   placeNear('尾道駅前', 'JR尾道駅', 40),

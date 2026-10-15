@@ -1,0 +1,142 @@
+// 食べる・飲む・買う：パン屋と自販機のお品書き、持ち物、食べ歩き、ベンチでのひとやすみ、ラーメン屋。
+import { ITEMS, MENUS, Bag, drawItem } from './items.js';
+
+const $ = (id) => document.getElementById(id);
+
+export class Food {
+  /**
+   * @param audio   AudioEngine
+   * @param toast   (text, ms) => void
+   * @param context () => ({ seated, walking, place })  いまの状況（食べ終わりのひとことに使う）
+   */
+  constructor({ audio, toast, context }) {
+    this.audio = audio;
+    this.toast = toast;
+    this.context = context;
+    this.bag = new Bag();
+    this.eating = null;
+    this._updateCount();
+
+    $('shop-close').addEventListener('click', () => this.closeShop());
+    $('shop-view').addEventListener('click', (e) => { if (e.target === e.currentTarget) this.closeShop(); });
+    $('btn-bag').addEventListener('click', () => this.openBag());
+    $('bag-close').addEventListener('click', () => $('bag-view').classList.add('hidden'));
+    $('bag-view').addEventListener('click', (e) => { if (e.target === e.currentTarget) $('bag-view').classList.add('hidden'); });
+  }
+
+  get busy() { return !!this.eating; }
+
+  _updateCount() {
+    $('bag-count').textContent = this.bag.items.length || '';
+  }
+
+  _goodsButton(id, onPick, sub) {
+    const item = ITEMS[id];
+    const b = document.createElement('button');
+    b.className = 'goods';
+    const c = document.createElement('canvas');
+    c.width = c.height = 144;
+    drawItem(c, id, 0);
+    const n = document.createElement('span');
+    n.className = 'n';
+    n.textContent = item.name;
+    const d = document.createElement('span');
+    d.className = 'd';
+    d.textContent = sub || item.desc;
+    b.append(c, n, d);
+    b.addEventListener('click', onPick);
+    return b;
+  }
+
+  // ---------- お店 ----------
+  /** shop: { type: 'bakery' | 'vending' | 'ramen', name } */
+  openShop(shop) {
+    if (shop.type === 'ramen') { this.eatRamen(shop); return; }
+    this.audio.chime && shop.type === 'bakery' && this.audio.chime();
+    $('shop-title').textContent = shop.type === 'vending' ? '自販機' : shop.name;
+    $('shop-note').textContent = shop.type === 'vending'
+      ? 'ボタンを押すと、ガコン。持ち物に入れて、好きなときに飲めます。'
+      : '焼きたての匂い。選んだパンは紙袋に入れて持ち物へ。歩きながらでも、ベンチでも。';
+    const list = $('shop-list');
+    list.innerHTML = '';
+    MENUS[shop.type].forEach((id) => {
+      list.appendChild(this._goodsButton(id, () => this.buy(id, shop.type)));
+    });
+    $('shop-view').classList.remove('hidden');
+  }
+
+  closeShop() { $('shop-view').classList.add('hidden'); }
+
+  buy(id, type) {
+    if (!this.bag.add(id)) {
+      this.toast('持ち物がいっぱい。どこかで食べてから、また来よう', 3000);
+      return;
+    }
+    if (type === 'vending') this.audio.vendDrop();
+    this._updateCount();
+    this.toast(`${ITEMS[id].name}を、持ち物に入れた`, 2600);
+  }
+
+  // ---------- 持ち物 ----------
+  openBag() {
+    const list = $('bag-list');
+    list.innerHTML = '';
+    this.bag.items.forEach((id, i) => {
+      const verb = ITEMS[id].kind === 'drink' ? '飲む' : '食べる';
+      list.appendChild(this._goodsButton(id, () => {
+        $('bag-view').classList.add('hidden');
+        this.consume(i);
+      }, verb));
+    });
+    $('bag-empty').style.display = this.bag.items.length ? 'none' : '';
+    $('bag-view').classList.remove('hidden');
+  }
+
+  /** 持ち物の i 番目を食べる／飲む。歩きながらでもよい（食べ歩き） */
+  consume(i) {
+    if (this.eating) { this.toast('いま食べているところ', 1600); return; }
+    const id = this.bag.take(i);
+    this._updateCount();
+    this._eat(id, false);
+  }
+
+  // ---------- 尾道ラーメン（お店で食べる） ----------
+  eatRamen(shop) {
+    if (this.eating) return;
+    this.audio.chime && this.audio.chime();
+    this.toast(`${shop.name}　「いらっしゃい」`, 2600);
+    setTimeout(() => this._eat('ramen', true), 1400);
+  }
+
+  _eat(id, big) {
+    const item = ITEMS[id];
+    const canvas = $('eat-canvas');
+    const box = $('eat');
+    box.classList.toggle('big', big);
+    drawItem(canvas, id, 0);
+    const ctx = this.context();
+    $('eat-text').textContent = item.kind === 'ramen' ? `${item.name}。${item.desc}` : item.name;
+    box.classList.add('show');
+    const steps = item.bites;
+    const interval = item.kind === 'ramen' ? 1600 : item.kind === 'drink' ? 1500 : 1300;
+    let k = 0;
+    if (item.kind === 'drink') this.audio.canOpen();
+    this.eating = { id };
+    const tick = () => {
+      k++;
+      if (item.kind === 'ramen') this.audio.slurp();
+      else if (item.kind === 'drink') this.audio.sip();
+      else this.audio.bite(id === 'currypan' || id === 'melonpan' ? 1.3 : 0.8);
+      drawItem(canvas, id, k / steps);
+      if (k < steps) { this.eating.timer = setTimeout(tick, interval * (0.85 + Math.random() * 0.3)); return; }
+      // 食べ終わり：場所や状況でひとことが変わる
+      const where = ctx.seated ? 'ベンチで海を見ながら。' : ctx.walking && item.kind !== 'ramen' ? '歩きながら、ひとくちずつ。' : '';
+      setTimeout(() => {
+        box.classList.remove('show');
+        this.toast(`${where}${item.after}`, 5200);
+        this.eating = null;
+      }, 900);
+    };
+    this.eating.timer = setTimeout(tick, item.kind === 'drink' ? 900 : 700);
+  }
+}
