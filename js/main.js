@@ -251,6 +251,7 @@ let action = null;
 let actionShop = null;
 let rideDir = null;
 function doAction() {
+  if (action === 'skipride' && ride) { ride.t = ride.dir > 0 ? 1 : 0; return; }
   if (action === 'ropeway' && rideDir) { startRide(rideDir); return; }
   if (action === 'deck' && actionShop) { walker.sit(actionShop.seat); toast('展望台から、尾道水道を見わたす', 3000); return; }
   if (action === 'shop' && actionShop) { food.openShop(actionShop); return; }
@@ -417,9 +418,14 @@ const fwd = new THREE.Vector3();
 let fpsAcc = 0, fpsFrames = 0, fps = 0;
 let labelTimer = 0;
 
-function frame() {
-  const dt = Math.min(clock.getDelta(), 0.1);
-  const t = clock.elapsedTime;
+// 撮影モード（?capture）：決まった時間刻みで1コマずつ進める（デモムービーの書き出し用）
+const CAPTURE = params.has('capture');
+let simTime = 0;
+
+function frame(fixedDt) {
+  const dt = typeof fixedDt === 'number' ? fixedDt : Math.min(clock.getDelta(), 0.1);
+  simTime += dt;
+  const t = simTime;
 
   time.update(dt);
   const p = time.p;
@@ -520,9 +526,11 @@ function frame() {
       $('place-label').textContent = '';
       action = null;
     }
+    if (ride) action = 'skipride';
     const act = $('btn-act');
     act.hidden = !action;
-    act.textContent = action === 'ropeway' ? (rideDir === 'up' ? 'ロープウェイに乗る（山頂へ）' : 'ロープウェイに乗る（山麓へ）')
+    act.textContent = action === 'skipride' ? (ride.dir > 0 ? 'すぐに山頂駅へ' : 'すぐに山麓駅へ')
+      : action === 'ropeway' ? (rideDir === 'up' ? 'ロープウェイに乗る（山頂へ）' : 'ロープウェイに乗る（山麓へ）')
       : action === 'deck' ? '展望台にのぼる'
       : action === 'stand' && walker.seat && walker.seat.kind === 'deck' ? '展望台をおりる'
       : action === 'shop'
@@ -555,6 +563,13 @@ function frame() {
     ].join('\n');
   }
 
+  if (!CAPTURE) requestAnimationFrame(frame);
+}
+if (CAPTURE) {
+  $('title').style.display = 'none';
+  Object.assign(window, { THREE, scene, camera, time, cat, audio, boats, controls, renderer, town, walker, strays, PLACES, food, enterTown, goHome, startRide, ROADS, pointAlong, getRide: () => ride });
+  window.captureStep = (dt) => frame(dt);
+  window.captureReady = true;
+} else {
   requestAnimationFrame(frame);
 }
-requestAnimationFrame(frame);
