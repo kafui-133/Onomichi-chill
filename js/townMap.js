@@ -448,6 +448,92 @@ export function inBuilding(x, z) {
   });
 }
 
+// ---------- 途切れた道をつなぐ ----------
+// 地図データでは、行き止まりの道の端が、すぐ先の道（線路の向こう、石段の上下など）と
+// 数メートル離れたままのところがある。15m 以内なら、短い小径・石段でつないで歩けるようにする。
+export const CONNECTORS = [];
+(function connectDangling() {
+  const key = (p) => `${Math.round(p[0] * 10)},${Math.round(p[1] * 10)}`;
+  const count = new Map();
+  [...ROADS, ...OTHER_ROADS].forEach((r) => r.pts.forEach((p) => count.set(key(p), (count.get(key(p)) || 0) + 1)));
+  const base = ROADS.filter((r) => !r.alley);
+  let n = 0;
+  for (const r of base) {
+    for (const end of [0, r.pts.length - 1]) {
+      const p = r.pts[end];
+      if (count.get(key(p)) > 1) continue;
+      // いちばん近い、ほかの道の線分（自分の道は除く）
+      let best = null;
+      for (const s of candidates(p[0], p[1])) {
+        if (s.road === r) continue;
+        const q = project(s, p[0], p[1]);
+        const gap = q.d - s.half - r.width / 2;
+        if (!best || gap < best.gap) best = { gap, q, s };
+      }
+      if (!best || best.gap <= 0.05 || best.gap > 15) continue;
+      // 道の端から、相手の道の中ほどまで
+      const { px, pz, d } = best.q;
+      const ux = (px - p[0]) / d, uz = (pz - p[1]) / d;
+      const tx = px - ux * Math.min(best.s.half * 0.5, d * 0.2), tz = pz - uz * Math.min(best.s.half * 0.5, d * 0.2);
+      // 海の上や建物の中を通るなら、つながない
+      let ok = true;
+      for (let t = 0.1; t < 1; t += 0.1) {
+        const x = p[0] + (tx - p[0]) * t, z = p[1] + (tz - p[1]) * t;
+        if (demAt(x, z) < SEA_Y + 0.4 || inBuilding(x, z)) { ok = false; break; }
+      }
+      if (!ok) continue;
+      const len = Math.hypot(tx - p[0], tz - p[1]);
+      const grade = Math.abs(terrainY(tx, tz) - terrainY(p[0], p[1])) / Math.max(1, len);
+      const kind = grade > 0.25 ? 'steps' : 'footway';
+      const road = {
+        id: 200000 + n++, name: '', label: KIND_LABEL[kind], kind, width: Math.min(1.8, Math.max(1.4, r.width)), surface: 'stone',
+        pts: [[p[0], p[1]], [tx, tz]], covered: false, layered: false, connector: true,
+      };
+      CONNECTORS.push(road);
+      ROADS.push(road);
+      addToGrid(road);
+      count.set(key(p), 2);
+    }
+  }
+})();
+
+// ---------- 道の外でも歩けるところ ----------
+// 海沿い・町なかの平地は、道の帯の外（広場、駅前、歩道、岸壁ぞい）も歩ける。
+// ただし建物の中、海、アーケードの店の裏へは入れない。
+const SOLID_CELL = 8;
+const solids = new Map();
+/** town.js が置いた建物（地図データにない家など）を、歩けない場所として登録する */
+export function addSolid(x, z, w, d, rot = 0) {
+  const s = { x, z, hw: w / 2 + 0.3, hd: d / 2 + 0.3, c: Math.cos(rot), sn: Math.sin(rot) };
+  const R = Math.hypot(s.hw, s.hd);
+  for (let i = Math.floor((x - R) / SOLID_CELL); i <= Math.floor((x + R) / SOLID_CELL); i++) {
+    for (let j = Math.floor((z - R) / SOLID_CELL); j <= Math.floor((z + R) / SOLID_CELL); j++) {
+      const k = i * 100003 + j;
+      if (!solids.has(k)) solids.set(k, []);
+      solids.get(k).push(s);
+    }
+  }
+}
+function inSolid(x, z) {
+  const list = solids.get(Math.floor(x / SOLID_CELL) * 100003 + Math.floor(z / SOLID_CELL));
+  if (!list) return false;
+  return list.some((s) => {
+    const dx = x - s.x, dz = z - s.z;
+    const u = dx * s.c - dz * s.sn, v = dx * s.sn + dz * s.c;
+    return Math.abs(u) < s.hw && Math.abs(v) < s.hd;
+  });
+}
+const FREE_HEIGHT = 7;  // 海面からこの高さまでの平地
+const FREE_REACH = 14;  // 道からこの距離まで
+/** その場所に立てるか（道の上、または道の近くの平地で、建物や海でないところ） */
+export function walkable(x, z) {
+  const n = nearestRoad(x, z);
+  if (n.inside <= 0) return true;
+  if (n.road.covered || n.inside > FREE_REACH) return false;
+  if (terrainY(x, z) - SEA_Y > FREE_HEIGHT || demAt(x, z) < SEA_Y + 0.8) return false;
+  return !inBuilding(x, z) && !inSolid(x, z);
+}
+
 /** まわりの地形を見て、いちばん海らしい方角を返す（見つからなければ null） */
 function seaDirection(x, z) {
   let best = null;

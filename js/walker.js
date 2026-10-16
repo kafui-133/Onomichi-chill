@@ -1,6 +1,6 @@
 // 町歩き：道の上だけを歩ける一人称の移動。
 //   W / ↑ 前へ　S / ↓ うしろへ　A・D 横へ　← → 向きを変える　（画面の「歩く」ボタン長押しでも前へ）
-import { clampToRoads, groundY, surfaceAt, HOUSE_DOOR, BENCHES } from './townMap.js';
+import { clampToRoads, walkable, groundY, surfaceAt, HOUSE_DOOR, BENCHES } from './townMap.js';
 import { damp } from './util.js';
 
 const EYE = 1.55;
@@ -128,9 +128,15 @@ export class Walker {
     this.vz = damp(this.vz, tz * SPEED, 6, dt);
 
     const prevX = this.x, prevZ = this.z;
-    const p = clampToRoads(this.x + this.vx * dt, this.z + this.vz * dt);
-    this.x = p.x;
-    this.z = p.z;
+    // 進めるならそのまま、ぶつかるなら壁ぞいに滑らせる、どちらも無理なら道の端に寄せる
+    const nx = this.x + this.vx * dt, nz = this.z + this.vz * dt;
+    if (walkable(nx, nz)) { this.x = nx; this.z = nz; }
+    else if (walkable(nx, this.z)) this.x = nx;
+    else if (walkable(this.x, nz)) this.z = nz;
+    else {
+      const p = clampToRoads(nx, nz);
+      if (Math.hypot(p.x - this.x, p.z - this.z) < 0.6) { this.x = p.x; this.z = p.z; }
+    }
     const moved = Math.hypot(this.x - prevX, this.z - prevZ);
     this.moving = damp(this.moving, moved / dt > 0.3 ? 1 : 0, 8, dt);
     this.bobPhase += moved * (Math.PI * 2 / (STRIDE * 2)) * 2;

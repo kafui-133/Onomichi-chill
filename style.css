@@ -130,10 +130,14 @@ body.walking #btn-out { display: none; }
   bottom: 20px;
   transform: translateX(-50%);
   display: flex;
+  flex-direction: column;
   gap: 10px;
   align-items: center;
   pointer-events: auto;
 }
+/* その場でできること（いくつかあるときは並べて、どれでも選べる） */
+.acts { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; width: max-content; max-width: calc(100vw - 32px); }
+.acts:empty { display: none; }
 #ui .ui-walk button { width: auto; height: 40px; border-radius: 999px; padding: 0 20px; letter-spacing: 0.25em; font-size: 14px; }
 #ui .ui-walk button[hidden] { display: none; }
 #ui .ui-walk .walk { touch-action: none; }
@@ -239,6 +243,8 @@ body.idle #ui .ui-walk button { pointer-events: auto; }
   white-space: nowrap;
 }
 #toast.show { opacity: 0.9; }
+/* 町歩き中は、下に行動ボタンが並ぶので、知らせは上のほうに出す */
+body.walking #toast { bottom: auto; top: 18%; }
 
 /* ---------- モーダル ---------- */
 .modal {

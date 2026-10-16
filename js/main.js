@@ -247,10 +247,11 @@ function updateRide(dt) {
   }
 }
 
-let action = null;
+let actions = []; // その場でできること（先頭が E / Enter で選ばれる）
 let actionShop = null;
 let rideDir = null;
-function doAction() {
+function doAction(action = actions[0]) {
+  if (!action) return;
   if (action === 'skipride' && ride) { ride.t = ride.dir > 0 ? 1 : 0; return; }
   if (action === 'ropeway' && rideDir) { startRide(rideDir); return; }
   if (action === 'deck' && actionShop) { walker.sit(actionShop.seat); toast('展望台から、尾道水道を見わたす', 3000); return; }
@@ -263,14 +264,28 @@ function doAction() {
 }
 // 近くの猫（しゃがむボタンを出す距離）
 const nearStray = () => (mode === 'walk' ? strays.find((c) => Math.hypot(c.root.position.x - walker.x, c.root.position.z - walker.z) < 2.6) : null);
-$('btn-act').addEventListener('click', doAction);
+// 行動ボタン：いまできることを並べる（中身が変わったときだけ作り直す）
+let actsKey = '';
+function renderActs(list) {
+  const key = list.map((a) => a.id + a.label).join('|');
+  if (key === actsKey) return;
+  actsKey = key;
+  const box = $('acts');
+  box.replaceChildren(...list.map((a) => {
+    const b = document.createElement('button');
+    b.className = 'act';
+    b.textContent = a.label;
+    b.addEventListener('click', () => { doAction(a.id); labelTimer = 0; });
+    return b;
+  }));
+}
 const walkBtn = $('btn-walk');
 const holdWalk = (on) => { walker.touchForward = on; walkBtn.classList.toggle('held', on); };
 walkBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); walkBtn.setPointerCapture?.(e.pointerId); holdWalk(true); });
 ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((ev) => walkBtn.addEventListener(ev, () => holdWalk(false)));
 window.addEventListener('keydown', (e) => {
   if (e.repeat || eyesClosed) return;
-  if ((e.code === 'KeyE' || e.code === 'Enter') && action) doAction();
+  if ((e.code === 'KeyE' || e.code === 'Enter') && actions.length) doAction();
   if (e.code === 'KeyC' && mode === 'walk' && !walker.seat) walker.setCrouch(!walker.crouching);
   if (e.code === 'KeyB') ($('bag-view').classList.contains('hidden') ? food.openBag() : $('bag-view').classList.add('hidden'));
   if (e.code === 'KeyM') ($('map-view').classList.contains('hidden') ? openMap() : $('map-view').classList.add('hidden'));
@@ -337,6 +352,21 @@ function showPhoto(url, caption) {
   $('photo-save').download = `onomichi-${Date.now()}.jpg`;
   $('photo-view').classList.remove('hidden');
 }
+// claude.ai の共有ページではふつうのダウンロードリンクが使えないので、downloads 機能で保存する
+let downloads = null;
+window.claude?.use?.('downloads').then((d) => { downloads = d; }, () => {});
+$('photo-save').addEventListener('click', async (e) => {
+  if (!downloads) return; // ふつうのブラウザではリンクのまま保存
+  e.preventDefault();
+  const a = e.currentTarget;
+  try {
+    const blob = await (await fetch(a.href)).blob();
+    await downloads.save({ filename: a.download, data: blob });
+    toast('写真を保存しました', 2200);
+  } catch (err) {
+    if (err?.code !== 'declined') toast('ここでは保存できませんでした', 2600);
+  }
+});
 $('photo-close').addEventListener('click', () => $('photo-view').classList.add('hidden'));
 $('photo-view').addEventListener('click', (e) => { if (e.target === e.currentTarget) $('photo-view').classList.add('hidden'); });
 $('btn-album').addEventListener('click', () => {
@@ -520,22 +550,29 @@ function frame(fixedDt) {
       lastPlace = name;
       actionShop = nearShop();
       rideDir = nearRopewayStop();
-      action = ride ? null : walker.seat ? 'stand' : walker.crouching ? 'rise' : rideDir ? 'ropeway'
-        : actionShop ? (actionShop.type === 'deck' ? 'deck' : 'shop') : walker.nearDoor() ? 'home' : walker.nearBench() ? 'sit' : nearStray() ? 'crouch' : null;
+      actions = [];
+      if (walker.seat) actions.push('stand');
+      else if (walker.crouching) actions.push('rise');
+      else if (!ride) {
+        if (rideDir) actions.push('ropeway');
+        if (actionShop) actions.push(actionShop.type === 'deck' ? 'deck' : 'shop');
+        if (walker.nearDoor()) actions.push('home');
+        if (walker.nearBench()) actions.push('sit');
+        if (nearStray()) actions.push('crouch');
+      }
     } else {
       $('place-label').textContent = '';
-      action = null;
+      actions = [];
     }
-    if (ride) action = 'skipride';
-    const act = $('btn-act');
-    act.hidden = !action;
-    act.textContent = action === 'skipride' ? (ride.dir > 0 ? 'すぐに山頂駅へ' : 'すぐに山麓駅へ')
-      : action === 'ropeway' ? (rideDir === 'up' ? 'ロープウェイに乗る（山頂へ）' : 'ロープウェイに乗る（山麓へ）')
-      : action === 'deck' ? '展望台にのぼる'
-      : action === 'stand' && walker.seat && walker.seat.kind === 'deck' ? '展望台をおりる'
-      : action === 'shop'
+    if (ride) actions = ['skipride'];
+    const label = (a) => a === 'skipride' ? (ride.dir > 0 ? 'すぐに山頂駅へ' : 'すぐに山麓駅へ')
+      : a === 'ropeway' ? (rideDir === 'up' ? 'ロープウェイに乗る（山頂へ）' : 'ロープウェイに乗る（山麓へ）')
+      : a === 'deck' ? '展望台にのぼる'
+      : a === 'stand' && walker.seat && walker.seat.kind === 'deck' ? '展望台をおりる'
+      : a === 'shop'
       ? { bakery: `${actionShop.name}に入る`, ramen: `${actionShop.name}で食べる`, vending: '自販機で買う' }[actionShop.type]
-      : { home: '家に入る', sit: 'ベンチに座る', stand: '立ちあがる', crouch: 'しゃがむ', rise: '立ちあがる' }[action] || '';
+      : { home: '家に入る', sit: 'ベンチに座る', stand: '立ちあがる', crouch: 'しゃがむ', rise: '立ちあがる' }[a] || '';
+    renderActs(actions.slice(0, 3).map((a) => ({ id: a, label: label(a) })));
     walkBtn.hidden = mode !== 'walk' || !!walker.seat || walker.crouching || !!ride;
     document.querySelectorAll('[data-time]').forEach((b) => b.classList.toggle('active', b.dataset.time === time.phase));
     const sl = $('sky-label');

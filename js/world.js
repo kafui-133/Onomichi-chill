@@ -61,7 +61,7 @@ export class World {
     return windows;
   }
 
-  _windowLights(list, color = 0xffc77a, scale = 1) {
+  _windowLights(list, color = 0xffa75e, scale = 1) {
     const geo = new THREE.PlaneGeometry(1, 0.8);
     const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide });
     const mesh = new THREE.InstancedMesh(geo, mat, list.length);
@@ -154,7 +154,7 @@ export class World {
     // 橋の街灯
     const lamps = [];
     for (let z = z1; z < z0; z += 14) lamps.push({ x: x + 8, y: deckY + 3, z, s: 1.2 });
-    this._windowLights(lamps, 0xffe6b0, 1.6);
+    this._windowLights(lamps, 0xffa04a, 1.6);
   }
 
   /** 瀬戸内の島影（霞んで重なる） */
