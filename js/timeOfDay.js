@@ -74,7 +74,7 @@ export class TimeSystem {
     this.day = state.day ?? 0;
     this.hour = state.hour ?? 17.2;
     this.flow = true;            // 自動で時が流れるか
-    this.speed = 1 / 30;         // 30秒でゲーム内1時間
+    this.speed = 1 / 60;         // 1分でゲーム内1時間
     this.transition = null;      // ボタンでの時刻移動
     this.listeners = [];
     this._rebuild();

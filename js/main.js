@@ -563,13 +563,15 @@ function frame(fixedDt) {
     ].join('\n');
   }
 
-  if (!CAPTURE) requestAnimationFrame(frame);
+  if (!CAPTURE) requestAnimationFrame(loop);
 }
+// requestAnimationFrame は経過ミリ秒を引数に渡してくるので、frame の刻み幅として受け取らないよう包む
+function loop() { frame(); }
 if (CAPTURE) {
   $('title').style.display = 'none';
   Object.assign(window, { THREE, scene, camera, time, cat, audio, boats, controls, renderer, town, walker, strays, PLACES, food, enterTown, goHome, startRide, ROADS, pointAlong, getRide: () => ride });
   window.captureStep = (dt) => frame(dt);
   window.captureReady = true;
 } else {
-  requestAnimationFrame(frame);
+  requestAnimationFrame(loop);
 }
