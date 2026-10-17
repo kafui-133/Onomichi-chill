@@ -22,6 +22,11 @@ async function loadModel(name) {
   }
   return (await gltfLoader.loadAsync(`assets/models/${name}.glb`)).scene;
 }
+// 名所の境内：まわりを埋める家や木を置かず、OpenStreetMap の小さな建物（境内のお堂など）も模型にまかせる
+const PRECINCTS = [['千光寺', 19], ['艮神社', 18], ['天寧寺三重塔', 9]]
+  .map(([n, r]) => { const p = POIS.find((q) => q.n === n); return p && { x: p.x, z: p.z, r }; }).filter(Boolean);
+const inPrecinct = (x, z, m = 0) => PRECINCTS.some((p) => Math.hypot(p.x - x, p.z - z) < p.r + m);
+
 /** 坂の下る向き（モデルの正面 +Z をこちらへ向けるための rotation.y） */
 function downhillYaw(x, z, d = 4) {
   const gx = terrainY(x + d, z) - terrainY(x - d, z), gz = terrainY(x, z + d) - terrainY(x, z - d);
@@ -491,6 +496,7 @@ export class Town {
       // 商店街の路地がふさがれないように、路地にかかる建物は置かない
       if (alleyPts.some(([x, z]) => pointInPoly(x, z, poly))) continue;
       const area = Math.abs(signedArea(poly));
+      if (area < 400 && inPrecinct(poly.reduce((s2, q) => s2 + q[0], 0) / poly.length, poly.reduce((s2, q) => s2 + q[1], 0) / poly.length)) continue;
       if (area < 4) continue;
       const ys = poly.map(([x, z]) => terrainY(x, z));
       const yMin = Math.min(...ys), yMax = Math.max(...ys);
@@ -602,6 +608,7 @@ export class Town {
         if (above < 1.5 || above > 115) continue;                // 海と、千光寺山の上のほうの森
         if (Math.hypot(hx, hz) < 14) continue;                    // 空き家のまわり
         if (this.occupied.has(Math.floor(hx / 4) * 100003 + Math.floor(hz / 4))) continue;
+        if (inPrecinct(hx, hz, 4)) continue;
         const w = 4.5 + r() * 3.5, d = 4.5 + r() * 3;
         if (nearAnyRoad(hx, hz, Math.max(w, d) / 2 + 0.8)) continue;
         if (BENCHES.some((bb) => Math.hypot(bb.x - hx, bb.z - hz) < Math.max(w, d) / 2 + 3)) continue;
@@ -638,6 +645,7 @@ export class Town {
       if (above < 6) continue;
       if (Math.hypot(x, z) < 10) continue;
       if (this.occupied.has(Math.floor(x / 4) * 100003 + Math.floor(z / 4))) continue;
+      if (inPrecinct(x, z, 2)) continue;
       if (nearAnyRoad(x, z, 2.5)) continue;
       // 山頂の展望台からの眺め（南の尾道水道）をさえぎらない
       const dd = Math.hypot(x - SUMMIT.deck.x, z - SUMMIT.deck.z);
@@ -1293,11 +1301,16 @@ export class Town {
   }
 
   _modelMaterialFor(n, color) {
-    if (/glass/.test(n)) return lam(color, { transparent: true, opacity: 0.42, depthWrite: false });
+    if (/glass/.test(n)) {
+      // ガラス：夜は中の明かりで、ほんのり暖かく光る
+      const m = lam(color, { transparent: true, opacity: 0.42, depthWrite: false, emissive: 0xffc890, emissiveIntensity: 0 });
+      this.glowMats.push({ mat: m, base: 0, add: 0.55 });
+      return m;
+    }
     if (/interior_light/.test(n)) {
       // 駅の中の明かり：夜になると灯る
-      const m = lam(color, { emissive: 0xffc888, emissiveIntensity: 0.1 });
-      this.glowMats.push({ mat: m, base: 0.1, add: 0.9 });
+      const m = lam(color, { emissive: 0xffd29a, emissiveIntensity: 0.15 });
+      this.glowMats.push({ mat: m, base: 0.15, add: 1.9 });
       return m;
     }
     if (/gold/.test(n)) return lam(color, { emissive: 0x2a2208 });
