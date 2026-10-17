@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>坂道の空き家、尾道にて</title>
+  <meta name="description" content="尾道水道を臨む坂の上の空き家で、何もしないをする。チルゲーム技術検証プロトタイプ。" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+      }
+    }
+  </script>
+</head>
+<body>
+  <!-- 3D キャンバス -->
+  <div id="stage"></div>
+
+  <!-- タイトル（AudioContext を開始するためのユーザー操作も兼ねる） -->
+  <div id="title" class="screen">
+    <div class="title-inner">
+      <p class="title-sub">尾道水道を臨む、坂の上の古い家で</p>
+      <h1>坂道の空き家、<br />尾道にて</h1>
+      <button id="btn-start" class="btn-start">戸をあける</button>
+      <p class="title-note">ヘッドホン推奨 ・ ドラッグで見渡す ・ 猫にはそっと</p>
+      <p class="title-credit">地図データ © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>（ODbL）／ 標高：<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院 標高タイル</a>を加工して作成<br />実在の町をもとにしたフィクションです。お店・猫・人物はすべて架空です</p>
+    </div>
+  </div>
+
+  <!-- 目を閉じる（サウンドセラピー）オーバーレイ -->
+  <div id="eyes" aria-hidden="true">
+    <p class="eyes-text">耳をすませて</p>
+    <p class="eyes-hint">クリックで目をあける</p>
+  </div>
+
+  <!-- シャッターフラッシュ -->
+  <div id="flash"></div>
+
+  <!-- ミニマル UI -->
+  <div id="ui" class="hidden">
+    <div class="ui-top">
+      <span id="date-label"></span>
+      <span id="place-label"></span>
+      <span id="sky-label"></span>
+    </div>
+
+    <!-- 町歩き：文脈に応じた行動（家に入る・座る・立つ）と、押しているあいだ前へ歩くボタン -->
+    <div class="ui-walk">
+      <div id="acts" class="acts"></div>
+      <button id="btn-walk" class="walk" title="押しているあいだ前へ歩く（W / ↑）" hidden>歩く</button>
+    </div>
+
+    <nav class="ui-time" aria-label="時間帯">
+      <button data-time="morning" title="朝">朝</button>
+      <button data-time="day" title="昼">昼</button>
+      <button data-time="evening" title="夕方">夕</button>
+      <button data-time="night" title="夜">夜</button>
+      <button id="btn-flow" class="flow" title="時の流れに任せる" aria-pressed="true">
+        <svg viewBox="0 0 24 24"><path d="M4 12c2.5-4 5.5-4 8 0s5.5 4 8 0" /></svg>
+      </button>
+    </nav>
+
+    <div class="ui-actions">
+      <button id="btn-out" title="外へ出る">
+        <svg viewBox="0 0 24 24"><path d="M5 21V4h9v17" /><path d="M14 6l5-1.5V21" /><circle cx="11.5" cy="12.5" r="0.6" /><path d="M3 21h18" /></svg>
+      </button>
+      <button id="btn-map" title="地図（M）">
+        <svg viewBox="0 0 24 24"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z" /><path d="M9 4v14M15 6v14" /></svg>
+      </button>
+      <button id="btn-bag" title="持ち物（B）">
+        <svg viewBox="0 0 24 24"><path d="M5 8h14l-1.2 12H6.2z" /><path d="M9 8V6.5a3 3 0 0 1 6 0V8" /></svg>
+        <span id="bag-count"></span>
+      </button>
+      <button id="btn-photo" title="写真を撮る">
+        <svg viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2" /><circle cx="12" cy="13.5" r="3.6" /><path d="M8.5 7l1.5-2.5h4L15.5 7" /></svg>
+      </button>
+      <button id="btn-album" title="アルバム">
+        <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="1.5" /><path d="M4 16l4.5-4.5 4 4 2.5-2.5L20 18" /></svg>
+        <span id="album-count"></span>
+      </button>
+      <button id="btn-diary" title="日記を書く">
+        <svg viewBox="0 0 24 24"><path d="M6 3.5h11a1.5 1.5 0 0 1 1.5 1.5v15H7.5A1.5 1.5 0 0 1 6 18.5z" /><path d="M6 17h12.5" /><path d="M9.5 8h6M9.5 11h4" /></svg>
+      </button>
+      <button id="btn-zukan" title="出会った猫図鑑">
+        <svg viewBox="0 0 24 24"><path d="M5 9.5L6 4l4 3.2h4L18 4l1 5.5c.6 1.1 1 2.3 1 3.5 0 4-3.6 7-8 7s-8-3-8-7c0-1.2.4-2.4 1-3.5z" /><circle cx="9.3" cy="12.5" r="0.7" /><circle cx="14.7" cy="12.5" r="0.7" /><path d="M11 15.5l1 .8 1-.8" /></svg>
+        <span id="zukan-count"></span>
+      </button>
+      <button id="btn-eyes" title="目を閉じる">
+        <svg viewBox="0 0 24 24"><path d="M3 11c2.5 3.5 5.5 5 9 5s6.5-1.5 9-5" /><path d="M6 14.5l-1.5 2M12 16v2.5M18 14.5l1.5 2" /></svg>
+      </button>
+      <button id="btn-sound" title="音" aria-pressed="true">
+        <svg viewBox="0 0 24 24"><path d="M4 10v4h3l4 3.5v-11L7 10z" /><path class="wave" d="M15 9c1.2 1.6 1.2 4.4 0 6M17.5 7c2.4 3 2.4 7 0 10" /></svg>
+      </button>
+    </div>
+
+    <!-- 音量 -->
+    <div id="vol-pop" hidden>
+      <label for="vol-range">音量</label>
+      <input id="vol-range" type="range" min="0" max="100" step="1" value="50" />
+      <span id="vol-value">50</span>
+      <button id="vol-mute" class="vol-mute" type="button">消す</button>
+    </div>
+  </div>
+
+  <!-- 控えめな通知 -->
+  <div id="toast"></div>
+
+  <!-- 写真プレビュー -->
+  <div id="photo-view" class="modal hidden">
+    <figure class="print">
+      <img id="photo-img" alt="撮影した写真" />
+      <figcaption id="photo-caption"></figcaption>
+    </figure>
+    <div class="modal-actions">
+      <a id="photo-save" download>保存する</a>
+      <button id="photo-close">とじる</button>
+    </div>
+  </div>
+
+  <!-- アルバム -->
+  <div id="album-view" class="modal hidden">
+    <div class="album-inner">
+      <p class="album-title">今日の写真</p>
+      <div id="album-grid"></div>
+      <p id="album-empty">まだ写真はありません</p>
+      <button id="album-close">とじる</button>
+    </div>
+  </div>
+
+  <!-- お店（パン屋・自販機） -->
+  <div id="shop-view" class="modal hidden">
+    <div class="shop-inner">
+      <p id="shop-title" class="album-title"></p>
+      <p id="shop-note" class="shop-note"></p>
+      <div id="shop-list"></div>
+      <button id="shop-close" class="pill">とじる</button>
+    </div>
+  </div>
+
+  <!-- 持ち物 -->
+  <div id="bag-view" class="modal hidden">
+    <div class="shop-inner">
+      <p class="album-title">持ち物</p>
+      <div id="bag-list"></div>
+      <p id="bag-empty" class="shop-note">なにも持っていません。商店街のパン屋や、町の自販機で手に入ります。</p>
+      <button id="bag-close" class="pill">とじる</button>
+    </div>
+  </div>
+
+  <!-- 食べている・飲んでいるところ（食べ歩きでも邪魔にならないよう、画面の下に小さく） -->
+  <div id="eat" aria-live="polite">
+    <canvas id="eat-canvas" width="256" height="256"></canvas>
+    <p id="eat-text"></p>
+  </div>
+
+  <!-- 出会った猫図鑑 -->
+  <div id="zukan-view" class="modal hidden">
+    <div class="shop-inner">
+      <p class="album-title">出会った猫図鑑</p>
+      <p id="zukan-note" class="shop-note"></p>
+      <div id="zukan-list"></div>
+      <button id="zukan-close" class="pill">とじる</button>
+    </div>
+  </div>
+
+  <!-- 日記 -->
+  <div id="diary-view" class="modal hidden">
+    <div class="diary-inner">
+      <p class="album-title">日記</p>
+      <div class="diary-page">
+        <p id="diary-date" class="diary-date"></p>
+        <img id="diary-photo" alt="今日の写真" hidden />
+        <textarea id="diary-text" rows="9" aria-label="今日の日記" spellcheck="false"></textarea>
+      </div>
+      <div class="diary-actions">
+        <button id="diary-redraft" class="pill">下書きしなおす</button>
+        <button id="diary-save" class="pill">書きとめる</button>
+      </div>
+      <p id="diary-past-title" class="shop-note" hidden>これまでの日記</p>
+      <div id="diary-past"></div>
+      <button id="diary-close" class="pill">とじる</button>
+    </div>
+  </div>
+
+  <!-- 地図 -->
+  <div id="map-view" class="modal hidden">
+    <div class="map-inner">
+      <p class="album-title">尾道の地図</p>
+      <div id="map-scroll"><canvas id="map-canvas" aria-label="尾道の地図。名所の印を押すとそこへ移動します"></canvas></div>
+      <div id="map-list"></div>
+      <p class="map-note">位置関係は実際の尾道をもとに簡略化しています。印か名前を押すと、そこへ歩いていきます。</p>
+      <button id="map-close">とじる</button>
+    </div>
+  </div>
+
+  <!-- 場面転換の暗転 -->
+  <div id="fade"></div>
+
+  <!-- 開発用 (?debug) -->
+  <pre id="debug" class="hidden"></pre>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
