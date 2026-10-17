@@ -86,13 +86,15 @@ class InkGradePass extends Pass {
           if (uOutline > 0.5) {
             vec2 px = 1.0 / uResolution;
             float d0 = lin(vUv);
-            float e = 0.0;
-            for (int k = 0; k < 4; k++) {
-              vec2 o = k == 0 ? vec2(px.x, 0.0) : k == 1 ? vec2(-px.x, 0.0) : k == 2 ? vec2(0.0, px.y) : vec2(0.0, -px.y);
-              float dn = lin(vUv + o);
-              e = max(e, (dn - d0) / max(d0, 0.05));
-            }
-            float edge = smoothstep(0.025, 0.07, e);
+            // 左右・上下の奥行きの曲がりぐあい（2階差分）。平らな面（地面・壁）は奥行きがなだらかに変わるだけなので
+            // ほぼ0になり、線が出ない。ふちの手前側（まわりより近い）だけに線を引く
+            float l = lin(vUv - vec2(px.x, 0.0)), r = lin(vUv + vec2(px.x, 0.0));
+            float dn = lin(vUv - vec2(0.0, px.y)), up = lin(vUv + vec2(0.0, px.y));
+            float e = (max(max(l, r), max(dn, up)) - d0) / max(d0, 0.05);
+            float bend = max(l + r - 2.0 * d0, dn + up - 2.0 * d0) / max(d0, 0.05);
+            // 遠くほど奥行きの細かさが落ちるので、しきい値も少しずつ上げる
+            float th = 0.025 + d0 * 0.00012;
+            float edge = smoothstep(th, th * 2.8, e) * smoothstep(th * 0.5, th * 1.4, bend);
             // 遠くは細かい家が多くてうるさくなるので、だんだん薄く。空（いちばん奥）は対象外
             edge *= (1.0 - smoothstep(180.0, 900.0, d0)) * step(d0, uFar * 0.6);
             col = mix(col, uInk * (0.5 + 0.5 * col), edge * 0.78);
@@ -140,7 +142,8 @@ export class Look {
     const makeTarget = () => {
       const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: isWebGL2 ? q.msaa : 0 });
       rt.depthTexture = new THREE.DepthTexture(size.x, size.y);
-      rt.depthTexture.type = THREE.UnsignedIntType;
+      // 奥行きは32bitの浮動小数で（スマホの24bit・16bitでは、平らな地面に縞の輪郭線が出る）
+      rt.depthTexture.type = isWebGL2 ? THREE.FloatType : THREE.UnsignedIntType;
       return rt;
     };
     this.composer = new EffectComposer(renderer, makeTarget());
