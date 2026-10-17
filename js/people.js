@@ -62,7 +62,7 @@ function geos() {
   if (G) return G;
   const leg = new THREE.CapsuleGeometry(0.068, 0.66, 3, 8); leg.translate(0, -0.4, 0);
   const arm = new THREE.CapsuleGeometry(0.05, 0.46, 3, 8); arm.translate(0, -0.27, 0);
-  const torso = new THREE.CapsuleGeometry(0.18, 0.36, 4, 10); torso.scale(1, 1, 0.72);
+  const torso = new THREE.CapsuleGeometry(0.155, 0.4, 4, 10); torso.scale(1.05, 1, 0.68);
   const hair = new THREE.SphereGeometry(0.125, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.55);
   const hat = new THREE.CylinderGeometry(0.2, 0.2, 0.02, 14); hat.translate(0, 0.07, 0);
   const crown = new THREE.CylinderGeometry(0.11, 0.12, 0.1, 12); crown.translate(0, 0.12, 0);
@@ -70,7 +70,7 @@ function geos() {
   const wheel = new THREE.TorusGeometry(0.33, 0.022, 6, 20); wheel.rotateY(Math.PI / 2);
   const bar = new THREE.CylinderGeometry(0.018, 0.018, 1, 6);
   G = { leg, arm, torso, hair, hat, crown, pack, wheel, bar,
-    head: new THREE.SphereGeometry(0.115, 14, 10), shoe: new THREE.BoxGeometry(0.11, 0.07, 0.22),
+    head: new THREE.SphereGeometry(0.118, 14, 10), eye: new THREE.SphereGeometry(0.014, 6, 4), shoe: new THREE.BoxGeometry(0.11, 0.07, 0.22),
     rod: new THREE.CylinderGeometry(0.008, 0.014, 3.2, 5), item: new THREE.BoxGeometry(0.08, 0.06, 0.12) };
   return G;
 }
@@ -102,7 +102,8 @@ function buildPerson(kind, r) {
     body.add(L);
     parts[side < 0 ? 'legL' : 'legR'] = L;
     const A = new THREE.Group();
-    A.position.set(side * 0.235, 1.4, 0);
+    A.position.set(side * 0.205, 1.42, 0);
+    A.rotation.z = side * 0.06;
     A.add(new THREE.Mesh(g.arm, mat(top)));
     const hand = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6), skin);
     hand.position.y = -0.52;
@@ -117,9 +118,10 @@ function buildPerson(kind, r) {
   head.position.y = 1.56;
   head.add(new THREE.Mesh(g.head, skin));
   const hairM = new THREE.Mesh(g.hair, mat(elder ? pick(['#8a8580', '#d8d4cc']) : pick(PAL.hair.slice(0, 3))));
-  hairM.position.set(0, 0.012, -0.012);
-  hairM.rotation.x = -0.25;
+  hairM.position.set(0, 0.015, -0.018);
+  hairM.rotation.x = -0.55;   // 前髪は額の上まで。顔は見えるように
   head.add(hairM);
+  for (const sx of [-1, 1]) { const eye = new THREE.Mesh(g.eye, mat('#1e1a18')); eye.position.set(sx * 0.04, -0.005, 0.105); head.add(eye); }
   body.add(torso, head);
   parts.head = head;
   parts.torso = torso;
