@@ -13,6 +13,7 @@ const ARCADE_NAMES = ['駅前商店街', '一番街', '中商店街', '本町セ
 
 // ---------- 地形 ----------
 const DEM = DATA.dem;
+const QUAY = new Float32Array(DEM.nx * DEM.nz);
 const HEIGHTS = (() => {
   const bin = atob(DEM.b64);
   const buf = new ArrayBuffer(bin.length);
@@ -21,8 +22,77 @@ const HEIGHTS = (() => {
   const dv = new DataView(buf);
   const out = new Float32Array(DEM.nx * DEM.nz);
   for (let i = 0; i < out.length; i++) out[i] = dv.getInt16(i * 2, true) / 10;
-  return out;
+  return smoothLowland(out);
 })();
+
+/**
+ * 海沿い・町なかの平地の凸凹をならす。標高データ（5m）は細かいでこぼこを拾うので、
+ * 海面から低いところ（〜9m）だけ、まわり約15mの陸地の平均に寄せる。山あいはそのまま。
+ */
+function smoothLowland(h) {
+  const nx = DEM.nx, nz = DEM.nz, R = 3;
+  const sea = DATA.meta.seaY;
+  const land = (v) => v > sea + 0.3;
+  let cur = h;
+  for (let pass = 0; pass < 2; pass++) {
+    // 陸の低いところだけを重み 1 にした、ならし（たて・よこに分けた箱型の平均）
+    const w = new Float32Array(nx * nz), vw = new Float32Array(nx * nz);
+    for (let k = 0; k < cur.length; k++) {
+      const v = cur[k];
+      if (land(v) && v - sea < 14) { w[k] = 1; vw[k] = v; }
+    }
+    const blur = (src) => {
+      const tmp = new Float32Array(nx * nz), dst = new Float32Array(nx * nz);
+      for (let j = 0; j < nz; j++) {
+        let acc = 0;
+        for (let i = -R; i <= R; i++) if (i >= 0 && i < nx) acc += src[j * nx + i];
+        for (let i = 0; i < nx; i++) {
+          tmp[j * nx + i] = acc;
+          const out = i - R, inn = i + R + 1;
+          if (out >= 0) acc -= src[j * nx + out];
+          if (inn < nx) acc += src[j * nx + inn];
+        }
+      }
+      for (let i = 0; i < nx; i++) {
+        let acc = 0;
+        for (let j = -R; j <= R; j++) if (j >= 0 && j < nz) acc += tmp[j * nx + i];
+        for (let j = 0; j < nz; j++) {
+          dst[j * nx + i] = acc;
+          const out = j - R, inn = j + R + 1;
+          if (out >= 0) acc -= tmp[out * nx + i];
+          if (inn < nz) acc += tmp[inn * nx + i];
+        }
+      }
+      return dst;
+    };
+    const sw = blur(w), svw = blur(vw);
+    const next = new Float32Array(cur);
+    for (let k = 0; k < cur.length; k++) {
+      const v = cur[k];
+      if (!land(v) || sw[k] < 1) continue;
+      const above = v - sea;
+      const t = Math.min(1, Math.max(0, (above - 5) / 4));
+      const keep = t * t * (3 - 2 * t);           // 5m までは完全にならし、9m で元の高さへ
+      next[k] = v * keep + (svw[k] / sw[k]) * (1 - keep);
+    }
+    cur = next;
+  }
+  // 岸壁の高さ：岸の近くの、陸の低いところの平均（海のマスにも、となりの陸の高さを持たせる）
+  const w = new Float32Array(nx * nz), vw = new Float32Array(nx * nz);
+  for (let k = 0; k < cur.length; k++) if (land(cur[k]) && cur[k] - sea < 9) { w[k] = 1; vw[k] = cur[k]; }
+  const r = 4;
+  for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
+    let a = 0, b = 0;
+    for (let dj = -r; dj <= r; dj++) for (let di = -r; di <= r; di++) {
+      const ii = i + di, jj = j + dj;
+      if (ii < 0 || jj < 0 || ii >= nx || jj >= nz) continue;
+      const k = jj * nx + ii;
+      a += w[k]; b += vw[k];
+    }
+    QUAY[j * nx + i] = a >= 2 ? b / a : NaN;
+  }
+  return cur;
+}
 export const BOUNDS = { x0: DEM.x0, x1: DEM.x0 + (DEM.nx - 1) * DEM.step, z0: DEM.z0, z1: DEM.z0 + (DEM.nz - 1) * DEM.step };
 
 function demAt(x, z) {
@@ -48,9 +118,25 @@ export function terrainY(x, z) {
   return flat + (y - flat) * t * t * (3 - 2 * t);
 }
 
-/** 歩く高さ・道の高さ：岸壁ぎわで海底の値に引っぱられないよう、海面より少し上を下限にする */
+/**
+ * 岸壁ぎわの高さ。標高のマス目が陸と海にまたがるところでは、補間すると地面が海へ向かって
+ * 下がってしまうので、まわりの陸の高さ（岸壁の上）を返す。それ以外は -Infinity
+ */
+export function quayY(x, z) {
+  const fx = (x - DEM.x0) / DEM.step, fz = (z - DEM.z0) / DEM.step;
+  const i = Math.floor(fx), j = Math.floor(fz);
+  if (i < 0 || j < 0 || i >= DEM.nx - 1 || j >= DEM.nz - 1) return -Infinity;
+  const n = DEM.nx;
+  const ks = [j * n + i, j * n + i + 1, (j + 1) * n + i, (j + 1) * n + i + 1];
+  if (!ks.some((k) => HEIGHTS[k] <= SEA_Y + 0.3)) return -Infinity;
+  let a = 0, c = 0;
+  for (const k of ks) if (!Number.isNaN(QUAY[k])) { a += QUAY[k]; c++; }
+  return c ? a / c : -Infinity;
+}
+
+/** 歩く高さ・道の高さ：岸壁ぎわでは岸壁の上の高さ、そのほかも海面より少し上を下限にする */
 export function groundY(x, z) {
-  return Math.max(terrainY(x, z), SEA_Y + 1.1);
+  return Math.max(terrainY(x, z), quayY(x, z), SEA_Y + 1.1);
 }
 
 // ---------- 道 ----------

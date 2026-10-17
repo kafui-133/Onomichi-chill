@@ -164,19 +164,32 @@ export class Town {
 
   /** 海岸線にそって、岸壁（コンクリートの垂直な壁）を立てる */
   _coastWalls() {
-    const tb = new TriBatch();
-    const c = new THREE.Color(0x8e8a80);
+    const tb = new TriBatch(), deck = new TriBatch();
+    const c = new THREE.Color(0x8e8a80), deckC = new THREE.Color(0.52, 0.51, 0.48);
     for (const line of COAST) {
       for (let i = 0; i < line.length - 1; i++) {
         const [ax, az] = line[i], [bx, bz] = line[i + 1];
         if (ax < BOUNDS.x0 || ax > BOUNDS.x1 || az < BOUNDS.z0 || az > BOUNDS.z1) continue;
-        const ta = Math.max(SEA_Y + 1.6, terrainY(ax, az)), tbb = Math.max(SEA_Y + 1.6, terrainY(bx, bz));
+        const ta = Math.max(SEA_Y + 1.6, groundY(ax, az)), tbb = Math.max(SEA_Y + 1.6, groundY(bx, bz));
         tb.quad([ax, SEA_Y - 3, az], [bx, SEA_Y - 3, bz], [bx, tbb, bz], [ax, ta, az], c);
+        // 岸壁の上の、平らなコンクリートの帯（標高のマス目で海へ下がって見えるところを覆う）
+        const len = Math.hypot(bx - ax, bz - az);
+        if (len < 0.01 || ta - SEA_Y > 9) continue;
+        let nx = -(bz - az) / len, nz = (bx - ax) / len;
+        const mx = (ax + bx) / 2, mz = (az + bz) / 2;
+        if (terrainY(mx + nx * 6, mz + nz * 6) < terrainY(mx - nx * 6, mz - nz * 6)) { nx = -nx; nz = -nz; } // 陸のほうへ
+        const W = 5;
+        const ia = [ax + nx * W, groundY(ax + nx * W, az + nz * W) + 0.03, az + nz * W];
+        const ib = [bx + nx * W, groundY(bx + nx * W, bz + nz * W) + 0.03, bz + nz * W];
+        deck.quad([ax, ta + 0.03, az], ia, ib, [bx, tbb + 0.03, bz], deckC);
       }
     }
     const m = new THREE.Mesh(tb.build(), lam(0xffffff, { vertexColors: true, side: THREE.DoubleSide }));
     m.receiveShadow = true;
     this.group.add(m);
+    const dm = new THREE.Mesh(deck.build(), lam(0xffffff, { vertexColors: true, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -0.5, polygonOffsetUnits: -1 }));
+    dm.receiveShadow = true;
+    this.group.add(dm);
   }
 
   // ---------- 道（地形に沿う帯） ----------
