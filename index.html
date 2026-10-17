@@ -82,6 +82,13 @@
         <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="1.5" /><path d="M4 16l4.5-4.5 4 4 2.5-2.5L20 18" /></svg>
         <span id="album-count"></span>
       </button>
+      <button id="btn-diary" title="日記を書く">
+        <svg viewBox="0 0 24 24"><path d="M6 3.5h11a1.5 1.5 0 0 1 1.5 1.5v15H7.5A1.5 1.5 0 0 1 6 18.5z" /><path d="M6 17h12.5" /><path d="M9.5 8h6M9.5 11h4" /></svg>
+      </button>
+      <button id="btn-zukan" title="出会った猫図鑑">
+        <svg viewBox="0 0 24 24"><path d="M5 9.5L6 4l4 3.2h4L18 4l1 5.5c.6 1.1 1 2.3 1 3.5 0 4-3.6 7-8 7s-8-3-8-7c0-1.2.4-2.4 1-3.5z" /><circle cx="9.3" cy="12.5" r="0.7" /><circle cx="14.7" cy="12.5" r="0.7" /><path d="M11 15.5l1 .8 1-.8" /></svg>
+        <span id="zukan-count"></span>
+      </button>
       <button id="btn-eyes" title="目を閉じる">
         <svg viewBox="0 0 24 24"><path d="M3 11c2.5 3.5 5.5 5 9 5s6.5-1.5 9-5" /><path d="M6 14.5l-1.5 2M12 16v2.5M18 14.5l1.5 2" /></svg>
       </button>
@@ -140,6 +147,35 @@
   <div id="eat" aria-live="polite">
     <canvas id="eat-canvas" width="256" height="256"></canvas>
     <p id="eat-text"></p>
+  </div>
+
+  <!-- 出会った猫図鑑 -->
+  <div id="zukan-view" class="modal hidden">
+    <div class="shop-inner">
+      <p class="album-title">出会った猫図鑑</p>
+      <p id="zukan-note" class="shop-note"></p>
+      <div id="zukan-list"></div>
+      <button id="zukan-close" class="pill">とじる</button>
+    </div>
+  </div>
+
+  <!-- 日記 -->
+  <div id="diary-view" class="modal hidden">
+    <div class="diary-inner">
+      <p class="album-title">日記</p>
+      <div class="diary-page">
+        <p id="diary-date" class="diary-date"></p>
+        <img id="diary-photo" alt="今日の写真" hidden />
+        <textarea id="diary-text" rows="9" aria-label="今日の日記" spellcheck="false"></textarea>
+      </div>
+      <div class="diary-actions">
+        <button id="diary-redraft" class="pill">下書きしなおす</button>
+        <button id="diary-save" class="pill">書きとめる</button>
+      </div>
+      <p id="diary-past-title" class="shop-note" hidden>これまでの日記</p>
+      <div id="diary-past"></div>
+      <button id="diary-close" class="pill">とじる</button>
+    </div>
   </div>
 
   <!-- 地図 -->

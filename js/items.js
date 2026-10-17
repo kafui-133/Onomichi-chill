@@ -9,8 +9,8 @@ export const ITEMS = {
   currypan: { name: 'カレーパン', kind: 'bread', desc: '揚げたて、ざくざくの衣', bites: 4, after: 'ざくっ。中のカレーは、ほどよい辛さ' },
   hassaku: { name: 'はっさくデニッシュ', kind: 'bread', desc: '因島のはっさくをのせて', bites: 4, after: 'はっさくのほろ苦さと、デニッシュのバター' },
   // 自販機
-  coffeeHot: { name: '缶コーヒー（あったか〜い）', kind: 'drink', desc: '手のひらがじんわり温まる', bites: 4, after: 'ふう、と息がこぼれる。手があたたかい', color: '#5a3a24', band: '#d8b070', hot: true },
-  coffeeCold: { name: '缶コーヒー（つめた〜い）', kind: 'drink', desc: 'すっきり微糖', bites: 4, after: 'ひんやり、すっきり', color: '#2a3a5a', band: '#c8a060' },
+  coffeeHot: { name: '缶コーヒー（あったか〜い）', kind: 'drink', desc: '手のひらがじんわり温まる', bites: 4, tap: true, after: 'ふう、と息がこぼれる。手があたたかい', color: '#5a3a24', band: '#d8b070', hot: true },
+  coffeeCold: { name: '缶コーヒー（つめた〜い）', kind: 'drink', desc: 'すっきり微糖', bites: 4, tap: true, after: 'ひんやり、すっきり', color: '#2a3a5a', band: '#c8a060' },
   mikan: { name: 'みかんジュース', kind: 'drink', desc: '瀬戸内のみかん100%', bites: 4, after: '甘酸っぱい。島のみかんの味がする', color: '#f08a1c', band: '#fff2c8' },
   ocha: { name: '緑茶', kind: 'drink', desc: 'すっきり、ほんのり渋い', bites: 4, after: 'すうっと、のどがうるおう', color: '#3f7a3a', band: '#e8f0d0' },
   ramune: { name: 'ラムネ', kind: 'drink', desc: 'しゅわしゅわ、ビー玉入り', bites: 4, after: 'しゅわっ。からん、とビー玉が鳴る', color: '#7ac8e8', band: '#ffffff' },

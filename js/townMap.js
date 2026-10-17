@@ -497,6 +497,35 @@ export const CONNECTORS = [];
   }
 })();
 
+// ---------- 足もとの高さ（石段の踏み面を含む） ----------
+// town.js が石段の踏み面を置いたら登録する。猫・自販機・灯籠・歩く人の目線は、この高さに立つ。
+const TREAD_CELL = 4;
+const treads = new Map();
+/** 踏み面：中心 (x, z)、長さ len（道の向き a）、幅 wid、上面の高さ top */
+export function addTread(x, z, len, wid, a, top) {
+  const t = { x, z, hl: len / 2, hw: wid / 2, c: Math.cos(a), s: Math.sin(a), top };
+  const R = Math.hypot(t.hl, t.hw);
+  for (let i = Math.floor((x - R) / TREAD_CELL); i <= Math.floor((x + R) / TREAD_CELL); i++) {
+    for (let j = Math.floor((z - R) / TREAD_CELL); j <= Math.floor((z + R) / TREAD_CELL); j++) {
+      const k = i * 100003 + j;
+      if (!treads.has(k)) treads.set(k, []);
+      treads.get(k).push(t);
+    }
+  }
+}
+/** その場所の、ものが立つ高さ（地面・道の舗装・石段の踏み面のいちばん上） */
+export function surfaceY(x, z) {
+  let y = groundY(x, z) + (nearAnyRoad(x, z) ? 0.09 : 0);
+  const list = treads.get(Math.floor(x / TREAD_CELL) * 100003 + Math.floor(z / TREAD_CELL));
+  if (list) {
+    for (const t of list) {
+      const dx = x - t.x, dz = z - t.z;
+      if (Math.abs(dx * t.c + dz * t.s) <= t.hl && Math.abs(-dx * t.s + dz * t.c) <= t.hw) y = Math.max(y, t.top);
+    }
+  }
+  return y;
+}
+
 // ---------- 道の外でも歩けるところ ----------
 // 海沿い・町なかの平地は、道の帯の外（広場、駅前、歩道、岸壁ぞい）も歩ける。
 // ただし建物の中、海、アーケードの店の裏へは入れない。
@@ -514,7 +543,7 @@ export function addSolid(x, z, w, d, rot = 0) {
     }
   }
 }
-function inSolid(x, z) {
+export function inSolid(x, z) {
   const list = solids.get(Math.floor(x / SOLID_CELL) * 100003 + Math.floor(z / SOLID_CELL));
   if (!list) return false;
   return list.some((s) => {
@@ -566,26 +595,29 @@ export const SUMMIT = (() => {
 
 // 海沿いのベンチ：歩ける道が岸に近いところに、海を向けて置く
 export const BENCHES = (() => {
+  // 尾道の海沿いは、海を向いたベンチがあちこちにある。岸壁から少し陸に入ったところに、
+  // 20m あまりおきに置く（座ると尾道水道を向く）。
   const out = [];
+  const piers = FERRY_ROUTES.map((r) => r.a);
   for (const line of COAST) {
-    for (const s of samplePath(line, 10)) {
+    for (const s of samplePath(line, 6)) {
       if (s.x < -650 || s.x > 620 || !onOnomichiSide(s.x, s.z + 30)) continue;
-      const n = nearestRoad(s.x, s.z);
-      // 道の端がほぼ岸壁に接しているところだけ（建物越しにならないように）
-      if (!n || n.d - n.seg.half > 3 || n.road.surface === 'stone') continue;
-      if (out.some((b) => Math.hypot(b.x - n.px, b.z - n.pz) < 90)) continue;
-      // 道の、海側の端に置く（海の方角は地形から確かめる）
-      const sea = seaDirection(n.px, n.pz);
+      const sea = seaDirection(s.x, s.z);
       if (!sea) continue;
-      const off = Math.max(0, n.seg.half - 0.7);
-      const x = n.px + sea.dx * off, z = n.pz + sea.dz * off;
-      if (inBuilding(x, z) || inBuilding(n.px + sea.dx * 8, n.pz + sea.dz * 8)) continue;
+      const x = s.x - sea.dx * 1.8, z = s.z - sea.dz * 1.8;
+      if (demAt(x, z) < SEA_Y + 0.8 || terrainY(x, z) - SEA_Y > FREE_HEIGHT) continue;
+      // 座る人が立つ側（陸側）に歩いて行けること
+      if (!walkable(x, z) || !walkable(x - sea.dx * 1.2, z - sea.dz * 1.2)) continue;
+      if (inBuilding(x, z) || inBuilding(s.x + sea.dx * 8, s.z + sea.dz * 8)) continue;
+      if (piers.some((p) => Math.hypot(p.x - x, p.z - z) < 12)) continue;
+      if (out.some((b) => Math.hypot(b.x - x, b.z - z) < 22)) continue;
       out.push({ x, z, y: groundY(x, z), yaw: Math.atan2(-sea.dx, -sea.dz) });
     }
   }
   // 尾道渡船のりばに近い順
   const pier = FERRY_ROUTES[0] ? FERRY_ROUTES[0].a : { x: 0, z: -400 };
-  return out.sort((p, q) => Math.hypot(p.x - pier.x, p.z - pier.z) - Math.hypot(q.x - pier.x, q.z - pier.z)).slice(0, 10);
+  return out.sort((p, q) => Math.hypot(p.x - pier.x, p.z - pier.z) - Math.hypot(q.x - pier.x, q.z - pier.z))
+    .slice(0, 70).map((b, i) => ({ ...b, style: i % 3 === 1 ? 'deck' : 'classic' }));
 })();
 
 // 地図から飛べる場所
@@ -632,7 +664,7 @@ export const PLACES = [
   placeOnRoad('一番街', '一番街', 0.5),
   placeNear('尾道駅前', 'JR尾道駅', 40),
   placeNear('渡船のりば（尾道渡船）', '土堂桟橋(尾道渡船)'),
-  BENCHES[0] ? { ...placeAt('海沿いのベンチ', BENCHES[0].x, BENCHES[0].z), yaw: BENCHES[0].yaw } : null,
+  BENCHES[0] ? { id: '海沿いのベンチ', name: '海沿いのベンチ', x: BENCHES[0].x + Math.sin(BENCHES[0].yaw) * 1.2, z: BENCHES[0].z + Math.cos(BENCHES[0].yaw) * 1.2, yaw: BENCHES[0].yaw } : null,
 ].filter(Boolean);
 
 // ---------- 場所の名前・足もと・音 ----------

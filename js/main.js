@@ -5,7 +5,7 @@ import { Sky, Sea } from './sky.js';
 import { World, SEA_LEVEL } from './world.js';
 import { Room } from './room.js';
 import { Boats } from './boats.js';
-import { Cat } from './cat.js';
+import { Cat, COATS } from './cat.js';
 import { AudioEngine } from './audio.js';
 import { LookControls } from './controls.js';
 import { developFilm } from './photo.js';
@@ -13,7 +13,10 @@ import { Town } from './town.js';
 import { Food } from './food.js';
 import { Walker } from './walker.js';
 import { MapView } from './mapView.js';
-import { PLACES, CROSSINGS, ROADS, BENCHES, ROPEWAY, ROPEWAY_STOPS, groundY, placeName, zoneWeights, pointAlong, clampToRoads } from './townMap.js';
+import { Zukan } from './zukan.js';
+import { Diary } from './diary.js';
+import { ITEMS } from './items.js';
+import { PLACES, CROSSINGS, ROADS, BENCHES, ROPEWAY, ROPEWAY_STOPS, POIS, groundY, surfaceY, placeName, zoneWeights, pointAlong, clampToRoads, nearestRoad } from './townMap.js';
 import { kanjiNumber, smoothstep, clamp } from './util.js';
 
 const params = new URLSearchParams(location.search);
@@ -81,16 +84,37 @@ const onRoad = (name, f, side = 0) => {
 };
 const nearRopeway = clampToRoads(ROPEWAY.base.x + 6, ROPEWAY.base.z - 6);
 const bench = BENCHES[0];
+// 板張りのベンチ（style: deck）の上で寝そべる猫
+const deckBench = BENCHES.find((b) => b.style === 'deck');
+// 名所のそばの道の上
+const nearPoi = (name) => {
+  const p = POIS.find((q) => q.n === name);
+  if (!p) return null;
+  // 名所にいちばん近い道の上（端の石垣にかからないよう、少し内側）で、名所のほうを向く
+  const n = nearestRoad(p.x, p.z);
+  const d = Math.hypot(p.x - n.px, p.z - n.pz) || 1;
+  const off = Math.max(0, n.seg.half - 0.45);
+  const x = n.px + ((p.x - n.px) / d) * off, z = n.pz + ((p.z - n.pz) / d) * off;
+  return { x, z, heading: Math.atan2(p.x - x, p.z - z) };
+};
+// level は、はじめて会ったときの懐き具合
 const STRAYS = [
-  { ...onRoad('猫の細道', 0.62, 1), pose: 'loaf', level: 3 },                         // 猫の細道
-  { ...onRoad('猫の細道', 0.25, -1), pose: 'curl', level: 4 },                        // 猫の細道の下のほう
-  { x: nearRopeway.x, z: nearRopeway.z, heading: 0.4, pose: 'sit', level: 2 },       // ロープウェイ山麓駅のそば
-  { ...onRoad('本町センター街', 0.4, 1), pose: 'loaf', level: 3 },                   // 商店街の店先
-  bench && { x: bench.x + Math.cos(bench.yaw) * 1.4, z: bench.z - Math.sin(bench.yaw) * 1.4, heading: bench.yaw + Math.PI, pose: 'sit', level: 2 }, // 海沿いのベンチ
-  { ...onRoad('空き家への石段', 0.8), pose: 'sit', level: 2 },                        // 家の前の石段
+  { id: 'hosomichi', name: 'ほそみち', coat: 'kijitora', where: '猫の細道の石段', hint: '猫の細道のあたりで見かけるらしい', ...onRoad('猫の細道', 0.62, 1), pose: 'loaf', level: 1 },
+  { id: 'fukuishi', name: 'ふくいし', coat: 'shiro', where: '猫の細道の下のほう、福石猫のそば', hint: '猫の細道の、下のほうにいるらしい', ...onRoad('猫の細道', 0.25, -1), pose: 'curl', level: 2 },
+  { id: 'ropeway', name: 'ゴンドラ', coat: 'hachiware', where: 'ロープウェイ山麓駅のそば', hint: 'ロープウェイの駅のあたりにいるらしい', x: nearRopeway.x, z: nearRopeway.z, heading: 0.4, pose: 'sit', level: 1 },
+  { id: 'shotengai', name: 'かんばん', coat: 'chatora', where: '本通り商店街の店先', hint: '商店街の、どこかの店先にいるらしい', ...onRoad('本町センター街', 0.4, 1), pose: 'loaf', level: 2 },
+  bench && { id: 'umibe', name: 'しおかぜ', coat: 'mike', where: '海沿いのベンチの横', hint: '海沿いのベンチのあたりにいるらしい', x: bench.x + Math.cos(bench.yaw) * 1.4, z: bench.z - Math.sin(bench.yaw) * 1.4, heading: bench.yaw + Math.PI, pose: 'sit', level: 1 },
+  deckBench && { id: 'bench', name: 'いたべんち', coat: 'sabatora', where: '海沿いの、板張りのベンチの上', hint: '海沿いの、板張りのベンチにいるらしい', x: deckBench.x, z: deckBench.z, y: deckBench.y + 0.47, heading: deckBench.yaw + Math.PI / 2, pose: 'loaf', level: 1 },
+  { id: 'ishidan', name: 'となり', coat: 'chashiro', where: '空き家の前の石段', hint: '家のすぐ近くにいるらしい', ...onRoad('空き家への石段', 0.8), pose: 'sit', level: 2 },
+  { id: 'senkoji', name: 'やまぬし', coat: 'kijitora', where: '千光寺の境内', hint: '千光寺のあたりにいるらしい', ...nearPoi('千光寺'), pose: 'sit', level: 1 },
+  { id: 'tennei', name: 'くろとう', coat: 'kuro', where: '天寧寺 三重塔のそば', hint: '三重塔のあたりにいるらしい', ...nearPoi('天寧寺三重塔'), pose: 'loaf', level: 1 },
 ].filter((c) => c && c.x !== undefined);
-const strays = STRAYS.map((c) => new Cat(scene, { fixed: { pos: new THREE.Vector3(c.x, groundY(c.x, c.z), c.z), pose: c.pose, heading: c.heading, level: c.level } }));
+const strays = STRAYS.map((c) => new Cat(scene, {
+  id: c.id, coat: c.coat,
+  fixed: { pos: new THREE.Vector3(c.x, c.y ?? surfaceY(c.x, c.z), c.z), pose: c.pose, heading: c.heading, level: c.level },
+}));
 const allCats = [cat, ...strays];
+const COAT_LABEL = (k) => COATS[k]?.label || '';
 const catByHitbox = new Map(allCats.map((c) => [c.hitbox, c]));
 
 // 歩いているときの手もとの灯り（夜だけ）
@@ -118,7 +142,7 @@ const dust = (() => {
 // ---------- 操作 ----------
 const controls = new LookControls(camera, renderer.domElement, {
   pickables: () => (mode === 'room' ? [cat.hitbox] : strays.filter((c) => c.root.position.distanceTo(camera.position) < 6).map((c) => c.hitbox)),
-  onPoke: (h) => catByHitbox.get(h)?.poke(),
+  onPoke: (h) => { const c = catByHitbox.get(h); c?.poke(); if (c) diary.pettedCat(entryOf.get(c).name); },
   onStroke: (dt, h) => catByHitbox.get(h)?.stroke(dt),
   onRelease: (h) => catByHitbox.get(h)?.release(),
   onHover: (h) => document.body.classList.toggle('hover-cat', h),
@@ -128,6 +152,7 @@ const controls = new LookControls(camera, renderer.domElement, {
 const catDir = (c = cat) => new THREE.Vector3().subVectors(c.root.position, camera.position);
 const audible = (c) => (mode === 'room' ? c === cat : c !== cat && catDir(c).length() < 14);
 cat.on('levelup', (lv, text) => text && toast(text, 6000));
+strays.forEach((c) => c.on('levelup', (lv, text) => text && toast(text, 4500)));
 cat.on('notice', (text) => toast(text, 3500));
 cat.on('flinch', () => toast('（びくっ）……そっとしておこう', 3000));
 allCats.forEach((c) => {
@@ -163,7 +188,7 @@ let lastPlace = '';
 function enterTown(place) {
   mode = 'walk';
   document.body.classList.add('walking');
-  walker.enter(place.x, place.z, place.yaw);
+  walker.enter(place.x, place.z, place.yaw, place.pitch);
   controls.targetFov = 60;
   setShadowRange(28, 45);
   lastPlace = '';
@@ -190,7 +215,7 @@ function travel(place) {
   fadeTo(() => enterTown(place));
 }
 
-const mapView = new MapView({ canvas: $('map-canvas'), list: $('map-list'), onTravel: travel });
+const mapView = new MapView({ canvas: $('map-canvas'), list: $('map-list'), onTravel: travel, cats: () => zukan.friends(), onVisitCat: (e) => visitCat(e) });
 function openMap() {
   const pos = mode === 'walk' ? { x: walker.x, z: walker.z, yaw: controls.yaw } : { x: 0, z: 0.5, yaw: 0 };
   const px = mapView.draw(pos);
@@ -209,7 +234,31 @@ $('btn-out').addEventListener('click', () => {
 
 // 文脈に応じた行動ボタン
 // 食べる・飲む・買う
-const food = new Food({ audio, toast: (t, ms) => toast(t, ms), context: () => ({ seated: !!walker.seat, walking: mode === 'walk' }) });
+const food = new Food({ audio, toast: (t, ms) => toast(t, ms), context: () => ({ seated: !!walker.seat, walking: mode === 'walk' }), onEat: (id) => diary.food(ITEMS[id].name) });
+
+// 日記と、出会った猫図鑑
+const diary = new Diary({ getDay: () => ({ day: time.day, label: dayLabel() }), toast: (t, ms) => toast(t, ms) });
+const catEntries = [
+  { id: 'home', name: 'ちゃとら', coat: 'chatora', where: '坂の上の空き家の窓辺', cat },
+  ...STRAYS.map((c, i) => ({ ...c, cat: strays[i] })),
+];
+const entryOf = new Map(catEntries.map((e) => [e.cat, e]));
+/** 猫のそばの道に立って、猫のほうを向く */
+function visitCat(e) {
+  if (e.id === 'home') { if (mode !== 'room') goHome(); return; }
+  const p = e.cat.root.position;
+  const h = e.cat.heading;
+  const stand = clampToRoads(p.x + Math.sin(h) * 2.2, p.z + Math.cos(h) * 2.2);
+  travel({ id: 'cat-' + e.id, name: e.name, x: stand.x, z: stand.z, yaw: Math.atan2(-(p.x - stand.x), -(p.z - stand.z)), pitch: -0.42 });
+}
+const zukan = new Zukan(catEntries, { onTravel: visitCat });
+allCats.forEach((c) => {
+  const e = entryOf.get(c);
+  c.on('levelup', (lv) => {
+    if (lv >= 4) diary.catFriend(e.name);
+    if (c !== cat && lv >= 4) setTimeout(() => toast(`図鑑：${e.name}（${e.where}）がすっかり懐いた。地図から会いにいける`, 5000), 3200);
+  });
+});
 const nearShop = () => (mode === 'walk' && !walker.seat ? town.interactables.find((s) => Math.hypot(s.x - walker.x, s.z - walker.z) < s.radius) : null);
 
 // ---------- 千光寺山ロープウェイに乗る（片道およそ3分） ----------
@@ -223,6 +272,7 @@ function nearRopewayStop() {
 }
 function startRide(dir) {
   ride = { dir: dir === 'up' ? 1 : -1, t: dir === 'up' ? 0 : 1 };
+  diary.ropeway();
   town.ride = ride;
   walker.enabled = false;
   walkBtn.hidden = true;
@@ -254,10 +304,10 @@ function doAction(action = actions[0]) {
   if (!action) return;
   if (action === 'skipride' && ride) { ride.t = ride.dir > 0 ? 1 : 0; return; }
   if (action === 'ropeway' && rideDir) { startRide(rideDir); return; }
-  if (action === 'deck' && actionShop) { walker.sit(actionShop.seat); toast('展望台から、尾道水道を見わたす', 3000); return; }
+  if (action === 'deck' && actionShop) { walker.sit(actionShop.seat); diary.summit(); toast('展望台から、尾道水道を見わたす', 3000); return; }
   if (action === 'shop' && actionShop) { food.openShop(actionShop); return; }
   if (action === 'home') goHome();
-  else if (action === 'sit') { walker.sit(walker.nearBench()); toast('ベンチに腰をおろす', 2500); }
+  else if (action === 'sit') { walker.sit(walker.nearBench()); diary.sat(); toast('ベンチに腰をおろす', 2500); }
   else if (action === 'stand') walker.stand();
   else if (action === 'crouch') { walker.setCrouch(true); toast('そっと、しゃがむ', 2000); }
   else if (action === 'rise') walker.setCrouch(false);
@@ -284,6 +334,7 @@ const holdWalk = (on) => { walker.touchForward = on; walkBtn.classList.toggle('h
 walkBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); walkBtn.setPointerCapture?.(e.pointerId); holdWalk(true); });
 ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((ev) => walkBtn.addEventListener(ev, () => holdWalk(false)));
 window.addEventListener('keydown', (e) => {
+  if (e.target.closest?.('input, textarea')) return; // 日記を書いているあいだは操作しない
   if (e.repeat || eyesClosed) return;
   if ((e.code === 'KeyE' || e.code === 'Enter') && actions.length) doAction();
   if (e.code === 'KeyC' && mode === 'walk' && !walker.seat) walker.setCrouch(!walker.crouching);
@@ -308,6 +359,10 @@ function toast(text, ms = 4000) {
 }
 
 const PHASE_LABEL = { morning: '朝', day: '昼', evening: '夕暮れ', night: '夜' };
+function dayLabel() {
+  const d = new Date((time.day) * 86400000 + 12 * 3600000);
+  return `${kanjiNumber(d.getMonth() + 1)}月${kanjiNumber(d.getDate())}日`;
+}
 function dateLabel() {
   const d = new Date((time.day) * 86400000 + 12 * 3600000);
   return `${kanjiNumber(d.getMonth() + 1)}月${kanjiNumber(d.getDate())}日　${PHASE_LABEL[time.phase]}`;
@@ -337,7 +392,7 @@ function setEyes(closed) {
   controls.enabled = !closed;
   $('ui').style.visibility = closed ? 'hidden' : '';
 }
-$('btn-eyes').addEventListener('click', () => setEyes(true));
+$('btn-eyes').addEventListener('click', () => { setEyes(true); diary.closedEyes(); });
 $('eyes').addEventListener('click', () => setEyes(false));
 window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && eyesClosed) setEyes(false); });
 
@@ -388,6 +443,7 @@ function takePhoto() {
   const url = developFilm(renderer.domElement, { warmth: time.phase === 'evening' ? 1.2 : 1 });
   const caption = `${dateLabel()}　${time.clockLabel()}`;
   album.unshift({ url, caption });
+  diary.photo(url);
   if (album.length > 24) album.pop();
   $('album-count').textContent = album.length;
   const flash = $('flash');
@@ -425,6 +481,7 @@ let skyShown = false;
 if (DEBUG) {
   $('debug').classList.remove('hidden');
   window.addEventListener('keydown', (e) => {
+    if (e.target.closest?.('input, textarea')) return; // 日記を書いているあいだは操作しない
     if (e.key === '1') cat.addAffection(2);
     if (e.key === '2') cat.reset();
     if (e.key === '3') time.hour = (time.hour + 1) % 24;
@@ -483,6 +540,12 @@ function frame(fixedDt) {
     const near = mode === 'walk' && c.root.position.distanceTo(camera.position) < 60;
     c.root.visible = near || mode === 'room';
     if (near) c.update(dt, t, camera);
+    // そばまで来たら、図鑑に記す
+    if (near && c.root.position.distanceTo(camera.position) < 7) {
+      const e = entryOf.get(c);
+      if (zukan.meet(e.id)) toast(`はじめて会う${COAT_LABEL(e.coat)}の猫。図鑑に「${e.name}」と記した`, 4200);
+      diary.metCat(e.name);
+    }
     // しゃがんで静かに待っていると、猫のほうから気にかけてくれる
     if (near && walker.crouching && c.root.position.distanceTo(camera.position) < 3) c.crouchedNear(dt, controls.idleSeconds);
   });
@@ -546,7 +609,7 @@ function frame(fixedDt) {
       const name = placeName(walker.x, walker.z);
       $('place-label').textContent = name;
       const head = name.split('　')[0];
-      if (head !== lastPlace.split('　')[0]) toast(head, 2600);
+      if (head !== lastPlace.split('　')[0]) { toast(head, 2600); diary.place(head.replace(/のあたり$/, '')); }
       lastPlace = name;
       actionShop = nearShop();
       rideDir = nearRopewayStop();
@@ -579,6 +642,7 @@ function frame(fixedDt) {
     if (!skyShown && time.hour > 17.6 && time.hour < 19) {
       skyShown = true;
       sl.textContent = `今日の空　${time.mood.name}`;
+      diary.sky(time.mood.name);
       sl.classList.add('show');
       setTimeout(() => sl.classList.remove('show'), 14000);
     }

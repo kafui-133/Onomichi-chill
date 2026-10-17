@@ -39,6 +39,7 @@ export class LookControls {
     }, { passive: false });
     this.keyLook = true; // 歩いているときは矢印キーを移動に使う
     window.addEventListener('keydown', (e) => {
+      if (e.target.closest?.('input, textarea')) return; // 日記を書いているあいだは操作しない
       if (!this.keyLook || !this.enabled) return;
       const step = 0.25;
       if (e.key === 'ArrowLeft') this.targetYaw += step;

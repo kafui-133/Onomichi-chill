@@ -9,7 +9,8 @@ export class Food {
    * @param toast   (text, ms) => void
    * @param context () => ({ seated, walking, place })  いまの状況（食べ終わりのひとことに使う）
    */
-  constructor({ audio, toast, context }) {
+  constructor({ audio, toast, context, onEat }) {
+    this.onEat = onEat || (() => {});
     this.audio = audio;
     this.toast = toast;
     this.context = context;
@@ -22,6 +23,13 @@ export class Food {
     $('btn-bag').addEventListener('click', () => this.openBag());
     $('bag-close').addEventListener('click', () => $('bag-view').classList.add('hidden'));
     $('bag-view').addEventListener('click', (e) => { if (e.target === e.currentTarget) $('bag-view').classList.add('hidden'); });
+    // 缶コーヒーは、タップ（クリック）ひとつでひとくち
+    $('eat').addEventListener('pointerdown', (e) => {
+      if (!this.eating?.tap) return;
+      e.preventDefault();
+      e.stopPropagation();
+      this.eating.tap();
+    });
   }
 
   get busy() { return !!this.eating; }
@@ -128,7 +136,14 @@ export class Food {
       else if (item.kind === 'drink') this.audio.sip();
       else this.audio.bite(id === 'currypan' || id === 'melonpan' ? 1.3 : 0.8);
       drawItem(canvas, id, k / steps);
-      if (k < steps) { this.eating.timer = setTimeout(tick, interval * (0.85 + Math.random() * 0.3)); return; }
+      if (k < steps) {
+        if (item.tap) $('eat-text').textContent = `タップでひとくち（あと${steps - k}口）`;
+        else this.eating.timer = setTimeout(tick, interval * (0.85 + Math.random() * 0.3));
+        return;
+      }
+      if (this.eating) this.eating.tap = null;
+      box.classList.remove('tap');
+      this.onEat(id);
       // 食べ終わり：場所や状況でひとことが変わる
       const where = ctx.seated ? 'ベンチで海を見ながら。' : ctx.walking && item.kind !== 'ramen' ? '歩きながら、ひとくちずつ。' : '';
       setTimeout(() => {
@@ -137,6 +152,15 @@ export class Food {
         this.eating = null;
       }, 900);
     };
-    this.eating.timer = setTimeout(tick, item.kind === 'drink' ? 900 : 700);
+    if (item.tap) {
+      // プシュッと開けてから、タップのたびにひとくち
+      box.classList.add('tap');
+      $('eat-text').textContent = `${item.name}　タップでひとくち（あと${steps}口）`;
+      let ready = false;
+      this.eating.timer = setTimeout(() => { ready = true; }, 500);
+      this.eating.tap = () => { if (ready && k < steps) tick(); };
+    } else {
+      this.eating.timer = setTimeout(tick, item.kind === 'drink' ? 900 : 700);
+    }
   }
 }

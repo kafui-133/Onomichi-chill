@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { canvasTexture, glowTexture, seededRandom, speckle } from './util.js';
 import { lam, buildSignAtlas, labelTexture, QuadBatch, instancedBoxes, instancedChunks } from './townKit.js';
 import {
-  DATA, SEA_Y, BOUNDS, terrainY, groundY, addSolid, ROADS, OTHER_ROADS, ARCADE_ROADS, nearAnyRoad, samplePath, roadLength,
+  DATA, SEA_Y, BOUNDS, terrainY, groundY, surfaceY, addTread, addSolid, inSolid, walkable, ROADS, OTHER_ROADS, ARCADE_ROADS, nearAnyRoad, samplePath, roadLength,
   ALLEYS, COAST, RAILS, CROSSINGS, TRAIN_TRACKS, ROPEWAY, SUMMIT, BENCHES, FERRY_ROUTES, POIS, onOnomichiSide, nearestRoad, inBuilding,
 } from './townMap.js';
 
@@ -309,8 +309,10 @@ export class Town {
         for (let k = i0; k <= i1; k++) top = Math.max(top, Hx[k]);
         const len = Math.hypot(b.x - a.x, b.z - a.z);
         const v = 0.43 + r() * 0.05;
-        treads.push({ x: (a.x + b.x) / 2, y: top + 0.03 - 0.3, z: (a.z + b.z) / 2, sx: len + 0.02, sy: 0.6, sz: road.width - 0.1, ry: -Math.atan2(b.z - a.z, b.x - a.x),
+        const ang = Math.atan2(b.z - a.z, b.x - a.x);
+        treads.push({ x: (a.x + b.x) / 2, y: top + 0.03 - 0.3, z: (a.z + b.z) / 2, sx: len + 0.02, sy: 0.6, sz: road.width - 0.1, ry: -ang,
           color: new THREE.Color(v, v * 0.97, v * 0.9) });
+        addTread((a.x + b.x) / 2, (a.z + b.z) / 2, len + 0.02, road.width - 0.1, ang, top + 0.03);
         flights++;
       };
       const turn = (i, j) => Math.abs(((s[j].angle - s[i].angle + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
@@ -334,7 +336,7 @@ export class Town {
           const side = i % 2 ? 1 : -1;
           const off = road.width / 2 - 0.18;
           const x = p.x - Math.sin(p.angle) * side * off, z = p.z + Math.cos(p.angle) * side * off;
-          lanterns.push({ x, z, y: groundY(x, z), ry: -p.angle });
+          lanterns.push({ x, z, ry: -p.angle });
         });
       }
 
@@ -402,6 +404,8 @@ export class Town {
     wm.castShadow = true;
     this.group.add(wm);
     this.group.add(instancedChunks(rails, lam(0xffffff), { receive: false }));
+    // 灯籠は、踏み面がぜんぶ置けてから、その上に立てる
+    lanterns.forEach((l) => { l.y = surfaceY(l.x, l.z); });
     this._lanterns(lanterns);
   }
 
@@ -541,6 +545,7 @@ export class Town {
         if (this.occupied.has(Math.floor(hx / 4) * 100003 + Math.floor(hz / 4))) continue;
         const w = 4.5 + r() * 3.5, d = 4.5 + r() * 3;
         if (nearAnyRoad(hx, hz, Math.max(w, d) / 2 + 0.8)) continue;
+        if (BENCHES.some((bb) => Math.hypot(bb.x - hx, bb.z - hz) < Math.max(w, d) / 2 + 3)) continue;
         // 町なか（平地）は詰まって建つ、斜面はところどころ
         if (above > 12 && r() < 0.35) continue;
         const h = above < 8 ? 6 + r() * 5 : 3 + r() * 3;
@@ -798,23 +803,39 @@ export class Town {
       g.fillRect(w - 30, 190, 12, 18);
     });
     const placed = [];
-    for (const [x0, z0] of spots) {
-      const n = nearestRoad(x0, z0);
-      if (!n || n.d > 30) continue;
-      // 道の端に、道のほうを向けて置く（建物や海にかからない側）
-      let best = null;
+    // 置けるかどうか：舗装された道（石段・小径は石垣があるので避ける）の端の外側で、
+    // 建物・海・ほかの道にかからず、足もとがほぼ平らで、前に人が立てるところ
+    const tryAt = (qx, qz) => {
+      const n = nearestRoad(qx, qz);
+      if (!n || n.d > 30 || n.road.surface === 'stone' || n.road.covered) return null;
+      const s = n.seg;
+      const ang = Math.atan2(s.dz, s.dx);
       for (const side of [-1, 1]) {
-        const s = n.seg;
-        const ang = Math.atan2(s.dz, s.dx);
         const nx = -Math.sin(ang) * side, nz = Math.cos(ang) * side;
-        const x = n.px + nx * (s.half + 0.55), z = n.pz + nz * (s.half + 0.55);
-        if (inBuilding(x, z) || terrainY(x, z) < SEA_Y + 0.5 || nearAnyRoad(x, z, 0.1)) continue;
-        best = { x, z, nx, nz, ang };
-        break;
+        const x = n.px + nx * (s.half + 0.5), z = n.pz + nz * (s.half + 0.5);
+        if (inBuilding(x, z) || inBuilding(x + nx * 0.5, z + nz * 0.5) || inSolid(x, z) || inSolid(x + nx * 0.5, z + nz * 0.5) || terrainY(x, z) < SEA_Y + 0.5 || nearAnyRoad(x, z, 0.05)) continue;
+        // 箱の四隅の高さ（傾きが大きいところには置かない）
+        const tx = Math.cos(ang), tz = Math.sin(ang);
+        const ys = [];
+        for (const a of [-0.5, 0.5]) for (const b of [-0.4, 0.4]) ys.push(groundY(x + tx * a + nx * b, z + tz * a + nz * b));
+        if (Math.max(...ys) - Math.min(...ys) > 0.45) continue;
+        if (!walkable(x - nx * 1.1, z - nz * 1.1)) continue;
+        return { x, z, nx, nz, ang, y: Math.max(...ys, surfaceY(x - nx * 0.45, z - nz * 0.45)), low: Math.min(...ys) };
+      }
+      return null;
+    };
+    for (const [x0, z0] of spots) {
+      // 目安の場所から、近いほうへ少しずつ探す
+      let best = null;
+      for (let r = 0; r <= 24 && !best; r += 3) {
+        for (let k = 0; k < (r ? 8 : 1) && !best; k++) {
+          const a = (k / 8) * Math.PI * 2;
+          best = tryAt(x0 + Math.cos(a) * r, z0 + Math.sin(a) * r);
+        }
       }
       if (!best || placed.some((p) => Math.hypot(p.x - best.x, p.z - best.z) < 25)) continue;
       placed.push(best);
-      const y = groundY(best.x, best.z);
+      const y = best.y;
       const g = new THREE.Group();
       const body = new THREE.Mesh(new THREE.BoxGeometry(1.0, 1.83, 0.75), lam(VENDING_COLORS[placed.length % VENDING_COLORS.length]));
       body.position.y = 0.915;
@@ -822,7 +843,11 @@ export class Town {
       const front = new THREE.Mesh(new THREE.PlaneGeometry(0.86, 1.6), new THREE.MeshLambertMaterial({ map: panel, emissive: 0xffffff, emissiveMap: panel, emissiveIntensity: 0.25 }));
       front.position.set(0, 0.95, 0.38);
       this.vendingMats.push(front.material);
-      g.add(body, front);
+      // 低いほうの足もとが浮かないよう、コンクリートの台
+      const plinthH = y - best.low + 0.15;
+      const plinth = new THREE.Mesh(new THREE.BoxGeometry(1.06, plinthH, 0.8), lam(0x8e8a82));
+      plinth.position.y = -plinthH / 2 + 0.02;
+      g.add(body, front, plinth);
       g.position.set(best.x, y, best.z);
       g.rotation.y = Math.atan2(-best.nx, -best.nz); // 正面（+z）を道へ
       this.group.add(g);
@@ -1105,28 +1130,27 @@ export class Town {
         this.group.add(sign);
       }
     }
-    const wood = lam(0x8a6a4a), iron = lam(0x2f3336);
+    // 海沿いのベンチ：木の背もたれつきと、雨風で銀色になった板張りの広い腰掛け
+    const boxes = [];
+    const r = this.r;
     for (const b of BENCHES) {
-      const g = new THREE.Group();
-      for (let i = 0; i < 3; i++) {
-        const slat = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.05, 0.12), wood);
-        slat.position.set(0, 0.45, -0.16 + i * 0.16);
-        slat.castShadow = true;
-        g.add(slat);
+      const c = Math.cos(b.yaw), sn = Math.sin(b.yaw);
+      const put = (lx, ly, lz, sx, sy, sz, color, rx = 0) => boxes.push({
+        x: b.x + lx * c + lz * sn, y: b.y + ly, z: b.z - lx * sn + lz * c, sx, sy, sz, ry: b.yaw, rx, color,
+      });
+      if (b.style === 'deck') {
+        const g = 0.55 + r() * 0.06;
+        const grey = new THREE.Color(g, g * 0.98, g * 0.93);
+        for (let i = 0; i < 8; i++) put(0, 0.42, -0.42 + i * 0.12, 2.2, 0.045, 0.1, grey.clone().offsetHSL(0, 0, (r() - 0.5) * 0.05));
+        for (const sx of [-0.95, 0, 0.95]) put(sx, 0.2, 0, 0.08, 0.4, 0.9, '#5d5a55');
+      } else {
+        const wood = new THREE.Color(0x8a6a4a).offsetHSL(0, 0, (r() - 0.5) * 0.06);
+        for (let i = 0; i < 3; i++) put(0, 0.45, -0.16 + i * 0.16, 1.8, 0.05, 0.12, wood);
+        put(0, 0.72, 0.24, 1.8, 0.35, 0.05, wood, -0.15);
+        for (const sx of [-0.75, 0.75]) put(sx, 0.22, 0, 0.06, 0.45, 0.45, '#2f3336');
       }
-      const back = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.35, 0.05), wood);
-      back.position.set(0, 0.72, 0.24);
-      back.rotation.x = -0.15;
-      g.add(back);
-      for (const sx of [-0.75, 0.75]) {
-        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.45, 0.45), iron);
-        leg.position.set(sx, 0.22, 0);
-        g.add(leg);
-      }
-      g.position.set(b.x, b.y, b.z);
-      g.rotation.y = b.yaw; // 背もたれは陸側、座ると海を向く
-      this.group.add(g);
     }
+    this.group.add(instancedChunks(boxes, lam(0xffffff)));
   }
 
   /** 猫の細道の福石猫（丸い石に描かれた猫） */

@@ -9,11 +9,21 @@ import { SILL_Y } from './room.js';
 
 export const LEVEL_THRESHOLDS = [0, 4, 10, 18];
 const STORAGE_KEY = 'onomichi-cat-affection';
+const STRAY_KEY = 'onomichi-stray-affection';
+function loadStrays() {
+  try { return JSON.parse(localStorage.getItem(STRAY_KEY)) || {}; } catch { return {}; }
+}
 
 const LEVEL_TEXT = {
   2: '猫がこちらを気にしている。少しだけ近づいてきた',
   3: '足もとでシッポがぺしぺし。ゴロゴロ…',
   4: '座布団の上で丸くなった。ここで眠るらしい',
+};
+// 町の猫（その場から動かない）が懐いたとき
+const STRAY_LEVEL_TEXT = {
+  2: 'こちらを気にしている。少し、気を許したらしい',
+  3: 'シッポがぴんと立った。もう逃げない',
+  4: 'すっかり懐いた。地図に、この猫の居場所が記された',
 };
 
 // 各レベルの居場所（y は足もとの高さ）と向き
@@ -24,27 +34,52 @@ const SPOTS = {
   4: { pos: new THREE.Vector3(0.62, 0.08, 0.38), face: 'side', pose: 'curl' },
 };
 
-function furTexture() {
-  const r = seededRandom('tora');
+// 毛色。base=地の色、stripe=縞、plain=耳・脚など、tip=シッポの先、belly=お腹の白、patches=三毛のぶち
+export const COATS = {
+  chatora:   { label: '茶トラ',   base: '#d98e4a', stripe: '150,75,30',  plain: 0xd38a47, tip: 0x9a5528, belly: true },
+  sabatora:  { label: 'サバトラ', base: '#9c9b97', stripe: '38,38,40',   plain: 0x8e8d89, tip: 0x34343a, belly: true },
+  kijitora:  { label: 'キジトラ', base: '#8c7052', stripe: '45,32,20',   plain: 0x7d6449, tip: 0x3a2a1e, belly: false },
+  hachiware: { label: 'ハチワレ', base: '#2b2724', stripe: null,         plain: 0x2b2724, tip: 0x2b2724, belly: true, whiteLegs: true },
+  mike:      { label: '三毛',     base: '#efe7da', stripe: null,         plain: 0xe9e0d2, tip: 0x2a2420, belly: true, patches: ['#d0843e', '#2e2925'] },
+  shiro:     { label: '白',       base: '#eee8de', stripe: null,         plain: 0xece5da, tip: 0xe2dacd, belly: false },
+  chashiro:  { label: '茶白',     base: '#dc9550', stripe: '160,85,35',  plain: 0xd8924e, tip: 0xa25c2c, belly: true, whiteLegs: true },
+  kuro:      { label: '黒',       base: '#23201e', stripe: null,         plain: 0x23201e, tip: 0x1c1a18, belly: false, eye: 0xc9a23a },
+};
+
+function furTexture(coat, seed) {
+  const r = seededRandom('tora' + seed);
   return canvasTexture(256, 128, (g, w, h) => {
-    g.fillStyle = '#d98e4a';
+    g.fillStyle = coat.base;
     g.fillRect(0, 0, w, h);
     // 縞
-    for (let i = 0; i < 18; i++) {
-      const x = (i / 18) * w + r() * 6;
-      g.strokeStyle = `rgba(150,75,30,${0.45 + r() * 0.3})`;
-      g.lineWidth = 3 + r() * 5;
-      g.beginPath();
-      g.moveTo(x, 0);
-      for (let y = 0; y < h * 0.7; y += 8) g.lineTo(x + Math.sin(y * 0.1 + i) * 4, y);
-      g.stroke();
+    if (coat.stripe) {
+      for (let i = 0; i < 18; i++) {
+        const x = (i / 18) * w + r() * 6;
+        g.strokeStyle = `rgba(${coat.stripe},${0.45 + r() * 0.3})`;
+        g.lineWidth = 3 + r() * 5;
+        g.beginPath();
+        g.moveTo(x, 0);
+        for (let y = 0; y < h * 0.7; y += 8) g.lineTo(x + Math.sin(y * 0.1 + i) * 4, y);
+        g.stroke();
+      }
+    }
+    // 三毛のぶち
+    if (coat.patches) {
+      for (let i = 0; i < 7; i++) {
+        g.fillStyle = coat.patches[i % coat.patches.length];
+        g.beginPath();
+        g.ellipse(r() * w, r() * h * 0.6, 14 + r() * 26, 10 + r() * 18, r() * 3, 0, Math.PI * 2);
+        g.fill();
+      }
     }
     // お腹は白
-    const grd = g.createLinearGradient(0, h * 0.55, 0, h);
-    grd.addColorStop(0, 'rgba(244,236,224,0)');
-    grd.addColorStop(0.4, 'rgba(244,236,224,1)');
-    g.fillStyle = grd;
-    g.fillRect(0, h * 0.55, w, h * 0.45);
+    if (coat.belly) {
+      const grd = g.createLinearGradient(0, h * 0.55, 0, h);
+      grd.addColorStop(0, 'rgba(244,236,224,0)');
+      grd.addColorStop(0.4, 'rgba(244,236,224,1)');
+      g.fillStyle = grd;
+      g.fillRect(0, h * 0.55, w, h * 0.45);
+    }
   });
 }
 
@@ -107,8 +142,10 @@ export class Cat {
     scene.add(this.root);
     this.listeners = {};
     this.fixed = opts.fixed || null;
-    this.affection = this.fixed ? LEVEL_THRESHOLDS[this.fixed.level - 1] : this._load();
-    this.level = this.fixed ? this.fixed.level : this.levelFor(this.affection);
+    this.id = opts.id || 'home';
+    this.coat = COATS[opts.coat] || COATS.chatora;
+    this.affection = this._load();
+    this.level = this.levelFor(this.affection);
 
     this._build();
     this.parts = { body: this.body, head: this.head, fl: this.legs.fl, fr: this.legs.fr, bl: this.legs.bl, br: this.legs.br, tail: this.tail };
@@ -156,10 +193,20 @@ export class Cat {
   }
 
   _load() {
+    // 町の猫は猫ごとに、はじめは出会ったときの懐き具合（fixed.level）から
+    if (this.fixed) {
+      const v = loadStrays()[this.id];
+      return typeof v === 'number' ? v : LEVEL_THRESHOLDS[(this.fixed.level || 1) - 1];
+    }
     try { return parseFloat(localStorage.getItem(STORAGE_KEY)) || 0; } catch { return 0; }
   }
   _save() {
-    if (this.fixed) return;
+    if (this.fixed) {
+      const all = loadStrays();
+      all[this.id] = +this.affection.toFixed(2);
+      try { localStorage.setItem(STRAY_KEY, JSON.stringify(all)); } catch { /* ignore */ }
+      return;
+    }
     try { localStorage.setItem(STORAGE_KEY, this.affection.toFixed(2)); } catch { /* ignore */ }
   }
   reset() {
@@ -181,10 +228,12 @@ export class Cat {
   }
 
   _build() {
-    const fur = new THREE.MeshStandardMaterial({ map: furTexture(), roughness: 0.95 });
-    const furPlain = new THREE.MeshStandardMaterial({ color: 0xd38a47, roughness: 0.95 });
+    const coat = this.coat;
+    const fur = new THREE.MeshStandardMaterial({ map: furTexture(coat, this.id), roughness: 0.95 });
+    const furPlain = new THREE.MeshStandardMaterial({ color: coat.plain, roughness: 0.95 });
     const white = new THREE.MeshStandardMaterial({ color: 0xf2ebe0, roughness: 0.95 });
-    const dark = new THREE.MeshStandardMaterial({ color: 0x1a1410, roughness: 0.3 });
+    const muzzleMat = coat.belly || coat.label === '白' ? white : furPlain;
+    const dark = new THREE.MeshStandardMaterial({ color: coat.eye || 0x1a1410, roughness: 0.3 });
     const pink = new THREE.MeshStandardMaterial({ color: 0xd88a8a, roughness: 0.6 });
 
     this.body = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), fur);
@@ -196,7 +245,7 @@ export class Cat {
     const skull = new THREE.Mesh(new THREE.SphereGeometry(0.075, 20, 14), fur);
     skull.scale.set(1.1, 0.95, 1);
     skull.castShadow = true;
-    const muzzle = new THREE.Mesh(new THREE.SphereGeometry(0.035, 14, 10), white);
+    const muzzle = new THREE.Mesh(new THREE.SphereGeometry(0.035, 14, 10), muzzleMat);
     muzzle.position.set(0, -0.025, 0.058);
     muzzle.scale.set(1.3, 0.8, 0.9);
     const nose = new THREE.Mesh(new THREE.SphereGeometry(0.009, 8, 6), pink);
@@ -227,9 +276,9 @@ export class Cat {
     this.legs = {};
     for (const k of ['fl', 'fr', 'bl', 'br']) {
       const g = new THREE.Group();
-      const leg = new THREE.Mesh(legGeo, k[0] === 'f' ? white : furPlain);
+      const leg = new THREE.Mesh(legGeo, k[0] === 'f' || coat.whiteLegs ? (coat.belly ? white : furPlain) : furPlain);
       leg.castShadow = true;
-      const paw = new THREE.Mesh(pawGeo, white);
+      const paw = new THREE.Mesh(pawGeo, coat.belly || coat.label === '白' ? white : furPlain);
       paw.position.y = -0.19;
       paw.scale.set(1, 0.6, 1.3);
       g.add(leg, paw);
@@ -247,7 +296,7 @@ export class Cat {
       const geo = new THREE.CylinderGeometry(0.016 - i * 0.0012, 0.018 - i * 0.0012, segLen + 0.008, 8);
       geo.rotateX(Math.PI / 2);
       geo.translate(0, 0, -segLen / 2);
-      const m = new THREE.Mesh(geo, i === 5 ? new THREE.MeshStandardMaterial({ color: 0x9a5528 }) : furPlain);
+      const m = new THREE.Mesh(geo, i === 5 ? new THREE.MeshStandardMaterial({ color: coat.tip }) : furPlain);
       m.castShadow = true;
       seg.add(m);
       if (i > 0) seg.position.z = -segLen;
@@ -266,10 +315,19 @@ export class Cat {
   // ---------- 親密度 ----------
   addAffection(v) {
     this.affection = Math.max(0, this.affection + v);
-    if (this.fixed) return;
-    this._save();
+    this._saveSoon();
     const lv = this.levelFor(this.affection);
-    if (lv > this.level) this._levelUp(lv);
+    if (lv <= this.level) return;
+    if (this.fixed) {
+      this.level = lv;
+      this.emit('levelup', lv, STRAY_LEVEL_TEXT[lv]);
+      if (lv >= 2) this.emit('meow', lv);
+    } else this._levelUp(lv);
+  }
+  // なでているあいだ毎フレーム保存しないよう、まとめて書く
+  _saveSoon() {
+    if (this._saveTimer) return;
+    this._saveTimer = setTimeout(() => { this._saveTimer = null; this._save(); }, 800);
   }
 
   _levelUp(lv) {
@@ -344,6 +402,7 @@ export class Cat {
   /** 町で、すぐそばにしゃがんでいるとき（idle: 操作していない秒数） */
   crouchedNear(dt, idle) {
     this.glance = Math.max(this.glance, 0.4);          // こちらを見る
+    this.addAffection(dt * (idle > 3 ? 0.18 : 0.08));  // 目線を合わせて待つと、少しずつ懐く
     if (idle > 3) {
       this.bunt = Math.min(0.6, this.bunt + dt * 0.3); // 鼻先を寄せる
       if (this.level >= 3) this.purr = Math.min(0.6, this.purr + dt * 0.2);

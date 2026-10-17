@@ -1,5 +1,6 @@
 // 手帳の地図：実データ（OpenStreetMap＋国土地理院の標高）から、海・陸・道・線路・名所を描く。
 // 名所の印か名前を押すと、その場所へ移動できる。
+import { drawCatFace } from './zukan.js';
 import { DATA, SEA_Y, ROADS, OTHER_ROADS, RAILS, PLACES, ARCADE_ROADS, FERRY_PIERS, ATTRIBUTION } from './townMap.js';
 
 // 表示する範囲（尾道駅〜長江口、尾道水道まで）。西を左に描く
@@ -42,9 +43,13 @@ function baseImage() {
 }
 
 export class MapView {
-  constructor({ canvas, list, onTravel }) {
+  constructor({ canvas, list, onTravel, cats, onVisitCat }) {
     this.canvas = canvas;
     this.onTravel = onTravel;
+    this.cats = cats || (() => []);
+    this.onVisitCat = onVisitCat;
+    this.list = list;
+    this.faces = new Map();
     this.player = { x: 0, z: 0, yaw: 0 };
     this.markers = [];
     this.base = null;
@@ -53,7 +58,8 @@ export class MapView {
       const mx = (e.clientX - r.left) * (canvas.width / r.width);
       const my = (e.clientY - r.top) * (canvas.height / r.height);
       const hit = this.markers.find((m) => Math.hypot(m.sx - mx, m.sy - my) < 16 * this.dpr);
-      if (hit) this.onTravel(hit.place);
+      if (hit?.cat) this.onVisitCat(hit.cat);
+      else if (hit) this.onTravel(hit.place);
     });
     list.innerHTML = '';
     PLACES.forEach((p) => {
@@ -151,6 +157,37 @@ export class MapView {
     g.fillStyle = '#2a2420';
     g.font = '12px "Shippori Mincho", serif';
     g.fillText('空き家', sx(0) + 8, sy(4) - 6);
+
+    // すっかり懐いた猫の居場所（押すと会いにいける）
+    const friends = this.cats();
+    g.font = '11px "Shippori Mincho", serif';
+    for (const e of friends) {
+      const p = e.cat.root.position;
+      const x = sx(p.x), y = sy(p.z);
+      if (!this.faces.has(e.coat)) {
+        const fc = document.createElement('canvas');
+        fc.width = fc.height = 64;
+        drawCatFace(fc, e.coat);
+        this.faces.set(e.coat, fc);
+      }
+      g.fillStyle = 'rgba(244,239,230,0.92)';
+      g.strokeStyle = '#c0602a';
+      g.lineWidth = 1.5;
+      g.beginPath(); g.arc(x, y, 12, 0, Math.PI * 2); g.fill(); g.stroke();
+      g.drawImage(this.faces.get(e.coat), x - 11, y - 12, 22, 22);
+      g.fillStyle = '#7a3a1a';
+      g.fillText(e.name, x + 15, y + 4);
+      this.markers.push({ sx: x * dpr, sy: y * dpr, cat: e });
+    }
+    // 名前の一覧にも、猫に会いにいくボタン
+    this.list.querySelectorAll('.cat-go').forEach((b) => b.remove());
+    for (const e of friends) {
+      const b = document.createElement('button');
+      b.className = 'cat-go';
+      b.textContent = `🐾 ${e.name}`;
+      b.addEventListener('click', () => this.onVisitCat(e));
+      this.list.appendChild(b);
+    }
 
     // 出典
     g.font = '9px sans-serif';

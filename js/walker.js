@@ -1,6 +1,6 @@
 // 町歩き：道の上だけを歩ける一人称の移動。
 //   W / ↑ 前へ　S / ↓ うしろへ　A・D 横へ　← → 向きを変える　（画面の「歩く」ボタン長押しでも前へ）
-import { clampToRoads, walkable, groundY, surfaceAt, HOUSE_DOOR, BENCHES } from './townMap.js';
+import { clampToRoads, walkable, surfaceY, surfaceAt, HOUSE_DOOR, BENCHES } from './townMap.js';
 import { damp } from './util.js';
 
 const EYE = 1.55;
@@ -27,6 +27,7 @@ export class Walker {
     this.onStep = null;
 
     window.addEventListener('keydown', (e) => {
+      if (e.target.closest?.('input, textarea')) return; // 日記を書いているあいだは操作しない
       if (!this.enabled) return;
       this.keys.add(e.code);
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
@@ -35,8 +36,8 @@ export class Walker {
     window.addEventListener('blur', () => this.keys.clear());
   }
 
-  enter(x, z, yaw) {
-    const p = clampToRoads(x, z);
+  enter(x, z, yaw, pitch = -0.04) {
+    const p = walkable(x, z) ? { x, z } : clampToRoads(x, z);
     this.x = p.x;
     this.z = p.z;
     this.vx = this.vz = 0;
@@ -45,7 +46,7 @@ export class Walker {
     this.enabled = true;
     this.controls.keyLook = false;
     this.controls.yaw = this.controls.targetYaw = yaw;
-    this.controls.pitch = this.controls.targetPitch = -0.04;
+    this.controls.pitch = this.controls.targetPitch = pitch;
     this._place(0);
   }
 
@@ -91,7 +92,7 @@ export class Walker {
 
   _place(dt) {
     const bob = Math.sin(this.bobPhase) * 0.035 * this.moving;
-    const y = groundY(this.x, this.z) + (this.crouching ? EYE_CROUCH : EYE) + bob;
+    const y = surfaceY(this.x, this.z) + (this.crouching ? EYE_CROUCH : EYE) + bob;
     const base = this.controls.basePos;
     // 石段の上り下りで視点がガクガクしないように、高さだけなめらかにする
     base.y = dt > 0 ? damp(base.y, y, 12, dt) : y;
