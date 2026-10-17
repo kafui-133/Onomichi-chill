@@ -35,7 +35,7 @@ export class Diary {
   _reset() {
     const d = this.getDay();
     this.day = d.day;
-    this.log = { events: [], places: [], foods: [], cats: [], petted: [], friends: [], photos: 0, photo: null, ropeway: false, summit: false, sat: 0, eyes: 0, moods: [] };
+    this.log = { events: [], places: [], foods: [], cats: [], petted: [], friends: [], photos: 0, photo: null, ropeway: false, summit: false, sat: 0, eyes: 0, moods: [], talks: [] };
   }
 
   _today() {
@@ -54,6 +54,7 @@ export class Diary {
   /** 季節のイベントの日（日記のはじめに一行） */
   event(text) { const l = this._today(); if (text && !l.events.includes(text)) l.events.push(text); }
   summit() { this._today().summit = true; }
+  talked(who) { const l = this._today(); (l.talks ||= []); if (who && !l.talks.includes(who)) l.talks.push(who); }
   sat() { this._today().sat++; }
   closedEyes() { this._today().eyes++; }
   /** 写真（data URL）。最初の1枚を小さくして日記に貼る */
@@ -86,6 +87,7 @@ export class Diary {
     if (l.friends.length) lines.push(`${join(l.friends)}が、すっかり懐いてくれた。`);
     else if (l.petted.length) lines.push(`${join(l.petted.slice(0, 3))}を、そっとなでた。`);
     else if (l.cats.length) lines.push(`${join(l.cats.slice(0, 3))}に会った。`);
+    if (l.talks?.length) lines.push(`${join(l.talks.slice(0, 3))}と、少し話をした。`);
     if (l.sat) lines.push('海沿いのベンチに座って、渡船が行き来するのを眺めた。');
     if (l.eyes) lines.push('目を閉じて、波と風の音を聞いた。');
     if (l.moods.length) lines.push(`夕方の空は「${l.moods[l.moods.length - 1]}」。`);

@@ -1119,13 +1119,45 @@ export class Town {
     this.group.add(sign);
     this.ropeA = new THREE.Vector3(base.x, by + 8.5, base.z);
     this.ropeB = new THREE.Vector3(top.x, ty + 7.5, top.z);
-    this.group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([this.ropeA, this.ropeB]), new THREE.LineBasicMaterial({ color: 0x333333 })));
-    for (const t of [0.33, 0.66]) {
-      const p = new THREE.Vector3().lerpVectors(this.ropeA, this.ropeB, t);
+    // 上りと下りのゴンドラは、左右に分かれた別々の索道（すれちがってもぶつからない）
+    const hx = top.x - base.x, hz = top.z - base.z, hl = Math.hypot(hx, hz);
+    this.ropeSide = new THREE.Vector3(-hz / hl, 0, hx / hl).multiplyScalar(2.8);
+    // 山肌にゴンドラがもぐらないよう、地面から十分に離れるまでケーブルを持ち上げる
+    const N = 80;
+    const deficit = [];
+    for (let i = 0; i <= N; i++) {
+      const t = i / N;
+      let need = 0;
+      for (const sd of [-1, 0, 1]) {
+        const p = this._cableBase(t).addScaledVector(this.ropeSide, sd);
+        need = Math.max(need, terrainY(p.x, p.z) + 11 - p.y);   // ゴンドラの床（ケーブルの3.3m下）が地面から8mほど上
+      }
+      deficit.push(Math.max(0, need));
+    }
+    // 持ち上げはなめらかに（どの点も、まわりの必要量から、ゆるい傾きで下がっていく包みにする）
+    this.cableLift = deficit.map((_, i) => Math.max(...deficit.map((d, j) => d - Math.abs(i - j) * 0.9)));
+    this.cableLift[0] = this.cableLift[N] = 0;
+    const wire = new THREE.LineBasicMaterial({ color: 0x333333 });
+    for (const sd of [-1, 1]) {
+      const pts = [];
+      for (let i = 0; i <= 60; i++) pts.push(this.cablePoint(i / 60, sd));
+      this.group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), wire));
+    }
+    // 支柱：両方のケーブルをかける腕木つき。いちばん持ち上げたあたりと、その間に
+    const towerTs = [0.33, 0.66];
+    const peak = this.cableLift.indexOf(Math.max(...this.cableLift)) / N;
+    if (Math.max(...this.cableLift) > 1 && towerTs.every((t) => Math.abs(t - peak) > 0.12)) towerTs.push(peak);
+    const steel = lam(0x8a8a88);
+    for (const t of towerTs) {
+      const p = this.cablePoint(t, 0);
       const gy = terrainY(p.x, p.z);
-      const tower = new THREE.Mesh(new THREE.BoxGeometry(0.8, Math.max(1, p.y - gy + 1), 0.8), lam(0x8a8a88));
-      tower.position.set(p.x, (p.y + gy) / 2, p.z);
-      this.group.add(tower);
+      const tower = new THREE.Mesh(new THREE.BoxGeometry(0.8, Math.max(1, p.y - gy + 1.2), 0.8), steel);
+      tower.position.set(p.x, (p.y + 0.6 + gy) / 2, p.z);
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 7), steel);
+      arm.position.set(p.x, p.y + 0.6, p.z);
+      arm.rotation.y = Math.atan2(this.ropeSide.x, this.ropeSide.z);
+      tower.castShadow = true;
+      this.group.add(tower, arm);
     }
     this.gondolas = [0, 0.5].map((phase) => {
       const g = new THREE.Group();
@@ -1141,7 +1173,7 @@ export class Town {
       g.add(simple);
       g.rotation.y = -Math.atan2(top.z - base.z, top.x - base.x);
       this.group.add(g);
-      return { g, phase, simple };
+      return { g, phase, simple, side: phase === 0 ? -1 : 1 };
     });
     // Blender のゴンドラ（窓の大きいクリーム色の車体に赤い帯）
     if (USE_MODELS) {
@@ -1158,10 +1190,21 @@ export class Town {
     }
   }
 
-  /** ロープウェイのケーブル上の点（t=0 山麓駅、1 山頂駅）。少したわませる */
-  cablePoint(t) {
+  /** ケーブルのもとの形：駅と駅をまっすぐ結んで、少したわませる */
+  _cableBase(t) {
     const p = new THREE.Vector3().lerpVectors(this.ropeA, this.ropeB, t);
     p.y -= Math.sin(t * Math.PI) * 5;
+    return p;
+  }
+
+  /** ロープウェイのケーブル上の点（t=0 山麓駅、1 山頂駅）。side は左右の索道（-1 = 乗るほう、1 = もう1台） */
+  cablePoint(t, side = -1) {
+    const p = this._cableBase(t).addScaledVector(this.ropeSide, side);
+    if (this.cableLift) {
+      const f = Math.min(1, Math.max(0, t)) * (this.cableLift.length - 1), i = Math.floor(f), k = f - i;
+      const a = this.cableLift[i], b = this.cableLift[Math.min(i + 1, this.cableLift.length - 1)];
+      p.y += a + (b - a) * k;
+    }
     return p;
   }
 
@@ -1780,7 +1823,9 @@ export class Town {
     this.gondolas.forEach((gd) => {
       // 乗っているあいだは、1台目がこちらの乗っているゴンドラになる
       const t = gd.phase === 0 && this.ride ? this.ride.t : gd.phase === 0 ? tA : 1 - tA;
-      gd.g.position.copy(this.cablePoint(t));
+      gd.g.position.copy(this.cablePoint(t, gd.side));
+      // 乗っているゴンドラは見えなくして、空の中にいるように（天井や壁で景色をふさがない）
+      gd.g.visible = !(gd.phase === 0 && this.ride);
     });
 
     // 電車

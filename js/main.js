@@ -20,6 +20,7 @@ import { quality } from './quality.js';
 import { eventsOn, eventGlow } from './events.js';
 import { Candles } from './candles.js';
 import { look, Look, applyToonShading } from './look.js';
+import { People } from './people.js';
 
 // 絵作り：トゥーン調の陰影は、シェーダーを組み立てる前（いちばん初めの描画の前）に入れる
 applyToonShading();
@@ -78,6 +79,7 @@ const world = new World(scene);
 const room = new Room(scene);
 const boats = new Boats(scene);
 const town = new Town(scene, world);
+const people = new People(scene, quality.s.people);
 const cat = new Cat(scene);
 const audio = new AudioEngine();
 
@@ -335,8 +337,25 @@ function doAction(action = actions[0]) {
   else if (action === 'stand') walker.stand();
   else if (action === 'crouch') { walker.setCrouch(true); toast('そっと、しゃがむ', 2000); }
   else if (action === 'rise') walker.setCrouch(false);
+  else if (action === 'talk') { const p = people.talking?.p || nearPerson(); if (p) talkTo(p); }
 }
 // 近くの猫（しゃがむボタンを出す距離）
+// 町の人と話す（話しかけるたびに続きを聞く。離れると話はおしまい）
+const nearPerson = () => (mode === 'walk' && !walker.seat && !ride ? people.near(walker.x, walker.z) : null);
+let talkTimer = null;
+function talkTo(p) {
+  const evs = todaysEvents.map((e) => e.id);
+  const line = people.talk(p, time.hour, evs.includes('akari') ? 'akari' : null);
+  const box = $('talk');
+  clearTimeout(talkTimer);
+  talkTimer = null;
+  if (!line) { box.classList.remove('show'); return; }
+  $('talk-who').textContent = line.who;
+  $('talk-text').textContent = line.text;
+  box.classList.add('show');
+  labelTimer = 0;
+  if (line.last) { diary.talked(p.label); talkTimer = setTimeout(() => { talkTimer = null; box.classList.remove('show'); people.endTalk(); labelTimer = 0; }, 6000); }
+}
 const nearStray = () => (mode === 'walk' ? strays.find((c) => Math.hypot(c.root.position.x - walker.x, c.root.position.z - walker.z) < 2.6) : null);
 // 行動ボタン：いまできることを並べる（中身が変わったときだけ作り直す）
 let actsKey = '';
@@ -607,6 +626,8 @@ function frame(fixedDt) {
   sea.update(time, scene.fog, t, boats.wakes(camera.position));
   room.update(time, t, dt, audio.wind);
   cat.update(dt, t, camera);
+  people.update(dt, time.hour, camera.position, mode === 'walk' ? walker : null);
+  if (!people.talking && $('talk').classList.contains('show') && !talkTimer) $('talk').classList.remove('show');
   strays.forEach((c) => {
     const near = mode === 'walk' && c.root.position.distanceTo(camera.position) < 60;
     c.root.visible = near || mode === 'room';
@@ -705,7 +726,10 @@ function frame(fixedDt) {
         if (walker.nearDoor()) actions.push('home');
         if (walker.nearBench()) actions.push('sit');
         if (nearStray()) actions.push('crouch');
+        if (people.talking || nearPerson()) actions.unshift('talk');
       }
+      // 話している相手から離れたら、ふきだしを閉じる
+      if (!people.talking && $('talk').classList.contains('show') && !talkTimer) $('talk').classList.remove('show');
     } else {
       $('place-label').textContent = '';
       actions = [];
@@ -717,6 +741,7 @@ function frame(fixedDt) {
       : a === 'stand' && walker.seat && walker.seat.kind === 'deck' ? '展望台をおりる'
       : a === 'shop'
       ? { bakery: `${actionShop.name}に入る`, ramen: `${actionShop.name}で食べる`, vending: '自販機で買う', kamaboko: `${actionShop.name}に寄る`, sweets: `${actionShop.name}に寄る`, cafe: `${actionShop.name}でひとやすみ` }[actionShop.type]
+      : a === 'talk' ? (people.talking ? (people.talking.i < people.talking.lines.length - 1 ? 'つづきを聞く' : 'またね') : `${nearPerson().label}に話しかける`)
       : { home: '家に入る', sit: 'ベンチに座る', stand: '立ちあがる', crouch: 'しゃがむ', rise: '立ちあがる' }[a] || '';
     renderActs(actions.slice(0, 3).map((a) => ({ id: a, label: label(a) })));
     walkBtn.hidden = mode !== 'walk' || !!walker.seat || walker.crouching || !!ride;
@@ -753,7 +778,7 @@ function frame(fixedDt) {
 function loop() { frame(); }
 if (CAPTURE) {
   $('title').style.display = 'none';
-  Object.assign(window, { THREE, scene, camera, time, cat, audio, boats, controls, renderer, town, walker, strays, PLACES, food, diary, enterTown, enterRoom, goHome, getCandles: () => candles, startRide, ROADS, pointAlong, getRide: () => ride });
+  Object.assign(window, { THREE, scene, camera, time, cat, audio, boats, controls, renderer, town, walker, strays, people, PLACES, food, diary, enterTown, enterRoom, goHome, getCandles: () => candles, startRide, ROADS, pointAlong, getRide: () => ride });
   window.captureStep = (dt) => frame(dt);
   window.captureReady = true;
 } else {
