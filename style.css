@@ -249,6 +249,29 @@ body.idle #ui .ui-walk button { pointer-events: auto; }
 /* 町歩き中は、下に行動ボタンが並ぶので、知らせは上のほうに出す */
 body.walking #toast { bottom: auto; top: 18%; }
 
+/* 町の人との会話（ふきだし） */
+#talk {
+  position: fixed;
+  left: 50%;
+  bottom: 140px;
+  transform: translate(-50%, 8px);
+  width: min(520px, calc(100vw - 32px));
+  padding: 12px 18px 14px;
+  border-radius: 14px;
+  background: rgba(24, 22, 26, 0.62);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(244, 239, 230, 0.22);
+  color: var(--ink);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.5s ease, transform 0.5s ease;
+  z-index: 24;
+}
+#talk.show { opacity: 1; transform: translate(-50%, 0); }
+#talk-who { margin: 0 0 4px; font-size: 11px; letter-spacing: 0.2em; opacity: 0.7; }
+#talk-text { margin: 0; font-size: 15px; line-height: 1.75; letter-spacing: 0.06em; }
+@media (max-width: 640px) { #talk { bottom: 150px; } #talk-text { font-size: 14px; } }
+
 /* ---------- モーダル ---------- */
 .modal {
   position: fixed;
