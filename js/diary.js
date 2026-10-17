@@ -15,11 +15,21 @@ export class Diary {
     this.log = null;
     try { this.entries = JSON.parse(localStorage.getItem(KEY)) || []; } catch { this.entries = []; }
     this._reset();
+    this.entries.sort((a, b) => b.day - a.day);
+    this.unsaved = null;     // とじたときの書きかけ
+    this.lastDraft = null;   // いま表示している自動の下書き（書きかえたかどうかの判定に使う）
+    this.armed = false;
+    this.page = 0;
     $('btn-diary').addEventListener('click', () => this.open());
-    $('diary-close').addEventListener('click', () => $('diary-view').classList.add('hidden'));
-    $('diary-view').addEventListener('click', (e) => { if (e.target === e.currentTarget) $('diary-view').classList.add('hidden'); });
+    $('diary-close').addEventListener('click', () => this.close());
+    $('diary-view').addEventListener('click', (e) => { if (e.target === e.currentTarget) this.close(); });
     $('diary-save').addEventListener('click', () => this.save());
-    $('diary-redraft').addEventListener('click', () => { $('diary-text').value = this.draft(); });
+    $('diary-redraft').addEventListener('click', () => this.redraft());
+    $('diary-tab-write').addEventListener('click', () => this.open());
+    $('diary-tab-read').addEventListener('click', () => this._showTab('read'));
+    $('book-prev').addEventListener('click', () => this._openBook(this.page + 1));
+    $('book-next').addEventListener('click', () => this._openBook(this.page - 1));
+    $('book-list').addEventListener('click', () => this._renderList());
   }
 
   _reset() {
@@ -81,57 +91,142 @@ export class Diary {
     return lines.join('\n');
   }
 
+  // ---------- 書く ----------
   open() {
+    this._showTab('write');
     const d = this.getDay();
     $('diary-date').textContent = d.label;
     const saved = this.entries.find((e) => e.day === d.day);
-    $('diary-text').value = saved ? saved.text : this.draft();
+    // 書きかけ（まだ書きとめていない文章）があれば、それを続きから
+    const text = this.unsaved && this.unsaved.day === d.day ? this.unsaved.text : saved ? saved.text : this.draft();
+    $('diary-text').value = text;
+    this.lastDraft = saved || this.unsaved ? null : text;
     const img = $('diary-photo');
     const photo = saved?.photo || this._today().photo;
     img.hidden = !photo;
     if (photo) img.src = photo;
-    this._renderPast();
+    this._status(saved ? `${d.label}の日記は書きとめてあります。書きかえて、もう一度「書きとめる」こともできます` : '');
+    this._updateCount();
     $('diary-view').classList.remove('hidden');
+  }
+
+  close() {
+    // とじても、書きかけは消さない
+    const d = this.getDay();
+    const text = $('diary-text').value;
+    const saved = this.entries.find((e) => e.day === d.day);
+    if (!$('diary-write').hidden && text.trim() && text !== saved?.text && text !== this.lastDraft) this.unsaved = { day: d.day, text };
+    $('diary-view').classList.add('hidden');
+  }
+
+  redraft() {
+    const text = $('diary-text').value;
+    const draft = this.draft();
+    if (text === draft) { this._status('新しいできごとは、まだありません。歩いたり、食べたり、猫に会ったりすると、下書きにふえます'); return; }
+    // 自分で書いた文章を消してしまわないよう、書きかえてあるときは2回押してもらう
+    const edited = text.trim() && text !== this.lastDraft;
+    if (edited && !this.armed) {
+      this.armed = true;
+      clearTimeout(this.armTimer);
+      this.armTimer = setTimeout(() => { this.armed = false; }, 4000);
+      this._status('いま書いてある文章は消えます。もう一度押すと、今日のできごとから下書きしなおします');
+      return;
+    }
+    this.armed = false;
+    $('diary-text').value = draft;
+    this.lastDraft = draft;
+    this.unsaved = null;
+    this._status('今日のできごとから、下書きしなおしました');
   }
 
   save() {
     const d = this.getDay();
     const text = $('diary-text').value.trim();
-    if (!text) return;
-    const entry = { day: d.day, label: d.label, text, photo: this._today().photo || this.entries.find((e) => e.day === d.day)?.photo || null, at: Date.now() };
-    this.entries = [entry, ...this.entries.filter((e) => e.day !== d.day)].slice(0, MAX);
-    try {
-      localStorage.setItem(KEY, JSON.stringify(this.entries));
-    } catch {
+    if (!text) { this._status('なにか書いてから、書きとめてください'); return; }
+    const old = this.entries.find((e) => e.day === d.day);
+    const entry = { day: d.day, label: d.label, text, photo: this._today().photo || old?.photo || null, at: Date.now() };
+    this.entries = [entry, ...this.entries.filter((e) => e.day !== d.day)].sort((a, b) => b.day - a.day).slice(0, MAX);
+    let ok = this._store();
+    if (!ok) {
       // 容量がいっぱいなら、古い日記の写真から外す
       this.entries.slice(10).forEach((e) => { e.photo = null; });
-      try { localStorage.setItem(KEY, JSON.stringify(this.entries)); } catch { /* ignore */ }
+      ok = this._store();
     }
-    this._renderPast();
+    this.unsaved = null;
+    this.lastDraft = null;
+    this._updateCount();
+    this._status(ok ? `${d.label}の日記を書きとめました。「見返す」から読み返せます` : '保存できませんでした（ブラウザの保存領域がいっぱいか、使えない設定になっています）');
     this.toast('日記を書きとめた', 2400);
   }
 
-  _renderPast() {
-    const box = $('diary-past');
-    box.replaceChildren();
-    const past = this.entries.filter((e) => e.day !== this.getDay().day);
-    $('diary-past-title').hidden = !past.length;
-    for (const e of past) {
-      const item = document.createElement('details');
-      item.className = 'diary-entry';
-      const sum = document.createElement('summary');
-      sum.textContent = e.label;
-      const p = document.createElement('p');
-      p.textContent = e.text;
-      item.append(sum);
+  _store() {
+    try { localStorage.setItem(KEY, JSON.stringify(this.entries)); return true; } catch { return false; }
+  }
+
+  _status(text) {
+    const el = $('diary-status');
+    el.textContent = text;
+    el.classList.remove('flash');
+    void el.offsetWidth;
+    if (text) el.classList.add('flash');
+  }
+
+  _updateCount() {
+    $('diary-n').textContent = this.entries.length ? `（${this.entries.length}）` : '';
+  }
+
+  // ---------- 見返す ----------
+  _showTab(tab) {
+    $('diary-write').hidden = tab !== 'write';
+    $('diary-read').hidden = tab !== 'read';
+    $('diary-tab-write').classList.toggle('active', tab === 'write');
+    $('diary-tab-read').classList.toggle('active', tab === 'read');
+    if (tab === 'read') this._renderList();
+  }
+
+  _renderList() {
+    const list = $('diary-list');
+    list.replaceChildren();
+    $('diary-book').hidden = true;
+    list.hidden = false;
+    $('diary-none').hidden = this.entries.length > 0;
+    this.entries.forEach((e, i) => {
+      const b = document.createElement('button');
+      b.className = 'diary-item';
       if (e.photo) {
         const img = document.createElement('img');
         img.src = e.photo;
-        img.alt = `${e.label}の写真`;
-        item.append(img);
+        img.alt = '';
+        b.append(img);
       }
-      item.append(p);
-      box.append(item);
-    }
+      const t = document.createElement('span');
+      t.className = 'diary-item-text';
+      const date = document.createElement('span');
+      date.className = 'diary-item-date';
+      date.textContent = e.label + (e.day === this.getDay().day ? '（今日）' : '');
+      const first = document.createElement('span');
+      first.className = 'diary-item-line';
+      first.textContent = e.text.split('\n')[0];
+      t.append(date, first);
+      b.append(t);
+      b.addEventListener('click', () => this._openBook(i));
+      list.append(b);
+    });
+  }
+
+  /** 日記帳のように、1日ずつ読む（i=0 がいちばん新しい日） */
+  _openBook(i) {
+    const e = this.entries[i];
+    if (!e) return;
+    this.page = i;
+    $('diary-list').hidden = true;
+    $('diary-book').hidden = false;
+    $('book-date').textContent = e.label;
+    $('book-text').textContent = e.text;
+    const img = $('book-photo');
+    img.hidden = !e.photo;
+    if (e.photo) img.src = e.photo;
+    $('book-prev').disabled = i >= this.entries.length - 1;
+    $('book-next').disabled = i <= 0;
   }
 }

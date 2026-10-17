@@ -171,18 +171,38 @@
   <!-- 日記 -->
   <div id="diary-view" class="modal hidden">
     <div class="diary-inner">
-      <p class="album-title">日記</p>
-      <div class="diary-page">
-        <p id="diary-date" class="diary-date"></p>
-        <img id="diary-photo" alt="今日の写真" hidden />
-        <textarea id="diary-text" rows="9" aria-label="今日の日記" spellcheck="false"></textarea>
+      <div class="diary-tabs" role="tablist">
+        <button id="diary-tab-write" class="diary-tab active" role="tab">今日の日記</button>
+        <button id="diary-tab-read" class="diary-tab" role="tab">見返す <span id="diary-n"></span></button>
       </div>
-      <div class="diary-actions">
-        <button id="diary-redraft" class="pill">下書きしなおす</button>
-        <button id="diary-save" class="pill">書きとめる</button>
-      </div>
-      <p id="diary-past-title" class="shop-note" hidden>これまでの日記</p>
-      <div id="diary-past"></div>
+      <section id="diary-write">
+        <div class="diary-page">
+          <p id="diary-date" class="diary-date"></p>
+          <img id="diary-photo" alt="今日の写真" hidden />
+          <textarea id="diary-text" rows="9" aria-label="今日の日記" spellcheck="false"></textarea>
+        </div>
+        <div class="diary-actions">
+          <button id="diary-redraft" class="pill">下書きしなおす</button>
+          <button id="diary-save" class="pill">書きとめる</button>
+        </div>
+        <p id="diary-status" class="diary-status" aria-live="polite"></p>
+      </section>
+      <section id="diary-read" hidden>
+        <div id="diary-list"></div>
+        <div id="diary-book" hidden>
+          <div class="diary-page">
+            <p id="book-date" class="diary-date"></p>
+            <img id="book-photo" alt="その日の写真" hidden />
+            <p id="book-text" class="book-text"></p>
+          </div>
+          <div class="diary-actions">
+            <button id="book-prev" class="pill">← 前の日</button>
+            <button id="book-list" class="pill">一覧へ</button>
+            <button id="book-next" class="pill">次の日 →</button>
+          </div>
+        </div>
+        <p id="diary-none" class="shop-note">まだ日記はありません。「今日の日記」で書きとめると、ここで読み返せます。</p>
+      </section>
       <button id="diary-close" class="pill">とじる</button>
     </div>
   </div>
