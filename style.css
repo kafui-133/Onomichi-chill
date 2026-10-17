@@ -431,8 +431,8 @@ body.walking #toast { bottom: auto; top: 18%; }
 #ui #vol-pop .vol-mute { width: auto; height: 28px; border-radius: 999px; padding: 0 12px; font-size: 12px; letter-spacing: 0.15em; color: var(--ink); }
 @media (max-width: 560px) {
   #vol-pop { right: auto; left: 50%; transform: translateX(-50%); bottom: max(124px, calc(env(safe-area-inset-bottom) + 116px)); }
-  #vol-range { width: 110px; flex: none; }
-  #vol-pop { gap: 8px; padding: 8px 12px; }
+  #vol-range { width: 150px; flex: none; }
+  #vol-pop { gap: 8px; padding: 10px 14px; flex-wrap: wrap; justify-content: center; width: min(340px, calc(100vw - 32px)); border-radius: 20px; }
 }
 
 .title-credit { position: fixed; left: 0; right: 0; bottom: max(14px, env(safe-area-inset-bottom)); margin: 0; padding: 0 16px; font-size: 10px; line-height: 1.7; letter-spacing: 0.06em; color: var(--ink-dim); text-align: center; }
