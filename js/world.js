@@ -78,8 +78,9 @@ export class World {
 
   /** 向島の造船所：赤白のゴライアスクレーンとドックの船体 */
   _cranes() {
-    const red = this.mat(0xc8463a);
-    const white = this.mat(0xe8e6e0);
+    // 向島の造船所のクレーンは、うすい青緑色
+    const red = this.mat(0x9ccfba);
+    const white = this.mat(0xdfeee6);
     const blinkMat = () => new THREE.SpriteMaterial({ map: glowTexture(), color: 0xff3a2a, transparent: true, depthWrite: false, fog: false, opacity: 0 });
     const addCrane = (x, z, h, span) => {
       const g = new THREE.Group();

@@ -93,6 +93,9 @@ export class TimeSystem {
     const { frames, mood } = buildKeyframes(this.day);
     this.frames = frames;
     this.mood = mood;
+    // 秋の尾道によく出る、うろこ雲（いわし雲）の日
+    const r = seededRandom('onomichi-uroko-' + this.day);
+    this.uroko = r() < 0.45 ? 0.55 + r() * 0.45 : 0;
   }
 
   onDayChange(fn) { this.listeners.push(fn); }

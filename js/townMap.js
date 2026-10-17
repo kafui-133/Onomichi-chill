@@ -574,6 +574,55 @@ function seaDirection(x, z) {
   return best && best.h < SEA_Y ? best : null;
 }
 
+// ---------- 通りに面した小さなお店（アーケードの外） ----------
+// 道の端の外側に、間口 4.6m・奥行き 4m ほどの店を建てる場所を探す。
+// stone: true なら石段・小径ぞい（坂の途中）、false なら舗装された道ぞい。
+function shopSpot(cx, cz, { stone, maxR = 50 }) {
+  for (let r = 0; r <= maxR; r += 2) {
+    for (let k = 0; k < (r ? 12 : 1); k++) {
+      const a = (k / 12) * Math.PI * 2;
+      const n = nearestRoad(cx + Math.cos(a) * r, cz + Math.sin(a) * r);
+      if (!n || n.road.covered || n.road.alley || n.road.connector || (n.road.surface === 'stone') !== stone || n.inside > 30) continue;
+      const s = n.seg;
+      const ang = Math.atan2(s.dz, s.dx);
+      const tx = Math.cos(ang), tz = Math.sin(ang);
+      for (const side of [1, -1]) {
+        const nx = -Math.sin(ang) * side, nz = Math.cos(ang) * side;
+        const fx = n.px + nx * (s.half + 0.25), fz = n.pz + nz * (s.half + 0.25);   // 店先
+        const x = fx + nx * 2.1, z = fz + nz * 2.1;                                   // 店の中心
+        let ok = true;
+        for (const u of [-2.4, 0, 2.4]) {
+          for (const v of [0.1, 2.1, 4.1]) {
+            const qx = fx + tx * u + nx * v, qz = fz + tz * u + nz * v;
+            if (inBuilding(qx, qz) || demAt(qx, qz) < SEA_Y + 0.8 || inSolid(qx, qz)) ok = false;
+            if (v > 0.5 && nearAnyRoad(qx, qz, 0.2)) ok = false;
+          }
+        }
+        if (!ok) continue;
+        return { x, z, fx, fz, nx, nz, ang, standX: n.px + nx * Math.max(0, s.half - 0.7), standZ: n.pz + nz * Math.max(0, s.half - 0.7) };
+      }
+    }
+  }
+  return null;
+}
+export const STREET_SHOPS = (() => {
+  const out = [];
+  const add = (spec, at, opts) => {
+    if (!at) return;
+    const spot = shopSpot(at.x, at.z, opts);
+    if (!spot) return;
+    out.push({ ...spec, ...spot });
+    addSolid(spot.x, spot.z, 4.6, 4, -spot.ang);
+  };
+  // 坂の途中の小さなパン屋（猫の細道の、中ほど）
+  const neko = ROADS.find((r) => r.name === '猫の細道');
+  if (neko) add({ type: 'bakery', menu: 'hillBakery', name: 'そのてパン', style: 'hillBakery' }, pointAlong(neko.pts, 0.45), { stone: true, maxR: 30 });
+  // 駅前の、おやつの店（尾道プリン）
+  const station = poi('JR尾道駅');
+  if (station) add({ type: 'sweets', menu: 'sweets', name: 'おやつのヤマネコ', style: 'sweets' }, { x: station.x - 30, z: station.z - 25 }, { stone: false, maxR: 60 });
+  return out;
+})();
+
 // ロープウェイの乗り場（駅前の道の上）と、山頂の展望台
 export const ROPEWAY_STOPS = (() => {
   const stand = (p) => { const c = clampToRoads(p.x, p.z); return { x: c.x, z: c.z }; };
@@ -660,6 +709,9 @@ export const PLACES = [
   placeOnRoad('本町センター街', '本町センター街', 0.5),
   placeOnRoad('尾道ラーメン 汐', '本町センター街', 0.52),
   placeOnRoad('パン 潮風', '中商店街', 0.44),
+  placeOnRoad('かまぼこ 潮見', '本町センター街', 0.3),
+  placeOnRoad('尾道浪漫珈琲', '一番街', 0.3),
+  ...STREET_SHOPS.map((sh) => ({ id: sh.name, name: sh.name, x: sh.standX, z: sh.standZ, yaw: Math.atan2(sh.nx, sh.nz) })),
   placeOnRoad('中商店街', '中商店街', 0.5),
   placeOnRoad('一番街', '一番街', 0.5),
   placeNear('尾道駅前', 'JR尾道駅', 40),

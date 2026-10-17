@@ -6,16 +6,16 @@ import { canvasTexture, glowTexture, seededRandom, speckle } from './util.js';
 import { lam, buildSignAtlas, labelTexture, QuadBatch, instancedBoxes, instancedChunks } from './townKit.js';
 import {
   DATA, SEA_Y, BOUNDS, terrainY, groundY, surfaceY, addTread, addSolid, inSolid, walkable, ROADS, OTHER_ROADS, ARCADE_ROADS, nearAnyRoad, samplePath, roadLength,
-  ALLEYS, COAST, RAILS, CROSSINGS, TRAIN_TRACKS, ROPEWAY, SUMMIT, BENCHES, FERRY_ROUTES, POIS, onOnomichiSide, nearestRoad, inBuilding,
+  STREET_SHOPS, ALLEYS, COAST, RAILS, CROSSINGS, TRAIN_TRACKS, ROPEWAY, SUMMIT, BENCHES, FERRY_ROUTES, POIS, onOnomichiSide, nearestRoad, inBuilding,
 } from './townMap.js';
 
 const SURFACE_LIFT = { asphalt: 0.05, tile: 0.07, stone: 0.09 };
 
 // 本通り商店街の、食べられるお店（店名は架空）。f は通りの中での位置（0〜1）、side は通りのどちら側か
 const SPECIAL_SHOPS = {
-  '本町センター街': [{ f: 0.5, side: 1, type: 'ramen', name: '尾道ラーメン 汐' }],
+  '本町センター街': [{ f: 0.5, side: 1, type: 'ramen', name: '尾道ラーメン 汐' }, { f: 0.3, side: -1, type: 'kamaboko', name: 'かまぼこ 潮見' }],
   '中商店街': [{ f: 0.42, side: -1, type: 'bakery', name: 'パン 潮風' }, { f: 0.15, side: 1, type: 'ramen', name: '中華そば 坂の上' }],
-  '一番街': [{ f: 0.55, side: 1, type: 'bakery', name: 'パン屋 あさなぎ' }],
+  '一番街': [{ f: 0.55, side: 1, type: 'bakery', name: 'パン屋 あさなぎ' }, { f: 0.3, side: -1, type: 'cafe', name: '尾道浪漫珈琲' }],
 };
 const VENDING_COLORS = [0xc8302a, 0x2a5aa8, 0xf2f0ea, 0x3a8a4a];
 
@@ -94,6 +94,7 @@ export class Town {
     this._trees();
     this._house();
     this._arcade();
+    this._streetShops();
     this._rails();
     this._ropeway();
     this._landmarks();
@@ -353,7 +354,8 @@ export class Town {
           const along = Math.min(i, c.length - 1 - i); // 道の端からの距離（m）
           // 交差点・道の端の近くには建てない
           const other = nearAnyRoad(x + nx * 0.4, z + nz * 0.4, 0.6);
-          const free = along > 1.5 && !(other && other !== road);
+          const shopFront = STREET_SHOPS.some((sh) => Math.hypot(sh.fx - x, sh.fz - z) < 3.4);
+          const free = along > 1.5 && !(other && other !== road) && !shopFront;
           let top = null;
           if (free && beside - y > 0.35) top = Math.min(beside, y + 2.6) + 0.15; // 石垣（山側）
           else if (free && y - beside > 1.0 && road.kind === 'steps') top = y + 0.55; // 低い塀（谷側）
@@ -546,6 +548,7 @@ export class Town {
         const w = 4.5 + r() * 3.5, d = 4.5 + r() * 3;
         if (nearAnyRoad(hx, hz, Math.max(w, d) / 2 + 0.8)) continue;
         if (BENCHES.some((bb) => Math.hypot(bb.x - hx, bb.z - hz) < Math.max(w, d) / 2 + 3)) continue;
+        if (STREET_SHOPS.some((sh) => Math.hypot(sh.x - hx, sh.z - hz) < Math.max(w, d) / 2 + 4)) continue;
         // 町なか（平地）は詰まって建つ、斜面はところどころ
         if (above > 12 && r() < 0.35) continue;
         const h = above < 8 ? 6 + r() * 5 : 3 + r() * 3;
@@ -727,8 +730,10 @@ export class Town {
     g.position.set(fx - nx * 0.08, gy, fz - nz * 0.08);
     g.rotation.y = face;
     const ramen = sp.type === 'ramen';
+    const kama = sp.type === 'kamaboko';
+    const cafe = sp.type === 'cafe';
     const sign = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 0.9), new THREE.MeshLambertMaterial({
-      map: labelTexture(sp.name, { w: 640, h: 160, size: 84, bg: ramen ? '#7a1e18' : '#f4ead2', fg: ramen ? '#fbeedc' : '#5a3a1a' }),
+      map: labelTexture(sp.name, { w: 640, h: 160, size: 84, bg: ramen ? '#7a1e18' : kama ? '#f6f2ea' : cafe ? '#2a1c14' : '#f4ead2', fg: ramen ? '#fbeedc' : kama ? '#1e3a5e' : cafe ? '#e8d2a8' : '#5a3a1a' }),
       emissive: 0xffffff, emissiveIntensity: 0.2,
     }));
     sign.position.set(0, 3.35, 0.02);
@@ -748,6 +753,34 @@ export class Town {
         lan.position.set(x, 2.5, 0.35);
         this.specialSignMats.push(lan.material);
         g.add(lan);
+      }
+    } else if (cafe) {
+      // 喫茶店：濃い木の扉と、あたたかい灯りの窓
+      const door = new THREE.Mesh(new THREE.BoxGeometry(1.0, 2.2, 0.1), lam(0x4a2e1e));
+      door.position.set(1.4, 1.1, 0.12);
+      g.add(door);
+      const win = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 1.3), new THREE.MeshLambertMaterial({ color: 0x6a5040, emissive: 0xffb060, emissiveIntensity: 0.3 }));
+      win.position.set(-0.9, 1.45, 0.13);
+      this.specialSignMats.push(win.material);
+      g.add(win);
+      const awn = new THREE.Mesh(new THREE.BoxGeometry(5.4, 0.06, 1.0), lam(0x3a2a20, { side: THREE.DoubleSide }));
+      awn.position.set(0, 2.7, 0.5);
+      awn.rotation.x = 0.35;
+      g.add(awn);
+    } else if (kama) {
+      // 紺ののれんと、紅白のかまぼこが並ぶショーケース
+      const tex = labelTexture('か ま ぼ こ', { w: 512, h: 128, size: 72, bg: '#1e3a5e', fg: '#f6f2ea' });
+      const noren = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 0.75), new THREE.MeshLambertMaterial({ map: tex, side: THREE.DoubleSide }));
+      noren.position.set(0, 2.15, 0.25);
+      g.add(noren);
+      const caseBox = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.95, 0.6), lam(0xe8e4dc));
+      caseBox.position.set(0, 0.48, 0.35);
+      g.add(caseBox);
+      const pink = lam(0xe88a9a), white = lam(0xf6f2ea), gold = lam(0xc8903e);
+      for (let k = 0; k < 9; k++) {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.1, 0.14), k % 3 === 2 ? gold : k % 2 ? white : pink);
+        m.position.set(-1.1 + (k % 5) * 0.55, 1.0, 0.25 + Math.floor(k / 5) * 0.22);
+        g.add(m);
       }
     } else {
       // パンの並んだショーケース
@@ -771,6 +804,82 @@ export class Town {
     const sx = p.x + nx * (hw - 0.9), sz = p.z + nz * (hw - 0.9);
     this.interactables.push({ type: sp.type, name: sp.name, x: sx, z: sz, yaw: Math.atan2(-nx, -nz), radius: 2.4 });
     void yaw;
+  }
+
+  /** アーケードの外の、ひとつ建ちの小さなお店（坂の途中のパン屋、駅前のおやつの店） */
+  _streetShops() {
+    for (const sh of STREET_SHOPS) {
+      const tx = Math.cos(sh.ang), tz = Math.sin(sh.ang);
+      // 店先の床の高さ（坂でも水平に、低いほうは土台で埋める）
+      let floor = -Infinity, low = Infinity;
+      for (const u of [-2.3, 0, 2.3]) for (const v of [0, 2, 4]) {
+        const y = groundY(sh.fx + tx * u + sh.nx * v, sh.fz + tz * u + sh.nz * v);
+        low = Math.min(low, y);
+        if (v === 0) floor = Math.max(floor, y);
+      }
+      floor += 0.05;
+      const face = Math.atan2(-sh.nx, -sh.nz); // 正面（+z）が道を向く
+      const g = new THREE.Group();
+      g.position.set(sh.x, floor, sh.z);
+      g.rotation.y = face;
+      const sweets = sh.style === 'sweets';
+      const wallC = sweets ? 0xf4efe6 : 0xd9c7a6, roofC = sweets ? 0x5a6470 : 0x6a4a34;
+      const H = sweets ? 3.4 : 2.8;
+      const base = floor - low + 0.2;
+      const body = new THREE.Mesh(new THREE.BoxGeometry(4.6, H + base, 4), lam(wallC));
+      body.position.set(0, (H - base) / 2, 0);
+      body.castShadow = true; body.receiveShadow = true;
+      g.add(body);
+      // 瓦屋根（片流れ）
+      const roof = new THREE.Mesh(new THREE.BoxGeometry(5.2, 0.18, 4.8), lam(roofC));
+      roof.position.set(0, H + 0.25, 0.1);
+      roof.rotation.x = 0.18;
+      roof.castShadow = true;
+      g.add(roof);
+      // ガラス戸とショーケース
+      const glass = new THREE.Mesh(new THREE.PlaneGeometry(2.8, 1.9), new THREE.MeshLambertMaterial({ color: 0x9ab0b8, emissive: 0xffc888, emissiveIntensity: 0 }));
+      glass.position.set(0.5, 1.15, 2.01);
+      this.specialSignMats.push(glass.material);
+      g.add(glass);
+      const shelf = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.85, 0.5), lam(0x8a6a4a));
+      shelf.position.set(-1.45, 0.43, 2.25);
+      g.add(shelf);
+      if (sweets) {
+        // 小さな瓶のプリン（茶色のふた、赤い帯）
+        const glassMat = new THREE.MeshLambertMaterial({ color: 0xf2d58a }), lid = lam(0x6a3f22), band = lam(0xc8302a);
+        for (let k = 0; k < 6; k++) {
+          const x = -1.95 + (k % 3) * 0.25, z = 2.15 + Math.floor(k / 3) * 0.2;
+          const jar = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.13, 10), glassMat);
+          jar.position.set(x, 0.92, z);
+          const l = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 0.03, 10), lid);
+          l.position.set(x, 1.0, z);
+          const b = new THREE.Mesh(new THREE.CylinderGeometry(0.062, 0.062, 0.025, 10), band);
+          b.position.set(x, 0.91, z);
+          g.add(jar, l, b);
+        }
+      } else {
+        const breadMat = lam(0xd09a52);
+        for (let k = 0; k < 6; k++) {
+          const b = new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 8), breadMat);
+          b.scale.y = 0.6;
+          b.position.set(-1.95 + (k % 3) * 0.25, 0.92, 2.15 + Math.floor(k / 3) * 0.2);
+          g.add(b);
+        }
+      }
+      // 看板
+      const tex = labelTexture(sh.name, { w: 640, h: 160, size: 76, bg: sweets ? '#2e3a44' : '#f4ead2', fg: sweets ? '#f4e6c8' : '#5a3a1a' });
+      const sign = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 0.85), new THREE.MeshLambertMaterial({ map: tex, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.2 }));
+      sign.position.set(0, H - 0.35, 2.02);
+      this.specialSignMats.push(sign.material);
+      g.add(sign);
+      const awn = new THREE.Mesh(new THREE.BoxGeometry(4.8, 0.05, 0.9), lam(sweets ? 0x2e3a44 : 0xb8502a, { side: THREE.DoubleSide }));
+      awn.position.set(0, H - 0.95, 2.4);
+      awn.rotation.x = 0.3;
+      g.add(awn);
+      this.group.add(g);
+      this.lampPositions.push([sh.fx, floor + 2.4, sh.fz]);
+      this.interactables.push({ type: sh.type, menu: sh.menu, name: sh.name, x: sh.standX, z: sh.standZ, yaw: face, radius: 2.6 });
+    }
   }
 
   /** 自販機：海沿いのベンチの近く、渡船のりば、ロープウェイ山麓駅、駅前、家の前の石段、路地の入口 */
@@ -1104,7 +1213,9 @@ export class Town {
   _piersAndBenches() {
     const pontoonMat = lam(0x9a9890), hutMat = lam(0xe8e2d4);
     const signTex = labelTexture('渡船のりば', { w: 512, h: 128, size: 72, bg: '#1f3b5a', fg: '#f4efe4' });
-    for (const route of FERRY_ROUTES) {
+    const mukaiTex = labelTexture('向 島 行 渡 船 の り ば', { w: 1024, h: 128, size: 76, bg: '#f4f2ec', fg: '#1f3b8a' });
+    const archMat = lam(0x5e9a72, { side: THREE.DoubleSide }), poleMat = lam(0xe8e6e0);
+    FERRY_ROUTES.forEach((route, ri) => {
       for (const end of [route.a, route.b]) {
         const p = new THREE.Mesh(new THREE.BoxGeometry(10, 1.2, 8), pontoonMat);
         p.position.set(end.x, SEA_Y + 0.6, end.z);
@@ -1122,14 +1233,40 @@ export class Town {
         hut.castShadow = true;
         this.group.add(hut);
       }
-      for (const flip of [0, Math.PI]) {
-        const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 0.6), new THREE.MeshBasicMaterial({ map: signTex }));
-        sign.position.set(a.x - Math.cos(dir) * 8, terrainY(a.x - Math.cos(dir) * 8, a.z - Math.sin(dir) * 8) + 3.2, a.z - Math.sin(dir) * 8);
-        sign.rotation.y = -dir + Math.PI / 2 + flip;
-        sign.translateZ(0.02);
-        this.group.add(sign);
+      const ax = a.x - Math.cos(dir) * 8, az = a.z - Math.sin(dir) * 8, ay = terrainY(ax, az);
+      if (ri === 0) {
+        // 尾道渡船（向島行）：のりばの入口に、緑の屋根のアーチ
+        const arch = new THREE.Group();
+        arch.position.set(ax, ay, az);
+        arch.rotation.y = -dir + Math.PI / 2;
+        // 半円筒の屋根（軸は通路の向き）
+        const roof = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.2, 3, 24, 1, true, Math.PI / 2, Math.PI), archMat);
+        roof.rotation.x = Math.PI / 2;
+        roof.position.y = 0.6;
+        arch.add(roof);
+        for (const sx of [-3.1, 3.1]) {
+          const pole = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.7, 0.12), poleMat);
+          pole.position.set(sx, 0.35, 0);
+          arch.add(pole);
+        }
+        for (const flip of [0, Math.PI]) {
+          const sign = new THREE.Mesh(new THREE.PlaneGeometry(4.6, 0.55), new THREE.MeshBasicMaterial({ map: mukaiTex }));
+          sign.position.set(0, 3.0, 0);
+          sign.rotation.y = flip;
+          sign.translateZ(1.52);
+          arch.add(sign);
+        }
+        this.group.add(arch);
+      } else {
+        for (const flip of [0, Math.PI]) {
+          const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 0.6), new THREE.MeshBasicMaterial({ map: signTex }));
+          sign.position.set(ax, ay + 3.2, az);
+          sign.rotation.y = -dir + Math.PI / 2 + flip;
+          sign.translateZ(0.02);
+          this.group.add(sign);
+        }
       }
-    }
+    });
     // 海沿いのベンチ：木の背もたれつきと、雨風で銀色になった板張りの広い腰掛け
     const boxes = [];
     const r = this.r;
@@ -1151,6 +1288,23 @@ export class Town {
       }
     }
     this.group.add(instancedChunks(boxes, lam(0xffffff)));
+
+    // 海沿いの遊歩道の、丸い笠の街灯（ベンチふたつにひとつ、緑の柱に乳白の玉がふたつ）
+    const poles = [], globes = [];
+    BENCHES.forEach((b, i) => {
+      if (i % 2) return;
+      const x = b.x + Math.cos(b.yaw) * 1.7, z = b.z - Math.sin(b.yaw) * 1.7;
+      const y = groundY(x, z);
+      poles.push({ x, y: y + 2.1, z, sx: 0.12, sy: 4.2, sz: 0.12, color: '#2f4a44' });
+      for (const side of [-1, 1]) {
+        const gx = x + Math.cos(b.yaw) * side * 0.32, gz = z - Math.sin(b.yaw) * side * 0.32;
+        globes.push({ x: gx, y: y + 4.05 + (side > 0 ? 0.12 : 0), z: gz, sx: 0.42, sy: 0.42, sz: 0.42 });
+        this.lampPositions.push([gx, y + 4.1, gz]);
+      }
+    });
+    this.group.add(instancedChunks(poles, lam(0xffffff), { receive: false, geo: new THREE.CylinderGeometry(0.5, 0.6, 1, 6) }));
+    this.globeMat = new THREE.MeshLambertMaterial({ color: 0xf4ead6, emissive: 0xffa040, emissiveIntensity: 0 });
+    this.group.add(instancedChunks(globes, this.globeMat, { cast: false, receive: false, geo: new THREE.SphereGeometry(0.5, 12, 10) }));
   }
 
   /** 猫の細道の福石猫（丸い石に描かれた猫） */
@@ -1272,6 +1426,7 @@ export class Town {
     const night = time.p.night;
     this.nightMats.forEach(({ mat, max }) => { mat.opacity = Math.min(max, night * 1.2); });
     this.lampMat.opacity = Math.min(1, night * 1.3);
+    if (this.globeMat) this.globeMat.emissiveIntensity = night * 1.3;
     this.lanternMat.emissiveIntensity = night * 1.1;
     this.specialSignMats.forEach((m) => { m.emissiveIntensity = 0.2 + night * 0.7; });
     this.vendingMats.forEach((m) => { m.emissiveIntensity = 0.25 + night * 0.85; });

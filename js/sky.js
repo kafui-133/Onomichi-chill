@@ -46,6 +46,7 @@ export class Sky {
       uSunDir: { value: new THREE.Vector3(0, 1, 0) },
       uGlow: { value: 1 },
       uCloud: { value: 0.3 },
+      uUroko: { value: 0 },
       uCloudBase: { value: new THREE.Color() },
       uCloudLit: { value: new THREE.Color() },
       uSunVis: { value: 1 },
@@ -65,7 +66,7 @@ export class Sky {
       fragmentShader: /* glsl */ `
         ${NOISE_GLSL}
         ${SKY_GRAD_GLSL}
-        uniform float uCloud, uSunVis, uTime;
+        uniform float uCloud, uSunVis, uTime, uUroko;
         uniform vec3 uCloudBase, uCloudLit;
         varying vec3 vDir;
         void main(){
@@ -81,6 +82,24 @@ export class Sky {
             float n = fbm(uv * 1.3 + fbm(uv * 0.6) * 0.6);
             float thr = 1. - uCloud;
             float c = smoothstep(thr * 0.82, thr * 0.82 + 0.28, n);
+            // うろこ雲：ばらばらの大きさの雲のつぶ（セルごとに位置と大きさをずらす）が、
+            // ゆるく流れる大きな帯の中にだけ、びっしり集まる
+            if (uUroko > 0.0) {
+              vec2 q = uv * vec2(15.0, 19.0);
+              q += vec2(fbm(uv * 1.3), fbm(uv * 1.3 + 4.0)) * 4.0;
+              vec2 ip = floor(q), fp = fract(q);
+              float puff = 0.0;
+              for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+                vec2 o = vec2(float(i), float(j));
+                vec2 h = vec2(hash(ip + o), hash(ip + o + 17.3));
+                float size = 0.3 + 0.35 * hash(ip + o + 5.1);
+                float dd = length((o + h - fp) * vec2(1.0, 1.3));
+                puff = max(puff, (1.0 - smoothstep(size * 0.15, size, dd + (noise(q * 3.0) - 0.5) * 0.15)) * (0.6 + 0.4 * hash(ip + o + 9.7)));
+              }
+              float band = smoothstep(0.5, 0.72, fbm(uv * 0.5 + vec2(3.0, 1.0)) + fbm(uv * 2.2) * 0.15);
+              float sky = smoothstep(0.08, 0.3, d.y);
+              c = max(c, puff * band * sky * uUroko * 0.8);
+            }
             c *= smoothstep(0.0, 0.1, d.y) * (1. - smoothstep(0.55, 0.95, d.y) * 0.5);
             float lit = 0.35 + 0.65 * pow(sd, 3.0) + 0.25 * (1. - smoothstep(0.0, 0.3, d.y));
             vec3 cc = mix(uCloudBase, uCloudLit, clamp(lit, 0., 1.));
@@ -135,6 +154,7 @@ export class Sky {
     u.uSunDir.value.copy(time.sunDir);
     u.uGlow.value = p.glow;
     u.uCloud.value = p.cloud;
+    u.uUroko.value = time.uroko || 0;
     u.uCloudBase.value.copy(p.cloudBase);
     u.uCloudLit.value.copy(p.cloudLit);
     u.uSunVis.value = time.sunDir.y > -0.05 ? 1 : 0;

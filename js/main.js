@@ -633,7 +633,7 @@ function frame(fixedDt) {
       : a === 'deck' ? '展望台にのぼる'
       : a === 'stand' && walker.seat && walker.seat.kind === 'deck' ? '展望台をおりる'
       : a === 'shop'
-      ? { bakery: `${actionShop.name}に入る`, ramen: `${actionShop.name}で食べる`, vending: '自販機で買う' }[actionShop.type]
+      ? { bakery: `${actionShop.name}に入る`, ramen: `${actionShop.name}で食べる`, vending: '自販機で買う', kamaboko: `${actionShop.name}に寄る`, sweets: `${actionShop.name}に寄る`, cafe: `${actionShop.name}でひとやすみ` }[actionShop.type]
       : { home: '家に入る', sit: 'ベンチに座る', stand: '立ちあがる', crouch: 'しゃがむ', rise: '立ちあがる' }[a] || '';
     renderActs(actions.slice(0, 3).map((a) => ({ id: a, label: label(a) })));
     walkBtn.hidden = mode !== 'walk' || !!walker.seat || walker.crouching || !!ride;
