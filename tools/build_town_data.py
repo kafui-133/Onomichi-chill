@@ -191,6 +191,8 @@ def main():
     with open(OUT, 'w') as f:
         f.write('// 自動生成：tools/build_town_data.py（手で編集しない）\n')
         f.write('// 地図データ © OpenStreetMap contributors (ODbL)／標高 国土地理院 基盤地図情報 DEM5A\n')
+        f.write('// このファイルは OpenStreetMap のデータを加工したデータベースで、Open Database License (ODbL) 1.0 で提供します\n')
+        f.write('// https://opendatacommons.org/licenses/odbl/1-0/ ／ 標高は国土地理院の標高タイル（DEM5A）を加工して作成\n')
         f.write('export default ')
         json.dump(data, f, ensure_ascii=False, separators=(',', ':'))
         f.write(';\n')

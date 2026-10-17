@@ -100,7 +100,7 @@ const nearPoi = (name) => {
 // level は、はじめて会ったときの懐き具合
 const STRAYS = [
   { id: 'hosomichi', name: 'ほそみち', coat: 'kijitora', where: '猫の細道の石段', hint: '猫の細道のあたりで見かけるらしい', ...onRoad('猫の細道', 0.62, 1), pose: 'loaf', level: 1 },
-  { id: 'fukuishi', name: 'ふくいし', coat: 'shiro', where: '猫の細道の下のほう、福石猫のそば', hint: '猫の細道の、下のほうにいるらしい', ...onRoad('猫の細道', 0.25, -1), pose: 'curl', level: 2 },
+  { id: 'fukuishi', name: 'まるいし', coat: 'shiro', where: '猫の細道の下のほう、猫の絵の丸い石のそば', hint: '猫の細道の、下のほうにいるらしい', ...onRoad('猫の細道', 0.25, -1), pose: 'curl', level: 2 },
   { id: 'ropeway', name: 'ゴンドラ', coat: 'hachiware', where: 'ロープウェイ山麓駅のそば', hint: 'ロープウェイの駅のあたりにいるらしい', x: nearRopeway.x, z: nearRopeway.z, heading: 0.4, pose: 'sit', level: 1 },
   { id: 'shotengai', name: 'かんばん', coat: 'chatora', where: '本通り商店街の店先', hint: '商店街の、どこかの店先にいるらしい', ...onRoad('本町センター街', 0.4, 1), pose: 'loaf', level: 2 },
   bench && { id: 'umibe', name: 'しおかぜ', coat: 'mike', where: '海沿いのベンチの横', hint: '海沿いのベンチのあたりにいるらしい', x: bench.x + Math.cos(bench.yaw) * 1.4, z: bench.z - Math.sin(bench.yaw) * 1.4, heading: bench.yaw + Math.PI, pose: 'sit', level: 1 },
@@ -378,9 +378,32 @@ $('btn-flow').addEventListener('click', (e) => {
   e.currentTarget.setAttribute('aria-pressed', String(time.flow));
   toast(time.flow ? '時の流れに任せる' : '時を止める', 2000);
 });
+// 音：ボタンで音量の調整を開く（音量つまみと、消す／出す）
+const volPop = $('vol-pop'), volRange = $('vol-range');
+const showVolume = () => {
+  const v = Math.round(audio.volume * 100);
+  volRange.value = v;
+  $('vol-value').textContent = audio.muted ? '消音' : v;
+  $('vol-mute').textContent = audio.muted ? '出す' : '消す';
+  $('btn-sound').setAttribute('aria-pressed', String(!audio.muted && v > 0));
+};
+showVolume();
 $('btn-sound').addEventListener('click', (e) => {
-  audio.setMuted(!audio.muted);
-  e.currentTarget.setAttribute('aria-pressed', String(!audio.muted));
+  e.stopPropagation();
+  volPop.hidden = !volPop.hidden;
+  showVolume();
+});
+volRange.addEventListener('input', () => {
+  controls.touch(); // 調整しているあいだは、UI を隠さない
+  audio.setVolume(volRange.value / 100);
+  if (audio.muted) audio.setMuted(false);
+  showVolume();
+});
+$('vol-mute').addEventListener('click', () => { audio.setMuted(!audio.muted); showVolume(); });
+// UI のボタンやつまみを触っているあいだも「操作中」とみなして、UI を隠さない
+['pointerdown', 'pointermove', 'keydown'].forEach((ev) => document.addEventListener(ev, () => controls.touch(), true));
+document.addEventListener('pointerdown', (e) => {
+  if (!volPop.hidden && !volPop.contains(e.target) && !e.target.closest('#btn-sound')) volPop.hidden = true;
 });
 
 // 目を閉じる
@@ -459,7 +482,7 @@ let idleTimer = null;
 function wakeUI() {
   document.body.classList.remove('idle');
   clearTimeout(idleTimer);
-  idleTimer = setTimeout(() => document.body.classList.add('idle'), COARSE ? 8000 : 4500);
+  idleTimer = setTimeout(() => { if (volPop.hidden) document.body.classList.add('idle'); else wakeUI(); }, COARSE ? 8000 : 4500);
 }
 window.addEventListener('pointermove', wakeUI);
 window.addEventListener('pointerdown', wakeUI);

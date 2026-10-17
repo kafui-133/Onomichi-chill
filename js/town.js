@@ -1307,7 +1307,7 @@ export class Town {
     this.group.add(instancedChunks(globes, this.globeMat, { cast: false, receive: false, geo: new THREE.SphereGeometry(0.5, 12, 10) }));
   }
 
-  /** 猫の細道の福石猫（丸い石に描かれた猫） */
+  /** 猫の細道の、猫の絵を描いた丸い石 */
   _nekoStones() {
     const tex = canvasTexture(256, 128, (g, w, h) => {
       g.fillStyle = '#f2ece0';

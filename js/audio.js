@@ -12,6 +12,9 @@ export class AudioEngine {
     this.ctx = null;
     this.started = false;
     this.muted = false;
+    // 音量（0〜1）。はじめは中くらい。前回の設定はブラウザに覚えておく
+    this.volume = 0.5;
+    try { const v = parseFloat(localStorage.getItem('onomichi-volume')); if (v >= 0 && v <= 1) this.volume = v; } catch { /* ignore */ }
     this.timers = {};
     this.state = { outside: 1, hour: 17, night: 0, eyesClosed: false, yaw: 0, wind: 0 };
     this.wind = 0;          // 突風の強さ（演出側にも共有）
@@ -58,7 +61,7 @@ export class AudioEngine {
       chain = chain.connect(hp);
     }
     chain.connect(comp).connect(limiter).connect(ctx.destination);
-    this.master.gain.setTargetAtTime(this.level, ctx.currentTime, 2.5);
+    this.master.gain.setTargetAtTime(this._gain(), ctx.currentTime, 2.5);
 
     this.outside = ctx.createGain();
     this.inside = ctx.createGain();
@@ -85,10 +88,21 @@ export class AudioEngine {
     this._resetTimers();
   }
 
+  /** 実際の音の大きさ。耳の感じ方に合わせて二乗のカーブ（音量 0.5 で、これまでの大きさの約半分） */
+  _gain() {
+    return this.muted ? 0 : this.level * 2 * this.volume * this.volume;
+  }
+
   setMuted(m) {
     this.muted = m;
     if (!this.ctx) return;
-    this.master.gain.setTargetAtTime(m ? 0 : this.level, this.ctx.currentTime, 0.4);
+    this.master.gain.setTargetAtTime(this._gain(), this.ctx.currentTime, 0.4);
+  }
+
+  setVolume(v) {
+    this.volume = Math.min(1, Math.max(0, v));
+    try { localStorage.setItem('onomichi-volume', String(this.volume)); } catch { /* ignore */ }
+    if (this.ctx) this.master.gain.setTargetAtTime(this._gain(), this.ctx.currentTime, 0.08);
   }
 
   // ---------- ユーティリティ ----------

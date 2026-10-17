@@ -7,7 +7,8 @@ import DATA from './data/onomichi.js';
 
 export { DATA };
 export const SEA_Y = DATA.meta.seaY;
-export const ATTRIBUTION = DATA.meta.attribution;
+// 出典（OpenStreetMap は ODbL、標高は国土地理院の標高タイルを加工して使用）
+export const ATTRIBUTION = '地図データ © OpenStreetMap contributors (ODbL) ／ 標高：国土地理院 標高タイル（DEM5A）を加工して作成';
 const ARCADE_NAMES = ['駅前商店街', '一番街', '中商店街', '本町センター街'];
 
 // ---------- 地形 ----------

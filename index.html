@@ -28,6 +28,7 @@
       <h1>坂道の空き家、<br />尾道にて</h1>
       <button id="btn-start" class="btn-start">戸をあける</button>
       <p class="title-note">ヘッドホン推奨 ・ ドラッグで見渡す ・ 猫にはそっと</p>
+      <p class="title-credit">地図データ © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>（ODbL）／ 標高：<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院 標高タイル</a>を加工して作成<br />実在の町をもとにしたフィクションです。お店・猫・人物はすべて架空です</p>
     </div>
   </div>
 
@@ -95,6 +96,14 @@
       <button id="btn-sound" title="音" aria-pressed="true">
         <svg viewBox="0 0 24 24"><path d="M4 10v4h3l4 3.5v-11L7 10z" /><path class="wave" d="M15 9c1.2 1.6 1.2 4.4 0 6M17.5 7c2.4 3 2.4 7 0 10" /></svg>
       </button>
+    </div>
+
+    <!-- 音量 -->
+    <div id="vol-pop" hidden>
+      <label for="vol-range">音量</label>
+      <input id="vol-range" type="range" min="0" max="100" step="1" value="50" />
+      <span id="vol-value">50</span>
+      <button id="vol-mute" class="vol-mute" type="button">消す</button>
     </div>
   </div>
 
