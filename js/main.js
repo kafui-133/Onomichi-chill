@@ -19,6 +19,10 @@ import { ITEMS } from './items.js';
 import { quality } from './quality.js';
 import { eventsOn, eventGlow } from './events.js';
 import { Candles } from './candles.js';
+import { look, Look, applyToonShading } from './look.js';
+
+// 絵作り：トゥーン調の陰影は、シェーダーを組み立てる前（いちばん初めの描画の前）に入れる
+applyToonShading();
 import { PLACES, CROSSINGS, ROADS, BENCHES, ROPEWAY, ROPEWAY_STOPS, POIS, groundY, surfaceY, placeName, zoneWeights, pointAlong, clampToRoads, nearestRoad } from './townMap.js';
 import { kanjiNumber, smoothstep, clamp } from './util.js';
 
@@ -43,6 +47,7 @@ scene.fog = new THREE.Fog(0x88aacc, 420, 3200);
 
 const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.03, 7000);
 camera.position.set(0, 1.08, 0.78); // 座布団に座った目の高さ
+const view = new Look(renderer, scene, camera, quality.s); // 輪郭線・光のにじみ・色調（元の絵では何もしない）
 
 // ---------- 時間 ----------
 const todayIndex = Math.floor(Date.now() / 86400000);
@@ -430,8 +435,17 @@ $('vol-quality').addEventListener('click', () => {
   sun.shadow.map?.dispose();
   sun.shadow.map = null;
   scene.traverse((o) => { if (o.material) [].concat(o.material).forEach((m) => { m.needsUpdate = true; }); });
+  view.setSize(window.innerWidth, window.innerHeight);
   showQuality();
-  toast(`画質：${quality.s.label}（灯りの数などは、次に開いたときに変わります）`, 3200);
+  toast(`画質：${quality.s.label}（灯りの数や絵の効果は、次に開いたときに変わります）`, 3200);
+});
+// 絵作り：新しい絵（アニメ調）と元の絵を切りかえる。シェーダーから作りなおすので、ページを読みなおす
+$('vol-look').textContent = look.label;
+$('vol-look').addEventListener('click', () => {
+  look.toggle();
+  $('vol-look').textContent = look.label;
+  toast(`「${look.label}」に切りかえます`, 1500);
+  setTimeout(() => location.reload(), 900);
 });
 // UI のボタンやつまみを触っているあいだも「操作中」とみなして、UI を隠さない
 ['pointerdown', 'pointermove', 'keydown'].forEach((ev) => document.addEventListener(ev, () => controls.touch(), true));
@@ -553,6 +567,7 @@ window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  view.setSize(window.innerWidth, window.innerHeight);
 });
 
 // ---------- ループ ----------
@@ -660,7 +675,7 @@ function frame(fixedDt) {
     walking: mode === 'walk', zone: mode === 'walk' ? zoneWeights(walker.x, walker.z) : null,
   });
 
-  renderer.render(scene, camera);
+  view.render(p.night);
 
   if (photoRequested) {
     photoRequested = false;
