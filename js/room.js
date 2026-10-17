@@ -1,9 +1,10 @@
-// 坂の上の古民家の一室：畳・土壁・文机・窓辺・風鈴・柱時計
+// 坂の上の古民家の一室：畳・土壁・障子・文机と石油ランプ・乳白ガラスの吊りランプ・瓢箪・風鈴・柱時計。
+// 薄暗い部屋の奥に、障子にはさまれた開口があって、その向こうだけが明るい（尾道の古い家の二階のように）
 import * as THREE from 'three';
 import { canvasTexture, speckle, seededRandom, glowTexture } from './util.js';
 
 export const ROOM = { minX: -2.6, maxX: 2.6, minZ: -1.6, maxZ: 2.6, h: 2.35 };
-export const WINDOW = { minX: -2.1, maxX: 2.1, minY: 0.35, maxY: 2.0, z: -1.6 };
+export const WINDOW = { minX: -1.3, maxX: 1.95, minY: 0.35, maxY: 2.0, z: -1.6 };
 export const SILL_Y = 0.38;
 
 function tatamiTexture() {
@@ -82,6 +83,19 @@ function fusumaTexture() {
   });
 }
 
+/** 障子：白い和紙に、細い組子の格子（縦3・横8）。外の光で、紙だけがほんのり明るく見える */
+function shojiTexture() {
+  return canvasTexture(128, 256, (g, w, h) => {
+    g.fillStyle = '#f3efe4';
+    g.fillRect(0, 0, w, h);
+    g.fillStyle = 'rgba(200,190,170,0.18)';
+    for (let y = 0; y < h; y += 4) g.fillRect(0, y, w, 1);
+    g.fillStyle = '#241a12';
+    for (let i = 0; i <= 3; i++) g.fillRect(Math.round((i / 3) * (w - 4)), 0, i === 0 || i === 3 ? 6 : 3, h);
+    for (let j = 0; j <= 8; j++) g.fillRect(0, Math.round((j / 8) * (h - 4)), w, j === 0 || j === 8 ? 6 : 3);
+  });
+}
+
 function paperTexture() {
   return canvasTexture(128, 128, (g, w, h) => {
     g.fillStyle = '#f2ead8';
@@ -110,10 +124,11 @@ export class Room {
     scene.add(this.group);
     this.mats = {
       tatami: new THREE.MeshStandardMaterial({ map: tatamiTexture(), roughness: 0.95 }),
-      plaster: new THREE.MeshStandardMaterial({ map: plasterTexture(), roughness: 1 }),
+      plaster: new THREE.MeshStandardMaterial({ map: plasterTexture(), roughness: 1, color: 0x9a8a72 }),
       wood: new THREE.MeshStandardMaterial({ map: woodTexture('#5a3d29'), roughness: 0.8 }),
-      darkWood: new THREE.MeshStandardMaterial({ map: woodTexture('#3a271b'), roughness: 0.75 }),
-      ceiling: new THREE.MeshStandardMaterial({ map: woodTexture('#7a5a3e', [4, 1]), roughness: 0.9 }),
+      darkWood: new THREE.MeshStandardMaterial({ map: woodTexture('#2c1e15'), roughness: 0.75 }),
+      ceiling: new THREE.MeshStandardMaterial({ map: woodTexture('#4a3626', [4, 1]), roughness: 0.9 }),
+      shoji: (() => { const t = shojiTexture(); return new THREE.MeshStandardMaterial({ map: t, emissive: 0xffffff, emissiveMap: t, emissiveIntensity: 0.4, roughness: 1 }); })(),
       fusuma: new THREE.MeshStandardMaterial({ map: fusumaTexture(), roughness: 1 }),
       glass: new THREE.MeshStandardMaterial({ color: 0xcfe0e8, transparent: true, opacity: 0.12, roughness: 0.05, metalness: 0.1, depthWrite: false }),
     };
@@ -150,6 +165,11 @@ export class Room {
     for (const x of [minX + 0.06, maxX - 0.06]) {
       for (const z of [minZ + 0.06, maxZ - 0.06, 0.5]) this.box(0.12, h, 0.12, this.mats.darkWood, x, h / 2, z);
     }
+    // 左右の壁の手前（窓側）は障子。外からの光で白く浮かぶ
+    for (const sx of [minX + 0.005, maxX - 0.005]) {
+      const z0 = minZ + 0.12, z1 = 0.44, n = 3, pw = (z1 - z0) / n;
+      for (let i = 0; i < n; i++) this._shoji(sx, z0 + pw * (i + 0.5), pw - 0.01, 1.85, sx < 0 ? Math.PI / 2 : -Math.PI / 2);
+    }
     // 長押（なげし）
     this.box(0.04, 0.08, D, this.mats.darkWood, minX + 0.02, 1.85, cz);
     this.box(0.04, 0.08, D, this.mats.darkWood, maxX - 0.02, 1.85, cz);
@@ -171,49 +191,93 @@ export class Room {
     }
   }
 
+  /** 障子1枚：腰板（下の板）と、和紙の格子と、まわりの框。x, z は中心、rot は向き（正面が部屋のほう） */
+  _shoji(x, z, w, top, rot = 0) {
+    const g = new THREE.Group();
+    const koshi = 0.28;
+    const paper = new THREE.Mesh(new THREE.PlaneGeometry(w - 0.04, top - koshi - 0.04), this.mats.shoji);
+    paper.position.y = koshi + (top - koshi) / 2;
+    const board = new THREE.Mesh(new THREE.BoxGeometry(w, koshi, 0.025), this.mats.darkWood);
+    board.position.y = koshi / 2;
+    g.add(paper, board);
+    for (const fx of [-w / 2 + 0.015, w / 2 - 0.015]) {
+      const st = new THREE.Mesh(new THREE.BoxGeometry(0.03, top, 0.035), this.mats.darkWood);
+      st.position.set(fx, top / 2, 0.005);
+      g.add(st);
+    }
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(w, 0.03, 0.035), this.mats.darkWood);
+    rail.position.y = top - 0.015;
+    g.add(rail);
+    g.position.set(x, 0, z);
+    g.rotation.y = rot;
+    this.group.add(g);
+    return g;
+  }
+
   _window() {
     const { minX, maxX, h } = ROOM;
     const Wn = WINDOW;
     const z = Wn.z;
     const t = 0.12;
-    // 窓のある壁（開口部の周り）
-    this.box(maxX - minX, Wn.minY, t, this.mats.plaster, 0, Wn.minY / 2, z);
+    // 開口の上の小壁と、出窓の板の下の壁
     this.box(maxX - minX, h - Wn.maxY, t, this.mats.plaster, 0, (h + Wn.maxY) / 2, z);
-    this.box(Wn.minX - minX, Wn.maxY - Wn.minY, t, this.mats.plaster, (minX + Wn.minX) / 2, (Wn.minY + Wn.maxY) / 2, z);
-    this.box(maxX - Wn.maxX, Wn.maxY - Wn.minY, t, this.mats.plaster, (maxX + Wn.maxX) / 2, (Wn.minY + Wn.maxY) / 2, z);
+    this.box(Wn.maxX - Wn.minX, Wn.minY, t, this.mats.plaster, (Wn.minX + Wn.maxX) / 2, Wn.minY / 2, z);
+    // 開口の左右は、開け放した障子が重なって寄せてある（外の光で白く光る）
+    const left = Wn.minX - minX, right = maxX - Wn.maxX;
+    this._shoji(minX + left * 0.27, z + 0.05, left * 0.54, Wn.maxY);
+    this._shoji(minX + left * 0.73, z + 0.09, left * 0.54, Wn.maxY);
+    this._shoji(Wn.maxX + right / 2, z + 0.05, right, Wn.maxY);
+    // 障子の裏は壁（夜に外から透けないように）
+    this.box(left, Wn.maxY, 0.04, this.mats.plaster, minX + left / 2, Wn.maxY / 2, z - 0.02);
+    this.box(right, Wn.maxY, 0.04, this.mats.plaster, Wn.maxX + right / 2, Wn.maxY / 2, z - 0.02);
 
-    // 窓枠と、猫が座る出窓の板
+    // 鴨居・柱と、猫が座る出窓の板
     const ww = Wn.maxX - Wn.minX;
-    this.sill = this.box(ww + 0.12, 0.06, 0.48, this.mats.wood, 0, Wn.minY, z + 0.12);
-    this.box(ww + 0.12, 0.08, 0.16, this.mats.darkWood, 0, Wn.maxY + 0.02, z);
-    this.box(0.08, Wn.maxY - Wn.minY, 0.16, this.mats.darkWood, Wn.minX - 0.02, (Wn.minY + Wn.maxY) / 2, z);
-    this.box(0.08, Wn.maxY - Wn.minY, 0.16, this.mats.darkWood, Wn.maxX + 0.02, (Wn.minY + Wn.maxY) / 2, z);
+    this.sill = this.box(ww + 0.12, 0.06, 0.48, this.mats.wood, (Wn.minX + Wn.maxX) / 2, Wn.minY, z + 0.12);
+    this.box(maxX - minX, 0.1, 0.2, this.mats.darkWood, 0, Wn.maxY + 0.03, z + 0.02);
+    for (const px of [Wn.minX - 0.04, Wn.maxX + 0.04]) this.box(0.1, Wn.maxY, 0.14, this.mats.darkWood, px, Wn.maxY / 2, z + 0.02);
 
-    // 開け放したガラス戸（左に寄せて重ねる）
-    const paneW = 1.05;
-    for (let i = 0; i < 2; i++) {
-      const px = Wn.minX + paneW / 2 + 0.02 + i * 0.12;
-      const pz = z - 0.03 - i * 0.04;
-      const g = new THREE.Group();
-      const glass = new THREE.Mesh(new THREE.PlaneGeometry(paneW - 0.06, Wn.maxY - Wn.minY - 0.06), this.mats.glass);
-      g.add(glass);
-      const fr = (w, hh, x, y) => {
-        const m = new THREE.Mesh(new THREE.BoxGeometry(w, hh, 0.03), this.mats.darkWood);
-        m.position.set(x, y, 0);
-        m.castShadow = true;
-        g.add(m);
-      };
-      const H = Wn.maxY - Wn.minY;
-      fr(paneW, 0.04, 0, H / 2 - 0.02);
-      fr(paneW, 0.05, 0, -H / 2 + 0.025);
-      fr(0.04, H, -paneW / 2 + 0.02, 0);
-      fr(0.04, H, paneW / 2 - 0.02, 0);
-      // 横桟
-      for (let k = 1; k < 4; k++) fr(paneW, 0.018, 0, -H / 2 + (H * k) / 4);
-      fr(0.018, H, 0, 0);
-      g.position.set(px, (Wn.minY + Wn.maxY) / 2, pz);
-      this.group.add(g);
+    // 外の手すり：上は竹、下は朱色の桟
+    const outZ = z - 0.5;
+    const bamboo = new THREE.MeshStandardMaterial({ color: 0xb59c62, roughness: 0.6 });
+    const redRail = new THREE.MeshStandardMaterial({ color: 0x8a3428, roughness: 0.8 });
+    const railGeo = new THREE.CylinderGeometry(1, 1, 1, 10).rotateZ(Math.PI / 2);
+    for (const [y, r, m] of [[0.8, 0.035, bamboo], [0.56, 0.022, redRail]]) {
+      const rl = new THREE.Mesh(railGeo, m);
+      rl.scale.set(ww + 0.6, r, r);
+      rl.position.set((Wn.minX + Wn.maxX) / 2, y, outZ);
+      rl.castShadow = true;
+      this.group.add(rl);
     }
+    for (const px of [Wn.minX - 0.2, (Wn.minX + Wn.maxX) / 2, Wn.maxX + 0.2]) {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.05, 1.0, 0.05), redRail);
+      post.position.set(px, 0.3, outZ);
+      this.group.add(post);
+    }
+    // 手すりの向こうの、色づきはじめた庭木（窓の下のほう）
+    const leafMats = [0xc8783a, 0xd8a050, 0x6a8a3a].map((c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.9, flatShading: true }));
+    const blobGeo = new THREE.IcosahedronGeometry(1, 1);
+    [[-0.75, -0.55, -3.4, 0.55, 0], [-0.2, -0.45, -3.8, 0.45, 1], [-1.1, -0.6, -3.1, 0.42, 2], [0.4, -0.7, -3.3, 0.38, 0]].forEach(([x, y, zz, r, k]) => {
+      const b = new THREE.Mesh(blobGeo, leafMats[k]);
+      b.position.set(x, y, zz);
+      b.scale.set(r, r * 0.8, r);
+      this.group.add(b);
+    });
+
+    // 瓢箪：開口の左上から、ひもで吊るしてある
+    const gourd = new THREE.Group();
+    const gm = new THREE.MeshStandardMaterial({ color: 0x3a2414, roughness: 0.45 });
+    const lo = new THREE.Mesh(new THREE.SphereGeometry(0.05, 14, 10), gm);
+    lo.position.y = -0.3;
+    lo.scale.y = 1.15;
+    const hi = new THREE.Mesh(new THREE.SphereGeometry(0.032, 12, 8), gm);
+    hi.position.y = -0.23;
+    const str = new THREE.Mesh(new THREE.CylinderGeometry(0.002, 0.002, 0.2), new THREE.MeshBasicMaterial({ color: 0x2a2018 }));
+    str.position.y = -0.1;
+    gourd.add(str, hi, lo);
+    gourd.position.set(Wn.minX + 0.18, Wn.maxY - 0.02, z + 0.1);
+    this.gourd = gourd;
+    this.group.add(gourd);
 
     // 軒（のき）
     const eave = this.box(maxX - minX + 1.2, 0.08, 1.4, this.mats.darkWood, 0, h + 0.18, z - 0.65);
@@ -238,18 +302,19 @@ export class Room {
     this.fuurinStrip.add(strip, stripString);
     this.fuurinStrip.position.y = -0.2;
     this.fuurin.add(string, bell, goldfish, this.fuurinStrip);
-    this.fuurin.position.set(1.0, Wn.maxY - 0.03, z - 0.05);
+    this.fuurin.position.set(1.35, Wn.maxY - 0.03, z - 0.05);
     this.group.add(this.fuurin);
   }
 
   _desk() {
+    // 窓の前の、黒ずんだ古い文机（長いほうが窓と平行）
     const g = new THREE.Group();
-    const top = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.035, 1.15), this.mats.wood);
+    const top = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.035, 1.15), this.mats.darkWood);
     top.position.y = 0.34;
     top.castShadow = top.receiveShadow = true;
     g.add(top);
     for (const x of [-0.24, 0.24]) {
-      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.33, 1.05), this.mats.wood);
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.33, 1.05), this.mats.darkWood);
       leg.position.set(x, 0.165, 0);
       leg.castShadow = true;
       g.add(leg);
@@ -309,24 +374,30 @@ export class Room {
       g.add(b);
     });
 
-    // 卓上ランプ
-    const lampMat = new THREE.MeshStandardMaterial({ color: 0x3a4a3a, roughness: 0.5, metalness: 0.3 });
-    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.02, 16), lampMat);
-    base.position.set(-0.18, 0.368, -0.42);
-    g.add(base);
-    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.32), lampMat);
-    arm.position.set(-0.13, 0.52, -0.42);
-    arm.rotation.z = -0.35;
-    g.add(arm);
-    const shade = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.08, 16, 1, true), new THREE.MeshStandardMaterial({ color: 0x3a4a3a, side: THREE.DoubleSide, roughness: 0.5 }));
-    shade.position.set(-0.05, 0.66, -0.4);
-    shade.rotation.z = -0.5;
-    g.add(shade);
-    this.deskBulb = new THREE.Mesh(new THREE.SphereGeometry(0.018, 10, 8), new THREE.MeshBasicMaterial({ color: 0xffe2a8 }));
-    this.deskBulb.position.set(-0.04, 0.64, -0.4);
+    // 石油ランプ：台と油壺、ふくらんだガラスのほや。夜は小さな炎が灯る
+    const lampX = 0.12, lampZ = 0.46;
+    const brass = new THREE.MeshStandardMaterial({ color: 0x2a2420, roughness: 0.5, metalness: 0.4 });
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 0.03, 16), brass);
+    base.position.set(lampX, 0.372, lampZ);
+    const font = new THREE.Mesh(new THREE.SphereGeometry(0.045, 16, 10), new THREE.MeshStandardMaterial({ color: 0x3a2a1a, roughness: 0.3, metalness: 0.3 }));
+    font.position.set(lampX, 0.42, lampZ);
+    font.scale.y = 0.8;
+    const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.03, 0.03, 12), brass);
+    collar.position.set(lampX, 0.47, lampZ);
+    const chimneyProfile = [[0.024, 0], [0.034, 0.03], [0.04, 0.07], [0.03, 0.12], [0.02, 0.16], [0.021, 0.22]].map(([r, y]) => new THREE.Vector2(r, y));
+    const chimney = new THREE.Mesh(new THREE.LatheGeometry(chimneyProfile, 16), new THREE.MeshStandardMaterial({ color: 0xdfe8ea, transparent: true, opacity: 0.32, roughness: 0.05, depthWrite: false, side: THREE.DoubleSide }));
+    chimney.position.set(lampX, 0.485, lampZ);
+    g.add(base, font, collar, chimney);
+    this.deskBulb = new THREE.Mesh(new THREE.SphereGeometry(0.012, 10, 8), new THREE.MeshBasicMaterial({ color: 0xffd090 }));
+    this.deskBulb.scale.y = 1.8;
+    this.deskBulb.position.set(lampX, 0.53, lampZ);
     g.add(this.deskBulb);
-    this.deskLight = new THREE.PointLight(0xffc982, 0, 3.5, 2);
-    this.deskLight.position.set(-0.02, 0.6, -0.4);
+    this.flameGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: 0xffa850, transparent: true, opacity: 0, depthWrite: false }));
+    this.flameGlow.position.set(lampX, 0.54, lampZ);
+    this.flameGlow.scale.setScalar(0.3);
+    g.add(this.flameGlow);
+    this.deskLight = new THREE.PointLight(0xffb070, 0, 3.5, 2);
+    this.deskLight.position.set(lampX, 0.58, lampZ);
     g.add(this.deskLight);
 
     // 湯気
@@ -340,7 +411,8 @@ export class Room {
     }
     this.cupPos = new THREE.Vector3(0.08, 0.45, -0.3);
 
-    g.position.set(-2.22, 0, -0.55);
+    g.position.set(-0.25, 0, -1.0);
+    g.rotation.y = Math.PI / 2;   // 机の長いほう（ローカルの z）が、窓と平行に
     this.group.add(g);
     this.desk = g;
   }
@@ -418,29 +490,34 @@ export class Room {
     this.pendulum.add(rod, bob);
     this.pendulum.position.set(-0.056, -0.01, 0);
     clock.add(this.pendulum);
-    clock.position.set(ROOM.maxX - 0.05, 1.6, -0.45);
+    clock.position.set(ROOM.maxX - 0.05, 1.6, 0.85);
     this.group.add(clock);
   }
 
   _lamp() {
-    // 吊り下げの裸電球と笠
+    // 開口の前に吊るした、乳白ガラスの笠のランプ。夜は暖かく灯る
     const g = new THREE.Group();
-    const cord = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.45), new THREE.MeshBasicMaterial({ color: 0x111111 }));
-    cord.position.y = -0.22;
+    const drop = ROOM.h - WINDOW.maxY + 0.12;
+    const cord = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, drop), new THREE.MeshBasicMaterial({ color: 0x111111 }));
+    cord.position.y = -drop / 2;
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.035, 0.04, 12), new THREE.MeshStandardMaterial({ color: 0x2a2420, metalness: 0.4, roughness: 0.5 }));
+    cap.position.y = -drop;
+    // 笠：ふちが少し波打つ、浅い乳白ガラスのドーム
+    const profile = [[0.03, 0.02], [0.08, 0.0], [0.15, -0.05], [0.2, -0.1], [0.215, -0.12], [0.205, -0.125]].map(([r, y]) => new THREE.Vector2(r, y));
     const shade = new THREE.Mesh(
-      new THREE.ConeGeometry(0.2, 0.12, 24, 1, true),
-      new THREE.MeshStandardMaterial({ color: 0xece4d2, side: THREE.DoubleSide, roughness: 0.8, emissive: 0xffc078, emissiveIntensity: 0 })
+      new THREE.LatheGeometry(profile, 28),
+      new THREE.MeshStandardMaterial({ color: 0xf2eadb, side: THREE.DoubleSide, roughness: 0.4, emissive: 0xffc078, emissiveIntensity: 0 })
     );
-    shade.position.y = -0.48;
+    shade.position.y = -drop - 0.01;
     this.lampShade = shade;
     this.bulb = new THREE.Mesh(new THREE.SphereGeometry(0.035, 14, 10), new THREE.MeshBasicMaterial({ color: 0xfff1d0 }));
-    this.bulb.position.y = -0.53;
-    g.add(cord, shade, this.bulb);
+    this.bulb.position.y = -drop - 0.08;
+    g.add(cord, cap, shade, this.bulb);
     this.ceilingLight = new THREE.PointLight(0xffc887, 0, 9, 1.6);
-    this.ceilingLight.position.y = -0.56;
+    this.ceilingLight.position.y = -drop - 0.12;
     this.ceilingLight.castShadow = false;
     g.add(this.ceilingLight);
-    g.position.set(0, ROOM.h, 0.1);
+    g.position.set(0.3, ROOM.h, WINDOW.z + 0.32);
     this.group.add(g);
   }
 
@@ -466,7 +543,12 @@ export class Room {
     this.bulb.material.color.setRGB(0.35 + lamp * 0.65, 0.33 + lamp * 0.6, 0.3 + lamp * 0.5);
     this.lampShade.material.emissiveIntensity = lamp * 0.35;
     this.deskLight.intensity = lamp * 0.9;
-    this.deskBulb.material.color.setRGB(0.3 + lamp * 0.7, 0.28 + lamp * 0.6, 0.25 + lamp * 0.4);
+    this.deskBulb.material.color.setRGB(0.3 + lamp * 0.7, 0.28 + lamp * 0.55, 0.2 + lamp * 0.35);
+    this.deskBulb.visible = lamp > 0.05;
+    this.flameGlow.material.opacity = lamp * (0.55 + Math.sin(elapsed * 9) * 0.05 + Math.sin(elapsed * 23) * 0.04);
+    // 障子は、外が明るいほど白く浮かぶ。夜は、部屋の灯りをうっすら受けるだけ
+    this.mats.shoji.emissiveIntensity = (1 - p.night) * 0.42 + lamp * 0.06;
+    this.gourd.rotation.z = Math.sin(elapsed * 0.9) * 0.02 + wind * 0.05 * Math.sin(elapsed * 2.1);
 
     // 風鈴は風に揺れる
     const sway = Math.sin(elapsed * 1.7) * 0.05 + wind * 0.35 * Math.sin(elapsed * 3.1 + 1.0);

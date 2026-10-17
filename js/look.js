@@ -102,7 +102,9 @@ class InkGradePass extends Pass {
           // 色調補正：少し鮮やかに、ゆるいS字のコントラスト、陰は青紫に、光はあたたかく
           float l = dot(col, vec3(0.299, 0.587, 0.114));
           col = mix(vec3(l), col, 1.14);
-          col = mix(col, col * col * (3.0 - 2.0 * col), 0.22);
+          // S字は0〜1の範囲だけにかける（灯りなど1をこえる明るさは、そのまま光のにじみへ。こえた分にかけると色が反転する）
+          vec3 cc = clamp(col, 0.0, 1.0);
+          col = mix(col, cc * cc * (3.0 - 2.0 * cc) + max(col - 1.0, 0.0), 0.22);
           vec3 shadowTint = mix(vec3(0.93, 0.95, 1.08), vec3(0.9, 0.92, 1.12), uNight);
           vec3 lightTint = vec3(1.04, 1.0, 0.95);
           col *= mix(shadowTint, lightTint, smoothstep(0.15, 0.75, l));
