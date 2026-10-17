@@ -1197,6 +1197,46 @@ export class Town {
     g.scale.setScalar(1.45);
     g.rotation.y = 0.3;
     this.group.add(g);
+    // Blender で作った三重塔（assets/models/pagoda.glb）が読めたら差しかえる。読めなければ上の簡単な塔のまま
+    if (new URLSearchParams(location.search).get('pagoda') !== 'simple') this._pagodaModel(x, z, g);
+  }
+
+  async _pagodaModel(x, z, simple) {
+    try {
+      const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
+      const gltf = await new GLTFLoader().loadAsync('assets/models/pagoda.glb');
+      const model = gltf.scene;
+      // 町のほかの建物と同じ光の当たり方にするため、素材は色だけ受けついで Lambert に
+      const mats = new Map();
+      model.traverse((o) => {
+        if (!o.isMesh) return;
+        const src = o.material;
+        if (!mats.has(src)) {
+          const m = lam(src.color.getHex());
+          if (/gold/.test(src.name)) m.emissive.setHex(0x3a2a08);
+          mats.set(src, m);
+          src.dispose();
+        }
+        o.material = mats.get(src);
+        o.castShadow = o.receiveShadow = true;
+      });
+      const g = new THREE.Group();
+      g.add(model);
+      // 坂に建つので、基壇の下を石垣で地面まで埋める
+      const skirt = new THREE.Mesh(new THREE.BoxGeometry(8.2, 3, 8.2), lam(0x8a857a));
+      skirt.position.y = -1.5;
+      skirt.receiveShadow = true;
+      g.add(skirt);
+      const y = Math.min(...[-4, 4].flatMap((dx) => [-4, 4].map((dz) => terrainY(x + dx, z + dz))));
+      g.position.set(x, Math.max(y, terrainY(x, z) - 0.6), z);
+      g.rotation.y = 0.3;
+      this.group.add(g);
+      this.group.remove(simple);
+      simple.traverse((o) => o.geometry?.dispose());
+      this.pagodaModel = g;
+    } catch (e) {
+      console.warn('三重塔のモデルを読めなかったので、簡単な塔のままにします', e);
+    }
   }
 
   _shrine(x, z) {

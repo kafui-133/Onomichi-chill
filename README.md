@@ -100,6 +100,8 @@ Three.js（r160）は jsDelivr の CDN から読み込みます。音はすべ�
 tools/
   fetch_data.py       OpenStreetMap と国土地理院の標高を取得
   build_town_data.py  ゲーム用データに変換
+  blender/pagoda.py   天寧寺の三重塔を Blender（Python）で組み立てて assets/models/pagoda.glb に書き出す
+assets/models/    Blender で作った3Dモデル（glTF）
 index.html        画面の骨組み、importmap、ミニマル UI（ボタンは SVG アイコン）
 style.css         ミニマルデザイン、タイトル／目を閉じる／写真プリントの演出
 js/
@@ -192,6 +194,7 @@ python3 tools/build_town_data.py   # ゲーム用の js/data/onomichi.js（約64
 - **千光寺山ロープウェイ**：山麓駅・山頂駅の実際の位置。片道およそ3分。
 - **渡船**：尾道渡船（土堂↔兼吉）、福本渡船（土堂↔小歌島）、駅前渡船（駅前↔富浜）の3航路を、実際の桟橋の間で行き来します。ほかの船は水道の中心線にそって行き交います。
 - **名所**：天寧寺の三重塔、艮神社、千光寺は OpenStreetMap の位置に置いています。
+- **三重塔のモデル**：天寧寺の三重塔は `tools/blender/pagoda.py` で Blender を Python から動かして組み立てたモデルです（反りのある屋根、組物、高欄、相輪。高さ約24m）。読みこめないときは、以前の簡単な形の塔になります（`?pagoda=simple` でも以前の塔）。作りなおすには `pip install bpy` のあと `python tools/blender/pagoda.py`（`--preview a.png` で確認用の絵も描きます）。
 - 地図データ © OpenStreetMap contributors（ODbL）、標高 国土地理院 基盤地図情報（DEM5A）。
 
 ## データ・素材と権利
@@ -199,7 +202,7 @@ python3 tools/build_town_data.py   # ゲーム用の js/data/onomichi.js（約64
 - **地図データ**：© [OpenStreetMap contributors](https://www.openstreetmap.org/copyright)。`js/data/onomichi.js` は OpenStreetMap のデータを加工したデータベースで、[Open Database License (ODbL) 1.0](https://opendatacommons.org/licenses/odbl/1-0/) で提供します。作り方は `tools/` のスクリプトのとおりです
 - **標高**：国土地理院の[標高タイル](https://maps.gsi.go.jp/development/ichiran.html)（DEM5A）を加工して作成（[国土地理院コンテンツ利用規約](https://www.gsi.go.jp/kikakuchousei/kikakuchousei40182.html)に基づく出典の明示）
 - **Three.js**：MIT License（CDN から読み込み）／ **フォント**：しっぽり明朝（SIL Open Font License、Google Fonts）
-- **音・絵**：すべてプログラムで合成・描画しています（音声ファイル・画像素材は使っていません）
+- **音・絵**：すべてプログラムで合成・描画しています（音声ファイル・画像素材は使っていません。三重塔の3Dモデルも、このリポジトリのスクリプトで作ったものです）
 - 実在の町並み・地名・公共の施設（寺社、ロープウェイ、駅、渡船、商店街の通り名）をもとにしたフィクションです。**お店・猫・人物はすべて架空**で、実在のお店とは関係ありません
 
 ## 次のステップ（企画書より）
