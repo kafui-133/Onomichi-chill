@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { canvasTexture, glowTexture, seededRandom, speckle } from './util.js';
 import { lam, buildSignAtlas, buildRetroSignAtlas, labelTexture, QuadBatch, instancedBoxes, instancedChunks } from './townKit.js';
 import {
-  DATA, SEA_Y, BOUNDS, terrainY, groundY, surfaceY, addTread, addSolid, inSolid, walkable, ROADS, OTHER_ROADS, ARCADE_ROADS, nearAnyRoad, samplePath, roadLength,
+  DATA, SEA_Y, BOUNDS, terrainY, groundY, surfaceY, addTread, addSolid, inSolid, walkable, ROADS, OTHER_ROADS, ARCADE_ROADS, nearAnyRoad, samplePath, roadLength, pointAlong,
   STREET_SHOPS, demAt, ALLEYS, COAST, RAILS, CROSSINGS, TRAIN_TRACKS, ROPEWAY, SUMMIT, BENCHES, FERRY_ROUTES, POIS, onOnomichiSide, nearestRoad, inBuilding,
 } from './townMap.js';
 
@@ -79,6 +79,28 @@ const PRECINCTS = [
   ...[['天寧寺三重塔', 9]].map(([n, r]) => { const p = POIS.find((q) => q.n === n); return p && { x: p.x, z: p.z, r }; }),
 ].filter(Boolean);
 const inPrecinct = (x, z, m = 0) => PRECINCTS.some((p) => Math.hypot(p.x - x, p.z - z) < p.r + m);
+
+// 線路のまわり（4mのマスごとに線路の点をおぼえておく）。埋める家や木が線路の上に建たないように
+const RAIL_CELL = 4;
+const RAIL_GRID = (() => {
+  const grid = new Map();
+  for (const rail of RAILS) for (const p of samplePath(rail.pts, 2)) {
+    const k = Math.floor(p.x / RAIL_CELL) * 100003 + Math.floor(p.z / RAIL_CELL);
+    if (!grid.has(k)) grid.set(k, []);
+    grid.get(k).push(p);
+  }
+  return grid;
+})();
+/** 線路の中心から m より近いか（m は 8m まで） */
+function nearRail(x, z, m) {
+  const r = Math.ceil(m / RAIL_CELL);
+  const cx = Math.floor(x / RAIL_CELL), cz = Math.floor(z / RAIL_CELL);
+  for (let i = cx - r; i <= cx + r; i++) for (let j = cz - r; j <= cz + r; j++) {
+    const list = RAIL_GRID.get(i * 100003 + j);
+    if (list && list.some((p) => Math.hypot(p.x - x, p.z - z) < m)) return true;
+  }
+  return false;
+}
 
 
 // 本通り商店街の、食べられるお店（店名は架空）。f は通りの中での位置（0〜1）、side は通りのどちら側か
@@ -695,6 +717,7 @@ export class Town {
         if (this.occupied.has(Math.floor(hx / 4) * 100003 + Math.floor(hz / 4))) continue;
         if (inPrecinct(hx, hz, 4)) continue;
         const w = 4.5 + r() * 3.5, d = 4.5 + r() * 3;
+        if (nearRail(hx, hz, Math.max(w, d) / 2 + 3.5)) continue;   // 線路と、その両わきの架線柱・石垣の場所
         if (nearAnyRoad(hx, hz, Math.max(w, d) / 2 + 0.8)) continue;
         if (BENCHES.some((bb) => Math.hypot(bb.x - hx, bb.z - hz) < Math.max(w, d) / 2 + 3)) continue;
         if (STREET_SHOPS.some((sh) => Math.hypot(sh.x - hx, sh.z - hz) < Math.max(w, d) / 2 + 4)) continue;
@@ -731,6 +754,7 @@ export class Town {
       if (Math.hypot(x, z) < 10) continue;
       if (this.occupied.has(Math.floor(x / 4) * 100003 + Math.floor(z / 4))) continue;
       if (inPrecinct(x, z, 2)) continue;
+      if (nearRail(x, z, 5)) continue;
       if (nearAnyRoad(x, z, 2.5)) continue;
       // 山頂の展望台からの眺め（南の尾道水道）をさえぎらない
       const dd = Math.hypot(x - SUMMIT.deck.x, z - SUMMIT.deck.z);
@@ -1214,26 +1238,48 @@ export class Town {
 
   // ---------- 線路・踏切 ----------
   _rails() {
-    const ballast = new TriBatch(), steel = new TriBatch();
-    const cb = new THREE.Color(0x6b6560), cs = new THREE.Color(0x8a8580);
+    // ---- 線路：茶色いバラストの盛り土、コンクリートのまくら木、さびた茶色のレール（すべて1つにまとめる） ----
+    const tb = new TriBatch();
+    const rr = seededRandom('rails');
+    const cTie = new THREE.Color(0x9a958c), cTieSide = new THREE.Color(0x7a766e);
+    const cRail = new THREE.Color(0x6a4636), cRailTop = new THREE.Color(0xb4aca2);
+    const railY = (x, z) => terrainY(x, z) + 0.12;
     for (const rail of RAILS) {
       const s = samplePath(rail.pts, 3);
       for (let i = 0; i < s.length - 1; i++) {
         const a = s[i], b = s[i + 1];
         const na = { x: -Math.sin(a.angle), z: Math.cos(a.angle) }, nb = { x: -Math.sin(b.angle), z: Math.cos(b.angle) };
-        const ya = terrainY(a.x, a.z) + 0.12, yb = terrainY(b.x, b.z) + 0.12;
-        ballast.quad([a.x - na.x * 1.5, ya, a.z - na.z * 1.5], [a.x + na.x * 1.5, ya, a.z + na.z * 1.5], [b.x + nb.x * 1.5, yb, b.z + nb.z * 1.5], [b.x - nb.x * 1.5, yb, b.z - nb.z * 1.5], cb);
-        for (const o of [-0.53, 0.53]) {
-          const w = 0.05;
-          steel.quad([a.x + na.x * (o - w), ya + 0.16, a.z + na.z * (o - w)], [a.x + na.x * (o + w), ya + 0.16, a.z + na.z * (o + w)],
-            [b.x + nb.x * (o + w), yb + 0.16, b.z + nb.z * (o + w)], [b.x + nb.x * (o - w), yb + 0.16, b.z + nb.z * (o - w)], cs);
+        const ya = railY(a.x, a.z), yb = railY(b.x, b.z);
+        const A = (o, h) => [a.x + na.x * o, ya + h, a.z + na.z * o], B = (o, h) => [b.x + nb.x * o, yb + h, b.z + nb.z * o];
+        // バラストの断面：上は平ら、両肩はなだらかに地面へ。色は少しずつむらに
+        const k = 0.9 + rr() * 0.2;
+        const cBal = new THREE.Color(0x7a6454).multiplyScalar(k), cBalSide = new THREE.Color(0x66574a).multiplyScalar(k);
+        tb.quad(A(-1.45, 0.12), A(1.45, 0.12), B(1.45, 0.12), B(-1.45, 0.12), cBal);
+        tb.quad(A(-2.2, -0.15), A(-1.45, 0.12), B(-1.45, 0.12), B(-2.2, -0.15), cBalSide);
+        tb.quad(A(1.45, 0.12), A(2.2, -0.15), B(2.2, -0.15), B(1.45, 0.12), cBalSide);
+        // レール：上面は車輪でみがかれて明るく、横はさびた茶色
+        for (const o of [-0.535, 0.535]) {
+          const w = 0.035;
+          tb.quad(A(o - w, 0.34), A(o + w, 0.34), B(o + w, 0.34), B(o - w, 0.34), cRailTop);
+          tb.quad(A(o - w, 0.2), A(o - w, 0.34), B(o - w, 0.34), B(o - w, 0.2), cRail);
+          tb.quad(A(o + w, 0.34), A(o + w, 0.2), B(o + w, 0.2), B(o + w, 0.34), cRail);
         }
       }
+      // まくら木（約0.7mおき）。上面と、前後の面だけ
+      for (const p of samplePath(rail.pts, 0.7)) {
+        const tx = Math.cos(p.angle) * 0.11, tz = Math.sin(p.angle) * 0.11;
+        const nx = -Math.sin(p.angle), nz = Math.cos(p.angle);
+        const y = railY(p.x, p.z);
+        const P = (o, d, h) => [p.x + nx * o + tx * d, y + h, p.z + nz * o + tz * d];
+        tb.quad(P(-1.2, -1, 0.2), P(-1.2, 1, 0.2), P(1.2, 1, 0.2), P(1.2, -1, 0.2), cTie);
+        tb.quad(P(-1.2, -1, 0.12), P(-1.2, -1, 0.2), P(1.2, -1, 0.2), P(1.2, -1, 0.12), cTieSide);
+        tb.quad(P(1.2, 1, 0.12), P(1.2, 1, 0.2), P(-1.2, 1, 0.2), P(-1.2, 1, 0.12), cTieSide);
+      }
     }
-    const bm = new THREE.Mesh(ballast.build(), lam(0xffffff, { vertexColors: true, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }));
-    bm.receiveShadow = true;
-    this.group.add(bm, new THREE.Mesh(steel.build(), lam(0xffffff, { vertexColors: true })));
-
+    const trackMesh = new THREE.Mesh(tb.build(), lam(0xffffff, { vertexColors: true, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }));
+    trackMesh.receiveShadow = true;
+    this.group.add(trackMesh);
+    this._catenary(railY);
     // 踏切：警報機（黄色と黒のしま模様の柱、×の踏切警標、左右に交互に点滅する赤い灯、「とまれみよ」の板、上にスピーカー）と、
     // しま模様の遮断かん（線路と平行に、道をふさぐ向き）
     const tiger = (rx, ry) => canvasTexture(64, 64, (g2, w, h) => {
@@ -1340,6 +1386,196 @@ export class Town {
       this.group.add(g);
       return { ...cr, lights, arms, down: 0, rang: false };
     });
+  }
+
+  /**
+   * 山陽本線の架線（電柱・はり・腕木・がいし・架線）と、山側の石垣（谷積み）。
+   * 電柱はおよそ50mおきに複線の両外側へ立て、上に門形のはりを渡す。道や踏切の上には立てない
+   */
+  _catenary(railY) {
+    const [TA, TB] = TRAIN_TRACKS;
+    if (!TA) return;
+    const lenA = roadLength(TA);
+    const sampB = TB ? samplePath(TB, 2) : [];
+    // TB 上の点と、その道のり
+    const cumB = [0];
+    for (let i = 1; i < sampB.length; i++) cumB.push(cumB[i - 1] + Math.hypot(sampB[i].x - sampB[i - 1].x, sampB[i].z - sampB[i - 1].z));
+    const nearB = (x, z) => {
+      let bi = -1, bd = 12;
+      for (let i = 0; i < sampB.length; i++) { const d = Math.hypot(sampB[i].x - x, sampB[i].z - z); if (d < bd) { bd = d; bi = i; } }
+      return bi < 0 ? null : { ...sampB[bi], s: cumB[bi], d: bd };
+    };
+    const blocked = (x, z) => nearAnyRoad(x, z, 0.7) || inBuilding(x, z) || CROSSINGS.some((c) => Math.hypot(c.x - x, c.z - z) < 12);
+    const spans = [];   // { a: {x,z,s}, b: 同 or null }
+    const mats = { mast: [], beam: [], arm: [], ins: [] };
+    const box = (list, ax, ay, az, bx, by, bz, w) => list.push({ ax, ay, az, bx, by, bz, w });
+    for (let s = 20; s < lenA - 20; s += 50) {
+      // 立てられる場所を、少し前後にずらしながら探す。両側に立てられれば門形、片側だけなら片持ちのはり
+      let ok = null;
+      for (const ds of [0, 6, -6, 12, -12]) {
+        const a = pointAlong(TA, (s + ds) / lenA);
+        const b = nearB(a.x, a.z);
+        let n = { x: -Math.sin(a.angle), z: Math.cos(a.angle) };
+        if (b && b.d > 1.5) n = { x: (b.x - a.x) / b.d, z: (b.z - a.z) / b.d };
+        let mA = { x: a.x - n.x * 2.5, z: a.z - n.z * 2.5 };
+        let mB = b ? { x: b.x + n.x * 2.5, z: b.z + n.z * 2.5 } : { x: a.x + n.x * 2.5, z: a.z + n.z * 2.5 };
+        if (blocked(mA.x, mA.z)) mA = null;
+        if (blocked(mB.x, mB.z)) mB = null;
+        if (!mA && !mB) continue;
+        ok = { a: { ...a, s: s + ds }, b, n, mA, mB };
+        break;
+      }
+      if (!ok) continue;
+      const { a, b, n, mA, mB } = ok;
+      const top = Math.max(railY(a.x, a.z), b ? railY(b.x, b.z) : -1e9) + 7.4;
+      for (const m of [mA, mB]) if (m) box(mats.mast, m.x, terrainY(m.x, m.z) - 0.3, m.z, m.x, top + 0.5, m.z, 0.32);
+      // はり：門形は電柱から電柱へ、片持ちは立てた側から、反対側の線の少し先まで
+      const far = b || a;
+      const from = mA || mB;
+      const to = mA && mB ? mB : mA ? { x: far.x + n.x * 0.8, z: far.z + n.z * 0.8 } : { x: a.x - n.x * 0.8, z: a.z - n.z * 0.8 };
+      box(mats.beam, from.x, top, from.z, to.x, top, to.z, 0.24);
+      // 各線の上：はりからつり下げた棒と、横の腕木、がいし
+      for (const t of [a, b]) {
+        if (!t) continue;
+        const ty = railY(t.x, t.z);
+        const m = t === a ? (mA || mB) : (mB || mA);   // 近いほうの電柱から腕木をのばす
+        box(mats.arm, t.x, top, t.z, t.x, ty + 6.5, t.z, 0.07);
+        box(mats.arm, m.x, ty + 5.45, m.z, t.x, ty + 5.45, t.z, 0.06);
+        box(mats.ins, t.x, ty + 6.55, t.z, t.x, ty + 6.2, t.z, 0.12);
+        box(mats.ins, m.x * 0.2 + t.x * 0.8, ty + 5.45, m.z * 0.2 + t.z * 0.8, m.x * 0.4 + t.x * 0.6, ty + 5.45, m.z * 0.4 + t.z * 0.6, 0.1);
+      }
+      spans.push({ a, b });
+    }
+    // 角材を、向きと長さをつけた InstancedMesh に
+    const unit = new THREE.BoxGeometry(1, 1, 1);
+    const inst = (list, mat) => {
+      if (!list.length) return;
+      const mesh = new THREE.InstancedMesh(unit, mat, list.length);
+      const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), v = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
+      list.forEach((e, i) => {
+        v.set(e.bx - e.ax, e.by - e.ay, e.bz - e.az);
+        const L = v.length();
+        q.setFromUnitVectors(up, v.normalize());
+        m4.compose(new THREE.Vector3((e.ax + e.bx) / 2, (e.ay + e.by) / 2, (e.az + e.bz) / 2), q, new THREE.Vector3(e.w, L, e.w));
+        mesh.setMatrixAt(i, m4);
+      });
+      mesh.castShadow = true;
+      this.group.add(mesh);
+    };
+    // 電柱：鉄のトラス（格子もようの透かし）
+    const lattice = canvasTexture(32, 64, (g, w, h) => {
+      g.clearRect(0, 0, w, h);
+      g.strokeStyle = '#fff';
+      g.lineWidth = 4;
+      g.strokeRect(2, 0, w - 4, h);
+      g.lineWidth = 3;
+      g.beginPath(); g.moveTo(2, 0); g.lineTo(w - 2, h / 2); g.lineTo(2, h); g.moveTo(w - 2, 0); g.lineTo(2, h / 2); g.lineTo(w - 2, h); g.stroke();
+    }, { repeat: [1, 6] });
+    inst(mats.mast, lam(0x8e9194, { map: lattice, alphaTest: 0.5, side: THREE.DoubleSide }));
+    inst(mats.beam, lam(0x8e9194, { map: lattice, alphaTest: 0.5, side: THREE.DoubleSide }));
+    inst(mats.arm, lam(0x9a9ca0));
+    inst(mats.ins, lam(0x6a4a3a));
+    // 架線：電柱と電柱のあいだで少したわむ吊架線と、まっすぐなトロリ線。ところどころにハンガー
+    const seg = [];
+    const wire = (pts) => { for (let i = 0; i < pts.length - 1; i++) seg.push(...pts[i], ...pts[i + 1]); };
+    for (const [track, key] of [[TA, 'a'], [TB, 'b']]) {
+      if (!track) continue;
+      const L = roadLength(track);
+      for (let k = 0; k < spans.length - 1; k++) {
+        const s0 = key === 'a' ? spans[k].a.s : spans[k].b?.s, s1 = key === 'a' ? spans[k + 1].a.s : spans[k + 1].b?.s;
+        if (s0 == null || s1 == null || s1 <= s0 || s1 - s0 > 120) continue;
+        const mess = [], cont = [];
+        const N = Math.max(4, Math.round((s1 - s0) / 6));
+        for (let i = 0; i <= N; i++) {
+          const f = i / N;
+          const p = pointAlong(track, (s0 + (s1 - s0) * f) / L);
+          const y = railY(p.x, p.z);
+          mess.push([p.x, y + 6.3 - Math.sin(f * Math.PI) * 0.55, p.z]);
+          cont.push([p.x, y + 5.25, p.z]);
+          if (i > 0 && i < N) seg.push(p.x, y + 6.3 - Math.sin(f * Math.PI) * 0.55, p.z, p.x, y + 5.25, p.z);
+        }
+        wire(mess);
+        wire(cont);
+      }
+    }
+    if (seg.length) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(seg, 3));
+      this.group.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0x2a2a2c })));
+    }
+
+    // ---- 山側の石垣：線路の外側の地面が高く切り立っているところに、谷積み（斜めに組んだ石）の擁壁 ----
+    const stone = canvasTexture(128, 128, (g, w, h) => {
+      g.fillStyle = '#5e5850';
+      g.fillRect(0, 0, w, h);
+      const r2 = seededRandom('tanizumi');
+      const step = 32;
+      for (let y = -step; y < h + step; y += step / 2) {
+        for (let x = -step; x < w + step; x += step) {
+          const ox = ((y / (step / 2)) % 2) * (step / 2);
+          const v = 120 + Math.floor(r2() * 50);
+          g.fillStyle = `rgb(${v},${v - 6},${v - 14})`;
+          g.beginPath();
+          const cx = x + ox, cy = y;
+          g.moveTo(cx, cy - step / 2 + 2); g.lineTo(cx + step / 2 - 2, cy); g.lineTo(cx, cy + step / 2 - 2); g.lineTo(cx - step / 2 + 2, cy);
+          g.closePath();
+          g.fill();
+        }
+      }
+    }, { repeat: [1, 1] });
+    const wb = new TriBatch();
+    const white = new THREE.Color(0xffffff), capC = new THREE.Color(0x8a857c);
+    const sampA = samplePath(TA, 8);
+    for (const track of [TA, TB]) {
+      if (!track) continue;
+      const pts = samplePath(track, 4);
+      // まず各点で、壁を立てるか・高さを調べる
+      const col = pts.map((p) => {
+        // 複線の外側（TA は TB の反対側、TB は TA の反対側）
+        let n = { x: -Math.sin(p.angle), z: Math.cos(p.angle) };
+        const other = track === TA ? nearB(p.x, p.z) : null;
+        if (other && other.d > 1.5) n = { x: (other.x - p.x) / other.d, z: (other.z - p.z) / other.d };
+        else if (track === TB) {
+          let bd = 1e9, best = null;
+          for (const q of sampA) { const d = Math.hypot(q.x - p.x, q.z - p.z); if (d < bd) { bd = d; best = q; } }
+          if (best && bd < 12 && bd > 1.5) n = { x: (p.x - best.x) / bd, z: (p.z - best.z) / bd };
+        }
+        const out = track === TA ? -1 : 1;
+        const ox = n.x * out, oz = n.z * out;
+        const wx = p.x + ox * 3.3, wz = p.z + oz * 3.3;
+        const y0 = railY(p.x, p.z) - 0.2;
+        const rise = Math.max(...[3.5, 5.5, 8].map((d) => terrainY(p.x + ox * d, p.z + oz * d))) - y0;
+        const ok = rise > 1.8 && !nearAnyRoad(wx, wz, 1.2) && !CROSSINGS.some((c) => Math.hypot(c.x - wx, c.z - wz) < 9);
+        return { ok, x: wx, z: wz, ox, oz, y0, rise };
+      });
+      // 高さはなめらかに。12m より短い切れはしは立てない
+      for (let i = 0; i < col.length; i++) {
+        if (!col[i].ok) continue;
+        const near = [col[i - 1], col[i], col[i + 1]].filter((c) => c && c.ok);
+        col[i].y1 = col[i].y0 + Math.min(9, near.reduce((a, c) => a + c.rise, 0) / near.length + 0.3);
+      }
+      let run = [];
+      const flush = () => {
+        if (run.length >= 4) {
+          for (let k = 0; k < run.length - 1; k++) {
+            const a = run[k], b = run[k + 1];
+            const u0 = a.i * 4 / 3, u1 = b.i * 4 / 3;
+            wb.quad([a.x, a.y0, a.z], [b.x, b.y0, b.z], [b.x, b.y1, b.z], [a.x, a.y1, a.z], white, [u0, a.y0 / 3, u1, b.y0 / 3, u1, b.y1 / 3, u0, a.y1 / 3]);
+            // 上の笠石
+            wb.quad([a.x, a.y1, a.z], [b.x, b.y1, b.z], [b.x + b.ox * 0.5, b.y1, b.z + b.oz * 0.5], [a.x + a.ox * 0.5, a.y1, a.z + a.oz * 0.5], capC);
+          }
+        }
+        run = [];
+      };
+      col.forEach((c, i) => { if (c.ok) run.push({ ...c, i }); else flush(); });
+      flush();
+    }
+    if (wb.pos.length) {
+      const wall = new THREE.Mesh(wb.build(), lam(0xffffff, { map: stone, vertexColors: true, side: THREE.DoubleSide }));
+      wall.receiveShadow = true;
+      wall.castShadow = true;
+      this.group.add(wall);
+    }
   }
 
   // ---------- 千光寺山ロープウェイ ----------
