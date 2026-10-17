@@ -22,16 +22,64 @@ async function loadModel(name) {
   }
   return (await gltfLoader.loadAsync(`assets/models/${name}.glb`)).scene;
 }
-// 名所の境内：まわりを埋める家や木を置かず、OpenStreetMap の小さな建物（境内のお堂など）も模型にまかせる
-const PRECINCTS = [['千光寺', 19], ['艮神社', 18], ['天寧寺三重塔', 9]]
-  .map(([n, r]) => { const p = POIS.find((q) => q.n === n); return p && { x: p.x, z: p.z, r }; }).filter(Boolean);
-const inPrecinct = (x, z, m = 0) => PRECINCTS.some((p) => Math.hypot(p.x - x, p.z - z) < p.r + m);
-
 /** 坂の下る向き（モデルの正面 +Z をこちらへ向けるための rotation.y） */
 function downhillYaw(x, z, d = 4) {
   const gx = terrainY(x + d, z) - terrainY(x - d, z), gz = terrainY(x, z + d) - terrainY(x, z - d);
   return Math.atan2(-gx, -gz);
 }
+
+// 千光寺・艮神社の模型の中の長方形 [x0, x1, z0, z1]（正面 +Z）。道にかからないように置き、歩けない場所にする
+const MODEL_RECTS = {
+  senkoji: [[-5.8, 5.8, -4.8, 8.9], [8.8, 13.2, -2.4, 2.4], [-9, 6, -14, -6]],   // 本堂と舞台、鐘楼、裏の大岩
+  ushitora: [[-4.2, 4.2, -3.2, 3.4], [-3.2, 3.2, -9.3, -3.2], [7.6, 10.4, -3.4, -0.6]], // 拝殿、本殿、楠の幹
+};
+/**
+ * 模型の置き場所さがし：rects（模型の中の長方形 [x0, x1, z0, z1]、正面 +Z）が道にかからない位置と向き。
+ * 向きは坂の下る向きを基本に、少しだけ振る。approach の点は道の上にあるほどよい
+ */
+function fitPlacement(x0, z0, rects, { maxShift = 20, approach = [] } = {}) {
+  let best = null;
+  for (let dx = -maxShift; dx <= maxShift; dx += 2) {
+    for (let dz = -maxShift; dz <= maxShift; dz += 2) {
+      const shift = Math.hypot(dx, dz);
+      if (shift > maxShift) continue;
+      const x = x0 + dx, z = z0 + dz;
+      const down = downhillYaw(x, z, 6);
+      for (const dy of [-0.5, -0.25, 0, 0.25, 0.5]) {
+        const yaw = down + dy, c = Math.cos(yaw), sn = Math.sin(yaw);
+        const at = (lx, lz) => [x + lx * c + lz * sn, z - lx * sn + lz * c];
+        let hits = 0;
+        for (const [a, b, e, f] of rects) {
+          for (let lx = a; lx <= b + 0.01; lx += 1.6) for (let lz = e; lz <= f + 0.01; lz += 1.6) if (nearAnyRoad(...at(lx, lz), 0.5)) hits++;
+        }
+        let onPath = 0;
+        for (const [lx, lz] of approach) if (nearAnyRoad(...at(lx, lz), 0)) onPath++;
+        const cost = hits * 10 - onPath * 6 + shift * 0.4 + Math.abs(dy) * 6;
+        if (!best || cost < best.cost) best = { x, z, yaw, cost, hits };
+      }
+    }
+  }
+  return best;
+}
+
+const MODEL_FITS = (() => {
+  const poi = (n) => POIS.find((q) => q.n === n);
+  const out = {};
+  const sk = poi('千光寺'), us = poi('艮神社');
+  if (sk) out.senkoji = fitPlacement(sk.x, sk.z, MODEL_RECTS.senkoji, { maxShift: 24 });
+  // 艮神社は、参道（鳥居から拝殿まで）が道の上にくるほどよい
+  if (us) out.ushitora = fitPlacement(us.x, us.z, MODEL_RECTS.ushitora, { maxShift: 16, approach: [[0, 6], [0, 9], [0, 12]] });
+  return out;
+})();
+
+// 名所の境内：まわりを埋める家や木を置かず、OpenStreetMap の小さな建物（境内のお堂など）も模型にまかせる
+const PRECINCTS = [
+  MODEL_FITS.senkoji && { ...MODEL_FITS.senkoji, r: 19 },
+  MODEL_FITS.ushitora && { ...MODEL_FITS.ushitora, r: 18 },
+  ...[['天寧寺三重塔', 9]].map(([n, r]) => { const p = POIS.find((q) => q.n === n); return p && { x: p.x, z: p.z, r }; }),
+].filter(Boolean);
+const inPrecinct = (x, z, m = 0) => PRECINCTS.some((p) => Math.hypot(p.x - x, p.z - z) < p.r + m);
+
 
 // 本通り商店街の、食べられるお店（店名は架空）。f は通りの中での位置（0〜1）、side は通りのどちら側か
 const SPECIAL_SHOPS = {
@@ -1053,7 +1101,36 @@ export class Town {
     bm.receiveShadow = true;
     this.group.add(bm, new THREE.Mesh(steel.build(), lam(0xffffff, { vertexColors: true })));
 
-    // 踏切：警報機と遮断かん（線路と平行に、道をふさぐ向き）
+    // 踏切：警報機（黄色と黒のしま模様の柱、×の踏切警標、左右に交互に点滅する赤い灯、「とまれみよ」の板、上にスピーカー）と、
+    // しま模様の遮断かん（線路と平行に、道をふさぐ向き）
+    const tiger = (rx, ry) => canvasTexture(64, 64, (g2, w, h) => {
+      g2.fillStyle = '#f2c81e';
+      g2.fillRect(0, 0, w, h);
+      g2.fillStyle = '#1e1c1a';
+      for (let k = -2; k < 3; k++) { g2.beginPath(); g2.moveTo(k * 32, 0); g2.lineTo(k * 32 + 16, 0); g2.lineTo(k * 32 + 16 + 64, h); g2.lineTo(k * 32 + 64, h); g2.fill(); }
+    }, { repeat: [rx, ry] });
+    const M = {
+      poleStripe: lam(0xffffff, { map: tiger(2, 5) }),
+      pole: lam(0x3a3c40),
+      cross: lam(0xffffff, { map: tiger(3, 0.4) }),
+      black: lam(0x161616),
+      box: lam(0xffffff, { map: tiger(1, 1) }),
+      arm: lam(0xffffff, { map: tiger(10, 0.25) }),
+      speaker: lam(0x9a9ea2),
+      plate: new THREE.MeshLambertMaterial({ map: labelTexture('とまれみよ', { w: 256, h: 64, size: 40, bg: '#f4f2ec', fg: '#c8202a' }), side: THREE.DoubleSide }),
+    };
+    const G = {
+      poleLow: new THREE.CylinderGeometry(0.075, 0.075, 2.0, 10),
+      poleHigh: new THREE.CylinderGeometry(0.065, 0.065, 2.0, 8),
+      bar: new THREE.BoxGeometry(1.15, 0.16, 0.035),
+      back: new THREE.CylinderGeometry(0.24, 0.24, 0.03, 18).rotateX(Math.PI / 2),
+      lens: new THREE.CylinderGeometry(0.11, 0.11, 0.05, 14).rotateX(Math.PI / 2),
+      visor: new THREE.BoxGeometry(0.28, 0.025, 0.14),
+      beam: new THREE.BoxGeometry(0.9, 0.07, 0.06),
+      plate: new THREE.PlaneGeometry(0.62, 0.16),
+      speaker: new THREE.CylinderGeometry(0.09, 0.13, 0.16, 10),
+      gear: new THREE.BoxGeometry(0.34, 0.6, 0.3),
+    };
     this.crossings = CROSSINGS.map((cr) => {
       const g = new THREE.Group();
       const lights = [], arms = [];
@@ -1064,29 +1141,60 @@ export class Town {
       for (const side of [-1, 1]) {
         const ox = cr.x + px * side * 4.3 + rx * side * (cr.width / 2 + 0.6);
         const oz = cr.z + pz * side * 4.3 + rz * side * (cr.width / 2 + 0.6);
-        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 3.4, 8), lam(0x222222));
-        pole.position.set(ox, gy + 1.7, oz);
-        g.add(pole);
-        const cross = new THREE.Group();
-        for (const a of [0.6, -0.6]) {
-          const bar = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.12, 0.05), lam(0xf0d020));
+        // 警報機：正面（+Z）を、踏切に近づいてくる道のほうへ
+        const post = new THREE.Group();
+        post.position.set(ox, gy, oz);
+        post.rotation.y = Math.atan2(side * px, side * pz);
+        const low = new THREE.Mesh(G.poleLow, M.poleStripe);
+        low.position.y = 1.0;
+        const high = new THREE.Mesh(G.poleHigh, M.pole);
+        high.position.y = 3.0;
+        low.castShadow = high.castShadow = true;
+        post.add(low, high);
+        for (const a of [0.62, -0.62]) {
+          const bar = new THREE.Mesh(G.bar, M.cross);
+          bar.position.set(0, 3.45, 0.08);
           bar.rotation.z = a;
-          cross.add(bar);
+          post.add(bar);
         }
-        cross.position.set(ox, gy + 3.0, oz);
-        cross.rotation.y = -ra + Math.PI / 2;
-        g.add(cross);
-        for (const lx of [-0.25, 0.25]) {
-          const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: 0xff3020, transparent: true, opacity: 0, depthWrite: false }));
-          sp.position.set(ox + rx * lx, gy + 2.4, oz + rz * lx);
-          sp.scale.setScalar(0.7);
-          g.add(sp);
-          lights.push(sp);
+        const spk = new THREE.Mesh(G.speaker, M.speaker);
+        spk.position.y = 4.05;
+        post.add(spk);
+        const beam = new THREE.Mesh(G.beam, M.black);
+        beam.position.y = 2.6;
+        post.add(beam);
+        const plate = new THREE.Mesh(G.plate, M.plate);
+        plate.position.set(0, 2.15, 0.08);
+        post.add(plate);
+        // 赤い灯：左右ひと組を、表と裏に。左右が交互に点滅する
+        for (const lx of [-0.34, 0.34]) {
+          const lensMat = new THREE.MeshLambertMaterial({ color: 0x5a1410, emissive: 0xff2a18, emissiveIntensity: 0 });
+          for (const face of [1, -1]) {
+            const back = new THREE.Mesh(G.back, M.black);
+            back.position.set(lx, 2.6, face * 0.06);
+            const lens = new THREE.Mesh(G.lens, lensMat);
+            lens.position.set(lx, 2.6, face * 0.09);
+            const visor = new THREE.Mesh(G.visor, M.black);
+            visor.position.set(lx, 2.73, face * 0.14);
+            post.add(back, lens, visor);
+            const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: 0xff3020, transparent: true, opacity: 0, depthWrite: false }));
+            sp.position.set(lx, 2.6, face * 0.2);
+            sp.scale.setScalar(0.8);
+            sp.userData.lens = lensMat;
+            post.add(sp);
+            lights.push(sp);
+          }
         }
+        g.add(post);
+        // 遮断機：しま模様の箱から、しま模様のさおが道をふさぐ
         const pivot = new THREE.Group();
-        pivot.position.set(ox, gy + 1.0, oz);
+        pivot.position.set(ox + px * side * 0.45, gy + 0.95, oz + pz * side * 0.45);
         pivot.rotation.y = -ra;
-        const arm = new THREE.Mesh(new THREE.BoxGeometry(cr.width + 0.6, 0.08, 0.08), lam(0xf0d020));
+        const gear = new THREE.Mesh(G.gear, M.box);
+        gear.position.y = -0.65;
+        gear.castShadow = true;
+        pivot.add(gear);
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(cr.width + 0.6, 0.07, 0.07), M.arm);
         arm.position.x = -side * (cr.width + 0.6) / 2;
         const tilt = new THREE.Group();
         tilt.add(arm);
@@ -1261,9 +1369,12 @@ export class Town {
       simple.add(hall, roof);
       this.group.add(simple);
       // 崖の上に張り出した懸造りの本堂と、鐘楼「驚音楼」、大きな岩。舞台は坂の下（海）へ向ける
+      // 本堂・舞台、鐘楼、裏の大岩は、石段や参道にかからない場所と向きに（すり抜けないように）
+      const fit = MODEL_FITS.senkoji;
       this._swapModel('senkoji', simple, (g) => {
-        g.position.set(senkoji.x, y - 0.3, senkoji.z);
-        g.rotation.y = downhillYaw(senkoji.x, senkoji.z, 6);
+        g.position.set(fit.x, terrainY(fit.x, fit.z) - 0.3, fit.z);
+        g.rotation.y = fit.yaw;
+        this._addSolids(fit, MODEL_RECTS.senkoji);
       });
     }
   }
@@ -1333,6 +1444,15 @@ export class Town {
     } catch (e) {
       console.warn(`${name} のモデルを読めなかったので、簡単な形のままにします`, e);
       return null;
+    }
+  }
+
+  /** 模型の中の長方形を、歩けない場所として登録する */
+  _addSolids(fit, rects) {
+    const c = Math.cos(fit.yaw), sn = Math.sin(fit.yaw);
+    for (const [a, b, e, f] of rects) {
+      const lx = (a + b) / 2, lz = (e + f) / 2;
+      addSolid(fit.x + lx * c + lz * sn, fit.z - lx * sn + lz * c, b - a, f - e, fit.yaw);
     }
   }
 
@@ -1454,9 +1574,12 @@ export class Town {
     kusu.position.set(x + 7, terrainY(x + 7, z + 1), z + 1);
     simple.add(kusu);
     // 拝殿・本殿・狛犬・石灯籠・鳥居と、大きな楠。参道（正面）は坂の下へ
+    // 拝殿・本殿・楠の幹は道にかからず、参道（鳥居から拝殿まで）ができるだけ道の上にくる場所と向きに
+    const fit = MODEL_FITS.ushitora;
     this._swapModel('ushitora', simple, (g) => {
-      g.position.set(x, y - 0.15, z);
-      g.rotation.y = downhillYaw(x, z, 6);
+      g.position.set(fit.x, terrainY(fit.x, fit.z) - 0.15, fit.z);
+      g.rotation.y = fit.yaw;
+      this._addSolids(fit, MODEL_RECTS.ushitora);
     });
   }
 
@@ -1869,7 +1992,12 @@ export class Town {
       c.down += ((approaching ? 1 : 0) - c.down) * Math.min(1, dt * 1.5);
       c.arms.forEach((a) => { a.rotation.z = a.userData.side * 1.45 * (1 - c.down); });
       const blink = approaching ? Math.floor(elapsed * 2.2) % 2 : -1;
-      c.lights.forEach((l, i) => { l.material.opacity = blink === -1 ? 0 : i % 2 === blink ? 1 : 0.1; });
+      // 灯は [左表, 左裏, 右表, 右裏] の順。左右が交互に点く
+      c.lights.forEach((l, i) => {
+        const on = blink === -1 ? 0 : Math.floor(i / 2) % 2 === blink ? 1 : 0.08;
+        l.material.opacity = on;
+        l.userData.lens.emissiveIntensity = on * 2.2;
+      });
     }
     return events;
   }
