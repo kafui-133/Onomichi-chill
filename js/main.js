@@ -194,17 +194,21 @@ function enterTown(place) {
   lastPlace = '';
 }
 
+function enterRoom() {
+  mode = 'room';
+  document.body.classList.remove('walking');
+  walker.exit();
+  controls.basePos.set(0, 1.08, 0.78);
+  controls.yaw = controls.targetYaw = 0;
+  controls.pitch = controls.targetPitch = -0.1;
+  controls.targetFov = 55;
+  sun.target.position.set(0, 0.6, 0.4);
+  setShadowRange(4.5, 12);
+}
+
 function goHome() {
   fadeTo(() => {
-    mode = 'room';
-    document.body.classList.remove('walking');
-    walker.exit();
-    controls.basePos.set(0, 1.08, 0.78);
-    controls.yaw = controls.targetYaw = 0;
-    controls.pitch = controls.targetPitch = -0.1;
-    controls.targetFov = 55;
-    sun.target.position.set(0, 0.6, 0.4);
-    setShadowRange(4.5, 12);
+    enterRoom();
     toast('ただいま', 2500);
   });
 }
@@ -693,7 +697,7 @@ function frame(fixedDt) {
 function loop() { frame(); }
 if (CAPTURE) {
   $('title').style.display = 'none';
-  Object.assign(window, { THREE, scene, camera, time, cat, audio, boats, controls, renderer, town, walker, strays, PLACES, food, diary, enterTown, goHome, startRide, ROADS, pointAlong, getRide: () => ride });
+  Object.assign(window, { THREE, scene, camera, time, cat, audio, boats, controls, renderer, town, walker, strays, PLACES, food, diary, enterTown, enterRoom, goHome, startRide, ROADS, pointAlong, getRide: () => ride });
   window.captureStep = (dt) => frame(dt);
   window.captureReady = true;
 } else {
