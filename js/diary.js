@@ -35,7 +35,7 @@ export class Diary {
   _reset() {
     const d = this.getDay();
     this.day = d.day;
-    this.log = { places: [], foods: [], cats: [], petted: [], friends: [], photos: 0, photo: null, ropeway: false, summit: false, sat: 0, eyes: 0, moods: [] };
+    this.log = { events: [], places: [], foods: [], cats: [], petted: [], friends: [], photos: 0, photo: null, ropeway: false, summit: false, sat: 0, eyes: 0, moods: [] };
   }
 
   _today() {
@@ -51,6 +51,8 @@ export class Diary {
   catFriend(name) { const l = this._today(); if (!l.friends.includes(name)) l.friends.push(name); }
   sky(name) { const l = this._today(); if (name && !l.moods.includes(name)) l.moods.push(name); }
   ropeway() { this._today().ropeway = true; }
+  /** 季節のイベントの日（日記のはじめに一行） */
+  event(text) { const l = this._today(); if (text && !l.events.includes(text)) l.events.push(text); }
   summit() { this._today().summit = true; }
   sat() { this._today().sat++; }
   closedEyes() { this._today().eyes++; }
@@ -74,7 +76,7 @@ export class Diary {
   draft() {
     const l = this._today();
     const join = (a) => (a.length <= 1 ? a.join('') : a.slice(0, -1).join('、') + 'と' + a[a.length - 1]);
-    const lines = [];
+    const lines = [...(l.events || [])];
     const places = l.places.filter((p) => p !== '坂の上の空き家').slice(0, 4);
     if (!places.length) lines.push('今日は、坂の上の空き家で、窓から海を眺めて過ごした。');
     else lines.push(`今日は、${join(places)}のあたりを歩いた。`);
