@@ -731,23 +731,54 @@ export const SUMMIT = (() => {
 
 // 海沿いのベンチ：歩ける道が岸に近いところに、海を向けて置く
 export const BENCHES = (() => {
-  // 尾道の海沿いは、海を向いたベンチがあちこちにある。岸壁から少し陸に入ったところに、
-  // 20m あまりおきに置く（座ると尾道水道を向く）。
+  // 尾道の海沿いは、尾道水道を向いたベンチがあちこちにある。岸壁から少し陸に入ったところに、
+  // 20m あまりおきに置く。向きは、尾道水道のまん中のいちばん近いところへ向ける。
   const out = [];
   const piers = FERRY_ROUTES.map((r) => r.a);
+  const solid = (x, z) => demAt(x, z) > SEA_Y + 1.0 && quayY(x, z) === -Infinity; // 標高のマスがぜんぶ陸
+  const water = (x, z) => demAt(x, z) < SEA_Y;
+  const toStrait = (x, z) => {
+    let best = null;
+    for (let dx = -240; dx <= 240; dx += 10) {
+      const c = straitAt(x + dx);
+      const d = Math.hypot(c.x - x, c.z - z);
+      if (!best || d < best.d) best = { d, dx: (c.x - x) / d, dz: (c.z - z) / d };
+    }
+    return best;
+  };
   for (const line of COAST) {
     for (const s of samplePath(line, 6)) {
       if (s.x < -650 || s.x > 620 || !onOnomichiSide(s.x, s.z + 30)) continue;
-      const sea = seaDirection(s.x, s.z);
-      if (!sea) continue;
-      const x = s.x - sea.dx * 1.8, z = s.z - sea.dz * 1.8;
-      if (demAt(x, z) < SEA_Y + 0.8 || terrainY(x, z) - SEA_Y > FREE_HEIGHT) continue;
-      // 座る人が立つ側（陸側）に歩いて行けること
-      if (!walkable(x, z) || !walkable(x - sea.dx * 1.2, z - sea.dz * 1.2)) continue;
-      if (inBuilding(x, z) || inBuilding(s.x + sea.dx * 8, s.z + sea.dz * 8)) continue;
+      const f = toStrait(s.x, s.z);
+      if (!f || f.d > 420) continue;
+      // 岸壁から陸へ 2〜6m 入ったところで、座面の四隅と足もとがしっかり陸のところ
+      let spot = null;
+      for (let back = 2; back <= 6 && !spot; back += 0.5) {
+        const x = s.x - f.dx * back, z = s.z - f.dz * back;
+        const ax = -f.dz, az = f.dx; // ベンチの長手方向
+        const corners = [[-1.2, -0.6], [1.2, -0.6], [-1.2, 1.4], [1.2, 1.4], [0, 0]];
+        if (!corners.every(([u, v]) => solid(x + ax * u - f.dx * v, z + az * u - f.dz * v))) continue;
+        spot = { x, z };
+      }
+      if (!spot) continue;
+      const { x, z } = spot;
+      // 前（尾道水道のほう）が開けた海で、建物にさえぎられないこと（正面と、左右 20° ずつ）
+      const open = [-0.35, 0, 0.35].every((a) => {
+        const c = Math.cos(a), sn = Math.sin(a);
+        const dx = f.dx * c - f.dz * sn, dz = f.dx * sn + f.dz * c;
+        for (let k = 3; k <= 60; k += 3) {
+          const qx = x + dx * k, qz = z + dz * k;
+          if (inBuilding(qx, qz)) return false;
+          if (k >= 9 && !water(qx, qz)) return false;
+        }
+        return true;
+      });
+      if (!open) continue;
+      if (terrainY(x, z) - SEA_Y > FREE_HEIGHT || !walkable(x - f.dx * 1.2, z - f.dz * 1.2)) continue;
+      if (inBuilding(x, z) || inSolid(x, z)) continue;
       if (piers.some((p) => Math.hypot(p.x - x, p.z - z) < 12)) continue;
       if (out.some((b) => Math.hypot(b.x - x, b.z - z) < 22)) continue;
-      out.push({ x, z, y: groundY(x, z), yaw: Math.atan2(-sea.dx, -sea.dz) });
+      out.push({ x, z, y: groundY(x, z), yaw: Math.atan2(-f.dx, -f.dz) });
     }
   }
   // 尾道渡船のりばに近い順
