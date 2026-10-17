@@ -203,6 +203,11 @@ function setShadowRange(range, dist) {
   c.far = dist * 2.5;
   c.updateProjectionMatrix();
   sun.userData.dist = dist;
+  // 影の1マスの大きさに合わせて、影をずらす量を決める（町は範囲が広くマスが粗いので、
+  // そのままだと地面に縞模様の影＝シャドウアクネが出る。スマホは計算の細かさも低く、出やすい）
+  const texel = (range * 2) / sun.shadow.mapSize.x;
+  sun.shadow.normalBias = Math.max(0.02, texel * 1.6);
+  sun.shadow.bias = range > 10 ? -0.0008 : -0.0004;
 }
 sun.userData.dist = 12;
 
@@ -213,11 +218,20 @@ function enterTown(place) {
   walker.enter(place.x, place.z, place.yaw, place.pitch);
   controls.targetFov = 60;
   setShadowRange(28, 45);
+  setNear(0.12);
   lastPlace = '';
+}
+// 手前の描画の境目：部屋では猫や湯のみに寄れるよう近く、町では奥行きの精度を保つため少し遠く
+// （スマホは奥行きの細かさが足りず、地面に輪郭線の縞が出ることがあるため）
+function setNear(n) {
+  if (camera.near === n) return;
+  camera.near = n;
+  camera.updateProjectionMatrix();
 }
 
 function enterRoom() {
   mode = 'room';
+  setNear(0.03);
   document.body.classList.remove('walking');
   walker.exit();
   controls.basePos.set(0, 1.08, 0.78);
