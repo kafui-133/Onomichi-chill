@@ -77,47 +77,133 @@ export class World {
   }
 
   /** 向島の造船所：赤白のゴライアスクレーンとドックの船体 */
+  /**
+   * 向島の造船所のクレーン：うすい青緑色のジブクレーン（低いトラスの門型の台に、旋回する機械室と、
+   * 斜めに立ち上がる格子のジブ。先端からワイヤーとフックが垂れる）と、赤白のクローラークレーン。
+   */
   _cranes() {
-    // 向島の造船所のクレーンは、うすい青緑色
-    const red = this.mat(0x9ccfba);
-    const white = this.mat(0xdfeee6);
+    const green = this.mat(0x9ccfba), pale = this.mat(0xdfeee6), dark = this.mat(0x3a4440);
+    const lineMat = (color) => new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.85 });
     const blinkMat = () => new THREE.SpriteMaterial({ map: glowTexture(), color: 0xff3a2a, transparent: true, depthWrite: false, fog: false, opacity: 0 });
-    const addCrane = (x, z, h, span) => {
+    const box = (g, mat, sx, sy, sz, x, y, z, rx = 0, ry = 0, rz = 0) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
+      m.position.set(x, y, z);
+      m.rotation.set(rx, ry, rz);
+      g.add(m);
+      return m;
+    };
+    /** a→b に太さ w の棒を渡す */
+    const strut = (g, mat, a, b, w) => {
+      const d = new THREE.Vector3().subVectors(b, a);
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, w, d.length()), mat);
+      m.position.copy(a).addScaledVector(d, 0.5);
+      m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), d.clone().normalize()); // 親の中での向き
+      g.add(m);
+      return m;
+    };
+    const blink = (g, x, y, z) => {
+      const sp = new THREE.Sprite(blinkMat());
+      sp.position.set(x, y, z);
+      sp.scale.setScalar(8);
+      g.add(sp);
+      this.blinkers.push({ mat: sp.material, phase: this.r() * 6 });
+    };
+    /** 格子のジブ：根もと a から先端 b まで、2本の弦材と、ジグザグの斜材 */
+    const lattice = (g, mat, a, b, w, color) => {
+      const d = new THREE.Vector3().subVectors(b, a);
+      const len = d.length();
+      const side = new THREE.Vector3(0, 1, 0).cross(d).normalize().multiplyScalar(w / 2);
+      const up = new THREE.Vector3().crossVectors(d, side).normalize().multiplyScalar(w / 2);
+      const pts = [];
+      const chords = [[side, up], [side.clone().negate(), up], [side, up.clone().negate()], [side.clone().negate(), up.clone().negate()]];
+      for (const [s1, u1] of chords) {
+        const p0 = a.clone().add(s1).add(u1), p1 = b.clone().add(s1.clone().multiplyScalar(0.3)).add(u1.clone().multiplyScalar(0.3));
+        strut(g, mat, p0, p1, 0.55);
+      }
+      const n = Math.max(6, Math.round(len / 3));
+      for (let k = 0; k < n; k++) {
+        const t0 = k / n, t1 = (k + 1) / n;
+        const sc0 = 1 - 0.7 * t0, sc1 = 1 - 0.7 * t1;
+        const q = (t, sc, sgn, usg) => a.clone().addScaledVector(d, t).addScaledVector(side, sgn * sc).addScaledVector(up, usg * sc);
+        for (const usg of [1, -1]) { pts.push(q(t0, sc0, 1, usg), q(t1, sc1, -1, usg)); pts.push(q(t1, sc1, -1, usg), q(t1, sc1, 1, usg)); }
+        for (const sgn of [1, -1]) pts.push(q(t0, sc0, sgn, 1), q(t1, sc1, sgn, -1));
+      }
+      const geo = new THREE.BufferGeometry().setFromPoints(pts);
+      g.add(new THREE.LineSegments(geo, lineMat(color)));
+    };
+    const jibCrane = (x, z, slew, jibAngle, jibLen) => {
       const g = new THREE.Group();
-      const legGeo = new THREE.BoxGeometry(2.5, h, 2.5);
-      [-span / 2, span / 2].forEach((lx, i) => {
-        const leg = new THREE.Mesh(legGeo, i ? red : white);
-        leg.position.set(lx, h / 2, 0);
-        g.add(leg);
-      });
-      const beam = new THREE.Mesh(new THREE.BoxGeometry(span + 10, 5, 4), red);
-      beam.position.y = h;
-      g.add(beam);
-      const stripe = new THREE.Mesh(new THREE.BoxGeometry(span + 10.2, 1.6, 4.2), white);
-      stripe.position.y = h;
-      g.add(stripe);
-      // 航空障害灯（夜にゆっくり明滅）
-      [-span / 2, span / 2].forEach((lx) => {
-        const s = new THREE.Sprite(blinkMat());
-        s.position.set(lx, h + 4, 0);
-        s.scale.setScalar(9);
-        g.add(s);
-        this.blinkers.push({ mat: s.material, phase: this.r() * 6 });
-      });
-      g.position.set(x, SEA_LEVEL, z);
+      // 台：4本脚の低いトラスの門型（高さ 14m）
+      const H = 14, S = 9;
+      for (const [lx, lz] of [[-S, -S], [S, -S], [-S, S], [S, S]]) box(g, green, 1.2, H, 1.2, lx, H / 2, lz);
+      for (const lz of [-S, S]) {
+        box(g, green, S * 2 + 1.2, 1.4, 1.2, 0, H, lz);
+        strut(g, green, new THREE.Vector3(-S, 1, lz), new THREE.Vector3(0, H - 0.5, lz), 0.5);
+        strut(g, green, new THREE.Vector3(S, 1, lz), new THREE.Vector3(0, H - 0.5, lz), 0.5);
+      }
+      for (const lx of [-S, S]) box(g, green, 1.2, 1.4, S * 2 + 1.2, lx, H, 0);
+      // 塔と、旋回する機械室・運転室
+      const top = new THREE.Group();
+      top.position.y = H;
+      top.rotation.y = slew;
+      g.add(top);
+      box(top, green, 4, 16, 4, 0, 8, 0);
+      box(top, pale, 9, 5, 7, -1.5, 18.5, 0);
+      box(top, pale, 2.6, 2.6, 2.6, 3.8, 15.5, 2.5);
+      box(top, dark, 2.2, 1.0, 0.1, 3.8, 15.9, 3.85);
+      // 釣り合いのおもりと、後ろのA形の柱
+      box(top, green, 3, 3, 5, -7, 18, 0);
+      const mastTop = new THREE.Vector3(-2.5, 30, 0);
+      strut(top, green, new THREE.Vector3(-4, 21, -2.4), mastTop, 0.7);
+      strut(top, green, new THREE.Vector3(-4, 21, 2.4), mastTop, 0.7);
+      // ジブ（斜めに立ち上がる格子）
+      const root = new THREE.Vector3(2.5, 20, 0);
+      const tip = root.clone().add(new THREE.Vector3(Math.cos(jibAngle) * jibLen, Math.sin(jibAngle) * jibLen, 0));
+      lattice(top, green, root, tip, 2.4, 0x9ccfba);
+      // ワイヤー（柱の上からジブの先へ）と、先から垂れるフック
+      const wires = [mastTop, tip, mastTop, root.clone().add(new THREE.Vector3(Math.cos(jibAngle) * jibLen * 0.55, Math.sin(jibAngle) * jibLen * 0.55, 0)), tip, new THREE.Vector3(tip.x, 8, 0)];
+      top.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(wires), lineMat(0x2a2e2c)));
+      box(top, dark, 1.2, 1.6, 1.2, tip.x, 7.5, 0);
+      blink(top, tip.x, tip.y + 1.5, 0);
+      g.position.set(x, SEA_LEVEL + 1.5, z);
+      this.group.add(g);
+    };
+    const crawler = (x, z, slew) => {
+      const g = new THREE.Group();
+      const red = this.mat(0xc8463a), white = this.mat(0xe8e6e0);
+      box(g, dark, 7, 1.4, 5, 0, 0.7, 0);
+      const top = new THREE.Group();
+      top.position.y = 1.4;
+      top.rotation.y = slew;
+      g.add(top);
+      box(top, red, 5, 2.6, 3.6, -0.5, 1.3, 0);
+      box(top, white, 1.6, 1.6, 1.4, 2, 2.2, 1.2);
+      const root = new THREE.Vector3(1.5, 2.5, 0);
+      const ang = 1.2, len = 46;
+      const tip = root.clone().add(new THREE.Vector3(Math.cos(ang) * len, Math.sin(ang) * len, 0));
+      lattice(top, red, root, tip, 1.4, 0xc8463a);
+      top.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-2.5, 3, 0), tip, tip, new THREE.Vector3(tip.x, 6, 0)]), lineMat(0x2a2e2c)));
+      blink(top, tip.x, tip.y + 1.2, 0);
+      g.position.set(x, SEA_LEVEL + 1.5, z);
       this.group.add(g);
     };
     // 向島側の岸辺（水道の中心から南へ）
     const fz = (x) => straitAt(x).z - 135;
-    addCrane(150, fz(150), 62, 70);
-    addCrane(260, fz(260) - 10, 48, 50);
-    // ドックの船体
+    jibCrane(140, fz(140), 0.5, 0.95, 46);
+    jibCrane(185, fz(185) - 4, 2.2, 1.05, 42);
+    jibCrane(232, fz(232) - 2, 0.9, 0.85, 48);
+    jibCrane(300, fz(300) - 8, 2.6, 1.0, 40);
+    crawler(262, fz(262) - 18, 1.9);
+    // ドックの船体と船橋
     const hull = new THREE.Mesh(new THREE.BoxGeometry(110, 12, 22), this.mat(0x2f4a66));
     hull.position.set(200, SEA_LEVEL + 5, fz(200) + 8);
     this.group.add(hull);
-    const deck = new THREE.Mesh(new THREE.BoxGeometry(18, 14, 16), white);
-    deck.position.set(240, SEA_LEVEL + 17, fz(240) + 8);
-    this.group.add(deck);
+    const bridgeDeck = new THREE.Mesh(new THREE.BoxGeometry(18, 14, 16), pale);
+    bridgeDeck.position.set(240, SEA_LEVEL + 17, fz(240) + 8);
+    this.group.add(bridgeDeck);
+    const funnel = new THREE.Mesh(new THREE.BoxGeometry(5, 8, 5), this.mat(0xd8b040));
+    funnel.position.set(246, SEA_LEVEL + 28, fz(246) + 8);
+    this.group.add(funnel);
   }
 
   /** 尾道大橋（斜張橋）のシルエット */

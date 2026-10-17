@@ -6,7 +6,7 @@ import { canvasTexture, glowTexture, seededRandom, speckle } from './util.js';
 import { lam, buildSignAtlas, labelTexture, QuadBatch, instancedBoxes, instancedChunks } from './townKit.js';
 import {
   DATA, SEA_Y, BOUNDS, terrainY, groundY, surfaceY, addTread, addSolid, inSolid, walkable, ROADS, OTHER_ROADS, ARCADE_ROADS, nearAnyRoad, samplePath, roadLength,
-  STREET_SHOPS, ALLEYS, COAST, RAILS, CROSSINGS, TRAIN_TRACKS, ROPEWAY, SUMMIT, BENCHES, FERRY_ROUTES, POIS, onOnomichiSide, nearestRoad, inBuilding,
+  STREET_SHOPS, demAt, ALLEYS, COAST, RAILS, CROSSINGS, TRAIN_TRACKS, ROPEWAY, SUMMIT, BENCHES, FERRY_ROUTES, POIS, onOnomichiSide, nearestRoad, inBuilding,
 } from './townMap.js';
 
 const SURFACE_LIFT = { asphalt: 0.05, tile: 0.07, stone: 0.09 };
@@ -79,6 +79,7 @@ export class Town {
     scene.add(this.group);
     this.r = seededRandom('onomichi-real');
     this.lampPositions = [];
+    this.stationLanterns = [];
     this.nightMats = [];
     this.occupied = new Set(); // 建物のある 4m マス
     this.interactables = [];   // 立ち寄れる場所（パン屋・ラーメン屋・自販機）
@@ -103,6 +104,7 @@ export class Town {
     this._pine();
     this._vendingMachines();
     this._summitDeck();
+    this._stationFront();
     this._lamps();
     this._train();
   }
@@ -480,18 +482,32 @@ export class Town {
         if (cap - yMax < 2.5) continue;    // 近すぎて低くできない建物は置かない
         top = cap;
       }
-      const wc = new THREE.Color(walls[Math.floor(r() * walls.length)]);
+      const station = b.k === 'train_station';
+      if (station) top = Math.min(top, yMin + 8.5);
+      const wc = new THREE.Color(station ? '#efede6' : walls[Math.floor(r() * walls.length)]);
       for (let i = 0; i < poly.length; i++) {
         const [ax, az] = poly[i], [bx, bz] = poly[(i + 1) % poly.length];
         tb.quad([ax, base, az], [bx, base, bz], [bx, top, bz], [ax, top, az], wc);
       }
       // 屋根：小さな家は瓦の寄棟、大きな建物は平らな屋上
       const contour = poly.map(([x, z]) => new THREE.Vector2(x, z));
-      const hip = area < 260 && poly.length <= 10;
+      const hip = (area < 260 && poly.length <= 10) || station;
+      if (station) {
+        // 駅舎：1階はガラス張りの店先
+        const glass = new THREE.Color('#8fa6b2');
+        const ccx = poly.reduce((s, p) => s + p[0], 0) / poly.length, ccz = poly.reduce((s, p) => s + p[1], 0) / poly.length;
+        for (let i = 0; i < poly.length; i++) {
+          const [ax, az] = poly[i], [bx, bz] = poly[(i + 1) % poly.length];
+          const mx = (ax + bx) / 2 - ccx, mz = (az + bz) / 2 - ccz, ml = Math.hypot(mx, mz) || 1;
+          const ox = (mx / ml) * 0.06, oz = (mz / ml) * 0.06;
+          tb.quad([ax + ox, yMin + 0.3, az + oz], [bx + ox, yMin + 0.3, bz + oz], [bx + ox, yMin + 3.2, bz + oz], [ax + ox, yMin + 3.2, az + oz], glass);
+        }
+      }
       if (hip) {
         const cx = poly.reduce((s, p) => s + p[0], 0) / poly.length, cz = poly.reduce((s, p) => s + p[1], 0) / poly.length;
-        const inner = poly.map(([x, z]) => [cx + (x - cx) * 0.35, cz + (z - cz) * 0.35]);
-        const rh = 1.4 + Math.sqrt(area) * 0.08;
+        const shrink = station ? 0.82 : 0.35;
+        const inner = poly.map(([x, z]) => [cx + (x - cx) * shrink, cz + (z - cz) * shrink]);
+        const rh = station ? 1.8 : 1.4 + Math.sqrt(area) * 0.08;
         const eave = 0.45;
         const outer = poly.map(([x, z]) => {
           const dx = x - cx, dz = z - cz, L = Math.hypot(dx, dz) || 1;
@@ -1368,6 +1384,113 @@ export class Town {
   }
 
   /** 夜の灯り（街灯）。Points 1つでまとめて描く */
+  /**
+   * 尾道駅前：駅舎の前の石畳の広場、海ぎわの芝生（港の緑地）、海沿いの柵、横断歩道、時計の柱。
+   * 駅舎の2階から見た写真のように、広場の先に道路と芝生、その向こうに尾道水道と向島のクレーン。
+   */
+  _stationFront() {
+    const st = POIS.find((p) => p.n === 'JR尾道駅');
+    if (!st) return;
+    const C = { x: st.x - 5, z: st.z - 60 }, R = 120;
+    this.inStationArea = (x, z) => Math.hypot(x - C.x, z - C.z) < R && terrainY(x, z) - SEA_Y < 8;
+    const water = (x, z) => demAt(x, z) < SEA_Y;
+    const nearWater = (x, z, d) => {
+      for (let k = 0; k < 12; k++) {
+        const a = (k / 12) * Math.PI * 2;
+        for (let r = 3; r <= d; r += 3) if (water(x + Math.cos(a) * r, z + Math.sin(a) * r)) return r;
+      }
+      return Infinity;
+    };
+    const tb = new TriBatch();
+    const cell = 2;
+    const col = new THREE.Color();
+    for (let x = C.x - R; x < C.x + R; x += cell) {
+      for (let z = C.z - R; z < C.z + R; z += cell) {
+        const cx = x + cell / 2, cz = z + cell / 2;
+        if (!this.inStationArea(cx, cz)) continue;
+        if (demAt(cx, cz) < SEA_Y + 0.8 || nearAnyRoad(cx, cz, 0.1) || inBuilding(cx, cz) || inSolid(cx, cz)) continue;
+        const w = nearWater(cx, cz, 30);
+        const lawn = w > 5 && w < 30;
+        const k = (Math.floor(x / cell) + Math.floor(z / cell)) & 1;
+        if (lawn) col.setRGB(0.42 + this.r() * 0.05, 0.56 + this.r() * 0.05, 0.3);
+        else if (w <= 5) col.setRGB(0.6, 0.59, 0.56);                 // 海ぎわの遊歩道
+        else col.setRGB(k ? 0.66 : 0.6, k ? 0.65 : 0.59, k ? 0.62 : 0.57); // 石畳の広場（市松）
+        const P = (px, pz) => [px, groundY(px, pz) + 0.035, pz];
+        tb.quad(P(x, z), P(x, z + cell), P(x + cell, z + cell), P(x + cell, z), col);
+      }
+    }
+    const ground = new THREE.Mesh(tb.build(), lam(0xffffff, { vertexColors: true, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -0.7, polygonOffsetUnits: -1 }));
+    ground.receiveShadow = true;
+    this.group.add(ground);
+
+    // 海沿いの柵（黒い柱と手すり）
+    const fence = [];
+    for (const line of COAST) {
+      for (const p of samplePath(line, 2.5)) {
+        if (!this.inStationArea(p.x, p.z)) continue;
+        let nx = -Math.sin(p.angle), nz = Math.cos(p.angle);
+        if (terrainY(p.x + nx * 4, p.z + nz * 4) < terrainY(p.x - nx * 4, p.z - nz * 4)) { nx = -nx; nz = -nz; }
+        const x = p.x + nx * 0.4, z = p.z + nz * 0.4, y = groundY(x, z);
+        fence.push({ x, y: y + 0.55, z, sx: 0.08, sy: 1.1, sz: 0.08, color: '#2a2e30' });
+        fence.push({ x, y: y + 1.08, z, sx: 2.55, sy: 0.06, sz: 0.06, ry: -p.angle, color: '#2a2e30' });
+        fence.push({ x, y: y + 0.6, z, sx: 2.55, sy: 0.04, sz: 0.04, ry: -p.angle, color: '#2a2e30' });
+      }
+    }
+    this.group.add(instancedChunks(fence, lam(0xffffff), { receive: false }));
+
+    // 横断歩道（駅前の広い道）
+    const zebra = new TriBatch();
+    const white = new THREE.Color(0.92, 0.92, 0.9);
+    for (const road of ROADS) {
+      if (road.surface !== 'asphalt' || road.width < 5.5) continue;
+      for (const p of samplePath(road.pts, 38).slice(1, -1)) {
+        if (!this.inStationArea(p.x, p.z)) continue;
+        const tx = Math.cos(p.angle), tz = Math.sin(p.angle), nx = -tz, nz = tx;
+        const n = Math.floor((road.width - 0.6) / 0.9);
+        for (let k = 0; k < n; k++) {
+          const o = -road.width / 2 + 0.5 + k * 0.9;
+          const Q = (u, v) => { const x = p.x + tx * u + nx * v, z = p.z + tz * u + nz * v; return [x, groundY(x, z) + 0.075, z]; };
+          zebra.quad(Q(-1.5, o), Q(-1.5, o + 0.45), Q(1.5, o + 0.45), Q(1.5, o), white);
+        }
+      }
+    }
+    this.group.add(new THREE.Mesh(zebra.build(), lam(0xffffff, { vertexColors: true, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 })));
+
+    // 時計の柱（広場のまん中あたり、うすい青緑）
+    let clock = null;
+    for (let r = 0; r < 60 && !clock; r += 3) {
+      for (let k = 0; k < 8 && !clock; k++) {
+        const x = st.x + Math.cos(k) * r, z = st.z - 30 + Math.sin(k) * r;
+        if (!nearAnyRoad(x, z, 1) && !inBuilding(x, z) && !inSolid(x, z) && demAt(x, z) > SEA_Y + 1 && nearAnyRoad(x, z, 6)) clock = { x, z };
+      }
+    }
+    if (clock) {
+      const g = new THREE.Group();
+      g.position.set(clock.x, groundY(clock.x, clock.z), clock.z);
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.13, 3.6, 8), lam(0x7fa898));
+      pole.position.y = 1.8;
+      g.add(pole);
+      const face = canvasTexture(128, 128, (c, w, h) => {
+        c.fillStyle = '#f6f3ea'; c.beginPath(); c.arc(64, 64, 60, 0, Math.PI * 2); c.fill();
+        c.strokeStyle = '#2a2e30'; c.lineWidth = 5; c.stroke();
+        c.lineWidth = 6; c.beginPath(); c.moveTo(64, 64); c.lineTo(64, 26); c.stroke();
+        c.lineWidth = 4; c.beginPath(); c.moveTo(64, 64); c.lineTo(94, 72); c.stroke();
+      });
+      for (const flip of [0, Math.PI]) {
+        const m = new THREE.Mesh(new THREE.CircleGeometry(0.42, 24), new THREE.MeshLambertMaterial({ map: face }));
+        m.position.y = 3.75;
+        m.rotation.y = flip;
+        m.translateZ(0.06);
+        g.add(m);
+      }
+      const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.46, 0.1, 24), lam(0x7fa898));
+      rim.rotation.x = Math.PI / 2;
+      rim.position.y = 3.75;
+      g.add(rim);
+      this.group.add(g);
+    }
+  }
+
   _lamps() {
     const posts = [];
     for (const road of ROADS) {
@@ -1377,11 +1500,26 @@ export class Town {
         if (i === 0) return;
         const x = p.x - Math.sin(p.angle) * (road.width / 2 + 0.3), z = p.z + Math.cos(p.angle) * (road.width / 2 + 0.3);
         const y = groundY(x, z);
+        if (this.inStationArea?.(x, z)) {
+          // 駅前は、うすい青緑の柱に白い灯具がふたつの街灯
+          posts.push({ x, y: y + 2, z, sx: 0.14, sy: 4, sz: 0.14, color: '#7fa898' });
+          for (const sd of [-1, 1]) {
+            const hx = x + Math.cos(p.angle) * sd * 0.45, hz = z + Math.sin(p.angle) * sd * 0.45;
+            posts.push({ x: (x + hx) / 2, y: y + 3.75, z: (z + hz) / 2, sx: 0.06, sy: 0.06, sz: 0.06, color: '#7fa898' });
+            this.stationLanterns.push({ x: hx, y: y + 3.55, z: hz, sx: 0.32, sy: 0.48, sz: 0.32, ry: -p.angle });
+            this.lampPositions.push([hx, y + 3.55, hz]);
+          }
+          return;
+        }
         posts.push({ x, y: y + 1.7, z, sx: 0.1, sy: 3.4, sz: 0.1, color: '#2f3336' });
         this.lampPositions.push([x, y + 3.5, z]);
       });
     }
     this.group.add(instancedChunks(posts, lam(0xffffff), { receive: false, geo: new THREE.CylinderGeometry(0.5, 0.6, 1, 5) }));
+    if (this.stationLanterns.length) {
+      this.lanternHeadMat = new THREE.MeshLambertMaterial({ color: 0xf4f0e6, emissive: 0xffb060, emissiveIntensity: 0 });
+      this.group.add(instancedBoxes(this.stationLanterns, this.lanternHeadMat, { cast: false, receive: false, geo: new THREE.CylinderGeometry(0.5, 0.42, 1, 6) }));
+    }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(this.lampPositions.flat(), 3));
     this.lampMat = new THREE.PointsMaterial({ map: glowTexture(), color: 0xff9a48, size: 2.2, transparent: true, opacity: 0, depthWrite: false });
@@ -1440,6 +1578,7 @@ export class Town {
     this.nightMats.forEach(({ mat, max }) => { mat.opacity = Math.min(max, night * 1.2); });
     this.lampMat.opacity = Math.min(1, night * 1.3);
     if (this.globeMat) this.globeMat.emissiveIntensity = night * 1.3;
+    if (this.lanternHeadMat) this.lanternHeadMat.emissiveIntensity = night * 1.2;
     this.lanternMat.emissiveIntensity = night * 1.1;
     this.specialSignMats.forEach((m) => { m.emissiveIntensity = 0.2 + night * 0.7; });
     this.vendingMats.forEach((m) => { m.emissiveIntensity = 0.25 + night * 0.85; });

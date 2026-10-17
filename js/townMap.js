@@ -95,7 +95,7 @@ function smoothLowland(h) {
 }
 export const BOUNDS = { x0: DEM.x0, x1: DEM.x0 + (DEM.nx - 1) * DEM.step, z0: DEM.z0, z1: DEM.z0 + (DEM.nz - 1) * DEM.step };
 
-function demAt(x, z) {
+export function demAt(x, z) {
   const fx = (x - DEM.x0) / DEM.step, fz = (z - DEM.z0) / DEM.step;
   const i = Math.floor(fx), j = Math.floor(fz);
   if (i < 0 || j < 0 || i >= DEM.nx - 1 || j >= DEM.nz - 1) return SEA_Y - 4;
