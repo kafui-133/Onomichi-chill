@@ -36,16 +36,17 @@ def srgb(h):
 M = {}
 
 def mats():
-    M['wood'] = material('wood', srgb('#5b3a28'))        # 古びた木（柱・組物）
-    M['wood_dark'] = material('wood_dark', srgb('#3c261b'))  # 扉・軒裏の陰
-    M['plaster'] = material('plaster', srgb('#e6dfd0'))   # 白い壁
-    M['tile'] = material('tile', srgb('#41464e'))         # 瓦
-    M['tile_dark'] = material('tile_dark', srgb('#33373e'))  # 瓦の筋
-    M['ridge'] = material('ridge', srgb('#585e66'))       # 隅棟
-    M['under'] = material('under', srgb('#6a4630'))       # 軒裏（垂木）
-    M['stone'] = material('stone', srgb('#9a958a'), rough=0.95)
-    M['bronze'] = material('bronze', srgb('#55634f'), rough=0.6, metal=0.4)  # 相輪（青銅）
-    M['gold'] = material('gold', srgb('#b08a3a'), rough=0.5, metal=0.6)
+    # 実物は塗りのない古い木で、ほとんど黒に近い焦げ茶。白い壁はなく、板壁と板扉
+    M['wood'] = material('wood', srgb('#3a2a20'))        # 古びた木（柱・組物）
+    M['wood_dark'] = material('wood_dark', srgb('#211810'))  # 扉・連子窓・陰
+    M['board'] = material('board', srgb('#4a3829'))      # 板壁（柱より少しだけ明るい）
+    M['tile'] = material('tile', srgb('#55585b'))         # いぶし瓦
+    M['tile_dark'] = material('tile_dark', srgb('#45484b'))  # 瓦の筋
+    M['ridge'] = material('ridge', srgb('#64676a'))       # 隅棟
+    M['under'] = material('under', srgb('#2a1e16'))       # 軒裏（垂木・組物の奥は暗い）
+    M['stone'] = material('stone', srgb('#b3ab9c'), rough=0.95)  # 基壇の花崗岩
+    M['bronze'] = material('bronze', srgb('#6f7066'), rough=0.6, metal=0.3)  # 相輪（古びた青銅）
+    M['gold'] = material('gold', srgb('#8a8676'), rough=0.6, metal=0.3)
 
 # ---------- かたち ----------
 parts = []
@@ -67,7 +68,7 @@ def cyl(r, h, x=0, y=0, z=0, mat='bronze', verts=16, r2=None):
     bpy.ops.mesh.primitive_cone_add(vertices=verts, radius1=r, radius2=r if r2 is None else r2, depth=h, location=(x, y, z + h / 2))
     return add(bpy.context.active_object, mat)
 
-def sphere(r, x=0, y=0, z=0, mat='bronze', seg=16, sz=1.0):
+def sphere(r, x=0, y=0, z=0, mat="bronze", seg=10, sz=1.0):
     bpy.ops.mesh.primitive_uv_sphere_add(segments=seg, ring_count=seg // 2, radius=r, location=(x, y, z))
     o = bpy.context.active_object
     o.scale[2] = sz
@@ -75,7 +76,7 @@ def sphere(r, x=0, y=0, z=0, mat='bronze', seg=16, sz=1.0):
     return add(o, mat)
 
 def torus(R, r, z, mat='bronze'):
-    bpy.ops.mesh.primitive_torus_add(major_radius=R, minor_radius=r, major_segments=20, minor_segments=6, location=(0, 0, z))
+    bpy.ops.mesh.primitive_torus_add(major_radius=R, minor_radius=r, major_segments=12, minor_segments=4, location=(0, 0, z))
     return add(bpy.context.active_object, mat)
 
 def ring_of_boxes(half, w, h, z, mat):
@@ -86,9 +87,9 @@ def ring_of_boxes(half, w, h, z, mat):
         sx, sy = (w, half * 2 + w) if k % 2 == 0 else (half * 2 + w, w)
         box(sx, sy, h, cx, cy, z, mat)
 
-def story(width, height, z, doors=True):
-    """塔身：白い壁に、柱（各辺4本、3間）と頭貫、中の間に板扉"""
-    box(width, width, height, 0, 0, z, 'plaster')
+def story(width, height, z, doors=True, lattice=False):
+    """塔身：板壁に、柱（各辺4本、3間）と頭貫、中の間に板扉、1層目の脇の間に連子窓"""
+    box(width, width, height, 0, 0, z, 'board')
     half = width / 2
     for k in range(4):
         a = k * math.pi / 2
@@ -104,7 +105,14 @@ def story(width, height, z, doors=True):
             for s in (-0.25, 0.25):
                 box(0.06 if k % 2 == 0 else dw / 2, dw / 2 if k % 2 == 0 else 0.06, height * 0.72,
                     nx * (half + 0.05) + tx * s * dw, ny * (half + 0.05) + ty * s * dw, z + 0.15, 'wood_dark')
-        # 腰の長押（地覆）
+            if lattice:
+                # 脇の間の連子窓（縦の格子）
+                for side in (-1, 1):
+                    for b in range(-2, 3):
+                        o2 = side * width / 3 + b * 0.22
+                        box(0.09, 0.09, height * 0.34, nx * (half + 0.08) + tx * o2, ny * (half + 0.08) + ty * o2, z + height * 0.36, 'wood_dark')
+                    box(0.12 if k % 2 == 0 else 1.2, 1.2 if k % 2 == 0 else 0.12, 0.1, nx * (half + 0.08) + tx * side * width / 3, ny * (half + 0.08) + ty * side * width / 3, z + height * 0.34, 'wood')
+                    box(0.12 if k % 2 == 0 else 1.2, 1.2 if k % 2 == 0 else 0.12, 0.1, nx * (half + 0.08) + tx * side * width / 3, ny * (half + 0.08) + ty * side * width / 3, z + height * 0.7, 'wood')
     ring_of_boxes(half + 0.06, 0.24, 0.3, z + height - 0.32, 'wood')   # 頭貫
     ring_of_boxes(half + 0.06, 0.2, 0.18, z, 'wood')                   # 地覆
 
@@ -124,7 +132,7 @@ def brackets(width, z):
                 box(0.36, 0.36, 0.22, nx * d + tx * off, ny * d + ty * off, z + i * 0.32 - 0.2, 'wood')
     return z + 3 * 0.32
 
-def roof(core, eave, z_top, rise, lift=0.75, n=24):
+def roof(core, eave, z_top, rise, lift=0.5, n=20):
     """反りのある方形の屋根。軒は深く、四隅が反り上がる。瓦の筋は面ごとに色を分ける"""
     bm = bmesh.new()
     verts = {}
@@ -137,8 +145,8 @@ def roof(core, eave, z_top, rise, lift=0.75, n=24):
             t = max(0.0, (m / eave - r0) / (1 - r0))
             d = (min(abs(x), abs(y)) / m) if m > 1e-6 else 0.0
             # 上は急で、軒先にいくほどゆるやか（反り）。四隅はさらに反り上がる
-            zz = z_top - rise * (1 - (1 - t) ** 2.1) + lift * (t ** 3) * (d ** 6)
-            grow = 1 + 0.07 * (t ** 2) * (d ** 4)  # 隅は平面でも少し外へ伸びる
+            zz = z_top - rise * (1 - (1 - t) ** 2.1) + lift * (t ** 2.5) * (d ** 2.2)
+            grow = 1 + 0.04 * (t ** 2) * (d ** 3)  # 隅は平面でも少し外へ伸びる
             verts[(i, j)] = bm.verts.new((x * grow, y * grow, zz))
     for i in range(n):
         for j in range(n):
@@ -169,12 +177,12 @@ def roof(core, eave, z_top, rise, lift=0.75, n=24):
     for k in range(4):
         sx, sy = (1 if k in (0, 3) else -1), (1 if k in (0, 1) else -1)
         prev = None
-        steps = 10
+        steps = 6
         for s in range(steps + 1):
             t = s / steps
             m = core + (eave - core) * t
-            zz = z_top - rise * (1 - (1 - t) ** 2.1) + lift * (t ** 3)
-            grow = 1 + 0.07 * (t ** 2)
+            zz = z_top - rise * (1 - (1 - t) ** 2.1) + lift * (t ** 2.5)
+            grow = 1 + 0.04 * (t ** 2)
             p = Vector((sx * m * grow, sy * m * grow, zz + 0.12))
             if prev is not None:
                 mid = (p + prev) / 2
@@ -198,22 +206,22 @@ def balcony(width, z):
         a = k * math.pi / 2
         nx, ny = math.cos(a), math.sin(a)
         tx, ty = -ny, nx
-        for t in range(-4, 5):
-            off = t * half / 4
+        for t in range(-2, 3):
+            off = t * half / 2
             box(0.09, 0.09, 0.78, nx * half + tx * off, ny * half + ty * off, z, 'wood')
 
 def build():
     mats()
     # 基壇（石）と、正面の石段
-    box(8.2, 8.2, 0.9, 0, 0, 0, 'stone')
-    box(2.6, 1.4, 0.45, 0, -4.8, 0, 'stone')
-    box(2.6, 0.7, 0.45, 0, -4.45, 0.45, 'stone')
+    box(9.6, 9.6, 0.9, 0, 0, 0, 'stone')
+    box(2.6, 1.4, 0.45, 0, -5.5, 0, 'stone')
+    box(2.6, 0.7, 0.45, 0, -5.15, 0.45, 'stone')
     z = 0.9
     stories = [(5.4, 3.5), (4.6, 2.9), (3.9, 2.7)]
     for i, (w, h) in enumerate(stories):
         if i > 0:
             balcony(w, z)
-        story(w, h, z, doors=True)
+        story(w, h, z, doors=True, lattice=(i == 0))
         z_b = brackets(w, z + h)
         eave = w / 2 + 2.55 - i * 0.25
         rise = 1.75 - i * 0.1
@@ -225,8 +233,8 @@ def build():
     cyl(0.5, 0.25, 0, 0, z + 0.8, 'bronze', r2=0.6)
     cyl(0.07, 6.4, 0, 0, z + 0.9, 'bronze', verts=10)   # 心柱
     for k in range(9):
-        torus(0.58 - k * 0.012, 0.07, z + 1.35 + k * 0.38, 'bronze')
-    zz = z + 1.35 + 9 * 0.38
+        torus(0.46 - k * 0.008, 0.1, z + 1.35 + k * 0.36, 'bronze')
+    zz = z + 1.35 + 9 * 0.36
     for a in (0, math.pi / 2):
         box(1.25 if a == 0 else 0.05, 0.05 if a == 0 else 1.25, 1.2, 0, 0, zz, 'bronze', rz=0)
     sphere(0.2, 0, 0, zz + 1.45, 'gold')

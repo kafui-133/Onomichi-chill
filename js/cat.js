@@ -97,9 +97,9 @@ const POSES = {
   },
   sit: {
     body: { p: [0, 0.17, -0.03], r: [-0.75, 0, 0], s: [0.1, 0.1, 0.165] },
-    head: { p: [0, 0.37, 0.09], r: [0, 0, 0] },
-    fl: { p: [0.04, 0.19, 0.08], r: [0, 0, 0], s: [1, 1.1, 1] },
-    fr: { p: [-0.04, 0.19, 0.08], r: [0, 0, 0], s: [1, 1.1, 1] },
+    head: { p: [0, 0.35, 0.085], r: [0, 0, 0] },
+    fl: { p: [0.035, 0.2, 0.065], r: [-0.08, 0, 0], s: [1, 1.08, 1] },
+    fr: { p: [-0.035, 0.2, 0.065], r: [-0.08, 0, 0], s: [1, 1.08, 1] },
     bl: { p: [0.075, 0.08, -0.06], r: [1.45, 0, 0], s: [1.6, 0.6, 1.6] },
     br: { p: [-0.075, 0.08, -0.06], r: [1.45, 0, 0], s: [1.6, 0.6, 1.6] },
     tail: { p: [0, 0.03, -0.15], r: [0.02, 0.9, 0] },
@@ -131,6 +131,76 @@ const TAIL_CURVES = {
   loaf: [[0, 0.15], [0, 0.2], [0, 0.25], [0, 0.3], [0, 0.3], [0.1, 0.3]],
   curl: [[0, -0.45], [0, -0.45], [0, -0.45], [0, -0.45], [0, -0.4], [0, -0.35]],
 };
+
+// ---------- かたち（すべての猫で共有） ----------
+let GEO = null;
+const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+function deform(geo, fn) {
+  const p = geo.attributes.position, v = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) { v.fromBufferAttribute(p, i); fn(v); p.setXYZ(i, v.x, v.y, v.z); }
+  geo.computeVertexNormals();
+  return geo;
+}
+function catGeometries() {
+  if (GEO) return GEO;
+  // 胴：単位球を、胸が深く、腰のくびれた、お尻の丸い猫の胴に（ポーズごとの大きさはこれに掛ける）
+  const body = deform(new THREE.SphereGeometry(1, 32, 20), (v) => {
+    const f = v.z;
+    const waist = Math.exp(-(((f + 0.2) / 0.38) ** 2));
+    v.x *= 1 - 0.12 * waist;
+    if (v.y < 0) v.y *= 1 - 0.12 * waist;
+    if (v.y < 0 && f > 0) v.y -= 0.14 * f * -v.y;        // 胸は深く
+    if (v.y > 0 && f < 0) v.y += 0.07 * -f * v.y;          // 腰は少し高く
+    if (v.y > 0) v.y *= 0.93;                              // 背中は少し平ら
+    if (v.y > 0 && f > 0.45) v.y += 0.12 * (f - 0.45) * v.y; // 首のつけね
+  });
+  // 頭：横に広く、上は平ら、顔の前は平たく、ほおがふくらむ
+  const skull = deform(new THREE.SphereGeometry(1, 28, 20), (v) => {
+    const cheek = smooth(0.25, -0.35, v.y) * smooth(-0.2, 0.5, v.z);
+    v.x *= 1.1 + 0.14 * cheek;
+    if (v.y > 0) v.y *= 0.86;
+    if (v.z > 0.55) v.z = 0.55 + (v.z - 0.55) * 0.45;       // 顔は平ら
+    if (v.z < 0) v.z *= 1.06;
+    v.multiplyScalar(0.075);
+    v.y *= 0.96;
+  });
+  // 耳：前後につぶした三角。先は少し丸く、内側は桃色
+  const earShape = (r, h) => deform(new THREE.ConeGeometry(r, h, 10, 3), (v) => {
+    v.z *= 0.42;
+    const t = (v.y + h / 2) / h;
+    v.x *= 1 - 0.12 * Math.sin(t * Math.PI);
+    if (v.z > 0) v.z *= 0.5;                                // 前はくぼみ
+    v.y += h / 2;
+  });
+  const leg = deform(new THREE.CylinderGeometry(0.024, 0.017, 0.19, 10, 4), (v) => {
+    const t = (0.095 - v.y) / 0.19;                          // 0 = つけね, 1 = 足先
+    const thigh = 1 + 0.25 * (1 - smooth(0, 0.45, t));
+    v.x *= thigh; v.z *= thigh;
+    v.y -= 0.095;
+  });
+  const segLen = 0.045;
+  const tail = Array.from({ length: 6 }, (_, i) => {
+    const g = new THREE.CylinderGeometry(0.0155 - i * 0.0011, 0.0175 - i * 0.0011, segLen + 0.01, 10);
+    g.rotateX(Math.PI / 2);
+    g.translate(0, 0, -segLen / 2);
+    return g;
+  });
+  // 先は丸く
+  const tipCap = new THREE.SphereGeometry(0.0155 - 5 * 0.0011, 10, 6);
+  tipCap.translate(0, 0, -segLen);
+  GEO = {
+    body, skull, tail, tipCap, leg,
+    pad: new THREE.SphereGeometry(0.019, 14, 10),
+    nose: deform(new THREE.ConeGeometry(0.0085, 0.009, 3), (v) => { v.z *= 0.6; }).rotateZ(Math.PI).rotateY(Math.PI),
+    eye: new THREE.SphereGeometry(0.0135, 14, 10),
+    pupil: new THREE.SphereGeometry(0.0085, 10, 8),
+    glint: new THREE.SphereGeometry(0.0028, 6, 4),
+    ear: earShape(0.033, 0.058),
+    earInner: earShape(0.02, 0.04),
+    paw: new THREE.SphereGeometry(0.026, 10, 8),
+  };
+  return GEO;
+}
 
 export class Cat {
   /**
@@ -236,43 +306,58 @@ export class Cat {
     const dark = new THREE.MeshStandardMaterial({ color: coat.eye || 0x1a1410, roughness: 0.3 });
     const pink = new THREE.MeshStandardMaterial({ color: 0xd88a8a, roughness: 0.6 });
 
-    this.body = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), fur);
+    const G = catGeometries();
+    this.body = new THREE.Mesh(G.body, fur);
     this.body.castShadow = true;
     this.root.add(this.body);
 
-    // 頭
+    // 頭：ほおの張った丸い頭に、ひげ袋（ω の形の口もと）、逆三角の鼻、大きめの目
     this.head = new THREE.Group();
-    const skull = new THREE.Mesh(new THREE.SphereGeometry(0.075, 20, 14), fur);
-    skull.scale.set(1.1, 0.95, 1);
+    const skull = new THREE.Mesh(G.skull, fur);
     skull.castShadow = true;
-    const muzzle = new THREE.Mesh(new THREE.SphereGeometry(0.035, 14, 10), muzzleMat);
-    muzzle.position.set(0, -0.025, 0.058);
-    muzzle.scale.set(1.3, 0.8, 0.9);
-    const nose = new THREE.Mesh(new THREE.SphereGeometry(0.009, 8, 6), pink);
-    nose.position.set(0, -0.012, 0.088);
+    const pads = [-1, 1].map((sx) => {
+      const pad = new THREE.Mesh(G.pad, muzzleMat);
+      pad.position.set(sx * 0.0155, -0.026, 0.05);
+      pad.scale.set(1.05, 0.85, 0.95);
+      return pad;
+    });
+    const chin = new THREE.Mesh(G.pad, muzzleMat);
+    chin.position.set(0, -0.041, 0.043);
+    chin.scale.set(0.8, 0.6, 0.8);
+    const nose = new THREE.Mesh(G.nose, pink);
+    nose.position.set(0, -0.0125, 0.0685);
+    nose.rotation.x = -0.35;
+    const irisMat = new THREE.MeshStandardMaterial({ color: coat.eye || 0xb8a040, roughness: 0.25 });
+    const shine = new THREE.MeshBasicMaterial({ color: 0xffffff });
     this.eyes = [];
     for (const sx of [-1, 1]) {
-      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.012, 10, 8), dark);
-      eye.position.set(sx * 0.03, 0.012, 0.066);
+      // 目：色のついた虹彩に、縦長の瞳と、小さな光
+      const eye = new THREE.Mesh(G.eye, irisMat);
+      eye.position.set(sx * 0.029, 0.01, 0.054);
+      eye.rotation.y = sx * 0.32;
       eye.scale.set(1, 1, 0.6);
+      const pupil = new THREE.Mesh(G.pupil, dark);
+      pupil.position.z = 0.0105;
+      pupil.scale.set(0.42, 1, 0.4);
+      const glint = new THREE.Mesh(G.glint, shine);
+      glint.position.set(sx * -0.004, 0.005, 0.0135);
+      eye.add(pupil, glint);
       this.eyes.push(eye);
-      const ear = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.055, 4), furPlain);
-      ear.position.set(sx * 0.045, 0.07, -0.005);
-      ear.rotation.set(-0.15, Math.PI / 4, sx * -0.3);
+      const ear = new THREE.Mesh(G.ear, furPlain);
+      ear.position.set(sx * 0.042, 0.052, -0.012);
+      ear.rotation.set(-0.15, sx * 0.3, sx * -0.3);
       ear.userData.side = sx;
       this.head.add(ear);
       (this.ears ||= []).push(ear);
-      const inner = new THREE.Mesh(new THREE.ConeGeometry(0.017, 0.035, 4), pink);
-      inner.position.set(0, -0.006, 0.01);
+      const inner = new THREE.Mesh(G.earInner, pink);
+      inner.position.set(0, 0.002, 0.004);
       ear.add(inner);
     }
-    this.head.add(skull, muzzle, nose, ...this.eyes);
+    this.head.add(skull, ...pads, chin, nose, ...this.eyes);
     this.root.add(this.head);
 
     // 脚（ピボットは上端）
-    const legGeo = new THREE.CylinderGeometry(0.02, 0.018, 0.19, 8);
-    legGeo.translate(0, -0.095, 0);
-    const pawGeo = new THREE.SphereGeometry(0.024, 8, 6);
+    const legGeo = G.leg, pawGeo = G.paw;
     this.legs = {};
     for (const k of ['fl', 'fr', 'bl', 'br']) {
       const g = new THREE.Group();
@@ -293,12 +378,11 @@ export class Cat {
     const segLen = 0.045;
     for (let i = 0; i < 6; i++) {
       const seg = new THREE.Group();
-      const geo = new THREE.CylinderGeometry(0.016 - i * 0.0012, 0.018 - i * 0.0012, segLen + 0.008, 8);
-      geo.rotateX(Math.PI / 2);
-      geo.translate(0, 0, -segLen / 2);
+      const geo = G.tail[i];
       const m = new THREE.Mesh(geo, i === 5 ? new THREE.MeshStandardMaterial({ color: coat.tip }) : furPlain);
       m.castShadow = true;
       seg.add(m);
+      if (i === 5) seg.add(new THREE.Mesh(G.tipCap, m.material));
       if (i > 0) seg.position.z = -segLen;
       parent.add(seg);
       this.tailSegs.push(seg);

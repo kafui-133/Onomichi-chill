@@ -11,6 +11,23 @@ import {
 
 const SURFACE_LIFT = { asphalt: 0.05, tile: 0.07, stone: 0.09 };
 
+// Blender で作った3Dモデル（assets/models/*.glb。作り方は tools/blender/）。
+// 読めないとき、または ?models=simple のときは、プログラムで組んだ簡単な形のまま
+const USE_MODELS = typeof location === 'undefined' || new URLSearchParams(location.search).get('models') !== 'simple';
+let gltfLoader = null;
+async function loadModel(name) {
+  if (!gltfLoader) {
+    const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
+    gltfLoader = new GLTFLoader();
+  }
+  return (await gltfLoader.loadAsync(`assets/models/${name}.glb`)).scene;
+}
+/** 坂の下る向き（モデルの正面 +Z をこちらへ向けるための rotation.y） */
+function downhillYaw(x, z, d = 4) {
+  const gx = terrainY(x + d, z) - terrainY(x - d, z), gz = terrainY(x, z + d) - terrainY(x, z - d);
+  return Math.atan2(-gx, -gz);
+}
+
 // 本通り商店街の、食べられるお店（店名は架空）。f は通りの中での位置（0〜1）、side は通りのどちら側か
 const SPECIAL_SHOPS = {
   '本町センター街': [{ f: 0.5, side: 1, type: 'ramen', name: '尾道ラーメン 汐' }, { f: 0.3, side: -1, type: 'kamaboko', name: 'かまぼこ 潮見' }],
@@ -81,6 +98,7 @@ export class Town {
     this.lampPositions = [];
     this.stationLanterns = [];
     this.nightMats = [];
+    this.glowMats = [];   // 夜に灯るモデルの素材 { mat, base, add }
     this.occupied = new Set(); // 建物のある 4m マス
     this.interactables = [];   // 立ち寄れる場所（パン屋・ラーメン屋・自販機）
     this.specialSignMats = [];
@@ -449,7 +467,12 @@ export class Town {
 
   // ---------- 建物（OpenStreetMap の輪郭を立ち上げる） ----------
   _buildings() {
-    const tb = new TriBatch();
+    const tbTown = new TriBatch(), tbStation = new TriBatch();
+    let tb = tbTown;
+    // 駅舎（いちばん大きい駅の輪郭）は、Blender のモデルに差しかえられるよう別にまとめる
+    const polyOf = (b) => { const a = []; for (let k = 0; k < b.p.length; k += 2) a.push([b.p[k], b.p[k + 1]]); return a; };
+    const mainStation = DATA.buildings.filter((b) => b.k === 'train_station').sort((a, b) => Math.abs(signedArea(polyOf(b))) - Math.abs(signedArea(polyOf(a))))[0];
+    this.stationPoly = mainStation ? polyOf(mainStation) : null;
     const r = this.r;
     const walls = ['#e6e0d4', '#d6cebd', '#cbc3b2', '#6f5a47', '#5c4b3d', '#efe9df', '#bdb5a6', '#d8d4cc'];
     const roofTile = new THREE.Color('#4b5159'), roofFlat = new THREE.Color('#8d8a85');
@@ -461,6 +484,7 @@ export class Town {
     for (const b of DATA.buildings) {
       if (b.k === 'pagoda') continue; // 三重塔は模型で置く
       if (b.n === '展望台') continue;  // 頂上の展望台は、見晴らしのデッキとして別に作る
+      tb = b === mainStation ? tbStation : tbTown;
       const poly = [];
       for (let k = 0; k < b.p.length; k += 2) poly.push([b.p[k], b.p[k + 1]]);
       if (poly.length < 3) continue;
@@ -550,9 +574,13 @@ export class Town {
         }
       }
     }
-    const mesh = new THREE.Mesh(tb.build(), lam(0xffffff, { vertexColors: true, side: THREE.DoubleSide }));
-    mesh.castShadow = mesh.receiveShadow = true;
-    this.group.add(mesh);
+    for (const batch of [tbTown, tbStation]) {
+      const mesh = new THREE.Mesh(batch.build(), lam(0xffffff, { vertexColors: true, side: THREE.DoubleSide }));
+      mesh.castShadow = mesh.receiveShadow = true;
+      this.group.add(mesh);
+      if (batch === tbStation) this.stationSimple = mesh;
+    }
+    if (this.stationPoly) this._stationModel();
     const winMat = new THREE.MeshBasicMaterial({ color: 0xffb070, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide });
     this.group.add(instancedBoxes(winList, winMat, { cast: false, receive: false, geo: new THREE.PlaneGeometry(1, 1) }));
     this.nightMats.push({ mat: winMat, max: 0.9 });
@@ -1100,11 +1128,26 @@ export class Town {
       band.position.y = -1.6;
       const arm = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.4, 0.1), lam(0x333333));
       arm.position.y = -0.7;
-      g.add(cab, band, arm);
+      const simple = new THREE.Group();
+      simple.add(cab, band, arm);
+      g.add(simple);
       g.rotation.y = -Math.atan2(top.z - base.z, top.x - base.x);
       this.group.add(g);
-      return { g, phase };
+      return { g, phase, simple };
     });
+    // Blender のゴンドラ（窓の大きいクリーム色の車体に赤い帯）
+    if (USE_MODELS) {
+      this._swapModel('gondola', null, (g) => { g.visible = false; }).then((proto) => {
+        if (!proto) return;
+        this.group.remove(proto);
+        for (const gd of this.gondolas) {
+          const m = proto.clone();
+          m.visible = true;
+          gd.g.remove(gd.simple);
+          gd.g.add(m);
+        }
+      });
+    }
   }
 
   /** ロープウェイのケーブル上の点（t=0 山麓駅、1 山頂駅）。少したわませる */
@@ -1156,6 +1199,7 @@ export class Town {
     if (senkoji) {
       // 千光寺の朱塗りの本堂（赤堂）
       const y = terrainY(senkoji.x, senkoji.z);
+      const simple = new THREE.Group();
       const hall = new THREE.Mesh(new THREE.BoxGeometry(7, 4, 6), lam(0xb8402e));
       hall.position.set(senkoji.x, y + 1.8, senkoji.z);
       hall.castShadow = true;
@@ -1163,7 +1207,13 @@ export class Town {
       roof.rotation.y = Math.PI / 4;
       roof.position.set(senkoji.x, y + 5.1, senkoji.z);
       roof.scale.set(1, 1, 0.9);
-      this.group.add(hall, roof);
+      simple.add(hall, roof);
+      this.group.add(simple);
+      // 崖の上に張り出した懸造りの本堂と、鐘楼「驚音楼」、大きな岩。舞台は坂の下（海）へ向ける
+      this._swapModel('senkoji', simple, (g) => {
+        g.position.set(senkoji.x, y - 0.3, senkoji.z);
+        g.rotation.y = downhillYaw(senkoji.x, senkoji.z, 6);
+      });
     }
   }
 
@@ -1198,49 +1248,120 @@ export class Town {
     g.rotation.y = 0.3;
     this.group.add(g);
     // Blender で作った三重塔（assets/models/pagoda.glb）が読めたら差しかえる。読めなければ上の簡単な塔のまま
-    if (new URLSearchParams(location.search).get('pagoda') !== 'simple') this._pagodaModel(x, z, g);
+    this._pagodaModel(x, z, g);
   }
 
-  async _pagodaModel(x, z, simple) {
+  /**
+   * Blender のモデルを読んで、簡単な形（simple）と差しかえる。
+   * 素材は町のほかの建物と同じ光の当たり方になるよう、色だけ受けついで Lambert に。
+   * place(g, model) で位置や向きを決める。読めなければ simple のまま
+   */
+  async _swapModel(name, simple, place) {
+    if (!USE_MODELS) return null;
     try {
-      const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
-      const gltf = await new GLTFLoader().loadAsync('assets/models/pagoda.glb');
-      const model = gltf.scene;
-      // 町のほかの建物と同じ光の当たり方にするため、素材は色だけ受けついで Lambert に
+      const model = await loadModel(name);
       const mats = new Map();
       model.traverse((o) => {
         if (!o.isMesh) return;
         const src = o.material;
-        if (!mats.has(src)) {
-          const m = lam(src.color.getHex());
-          if (/gold/.test(src.name)) m.emissive.setHex(0x3a2a08);
-          mats.set(src, m);
-          src.dispose();
-        }
+        if (!mats.has(src)) mats.set(src, this._modelMaterial(src));
         o.material = mats.get(src);
-        o.castShadow = o.receiveShadow = true;
+        o.castShadow = !o.material.transparent;
+        o.receiveShadow = true;
       });
       const g = new THREE.Group();
       g.add(model);
+      place(g, model);
+      this.group.add(g);
+      if (simple) {
+        simple.parent?.remove(simple);
+        simple.traverse((o) => o.geometry?.dispose());
+      }
+      (this.models ||= {})[name] = g;
+      return g;
+    } catch (e) {
+      console.warn(`${name} のモデルを読めなかったので、簡単な形のままにします`, e);
+      return null;
+    }
+  }
+
+  _modelMaterial(src) {
+    const m = this._modelMaterialFor(src.name || '', src.color.getHex());
+    m.name = src.name;
+    src.dispose();
+    return m;
+  }
+
+  _modelMaterialFor(n, color) {
+    if (/glass/.test(n)) return lam(color, { transparent: true, opacity: 0.42, depthWrite: false });
+    if (/interior_light/.test(n)) {
+      // 駅の中の明かり：夜になると灯る
+      const m = lam(color, { emissive: 0xffc888, emissiveIntensity: 0.1 });
+      this.glowMats.push({ mat: m, base: 0.1, add: 0.9 });
+      return m;
+    }
+    if (/gold/.test(n)) return lam(color, { emissive: 0x2a2208 });
+    return lam(color);
+  }
+
+  _pagodaModel(x, z, simple) {
+    this._swapModel('pagoda', simple, (g) => {
       // 坂に建つので、基壇の下を石垣で地面まで埋める
-      const skirt = new THREE.Mesh(new THREE.BoxGeometry(8.2, 3, 8.2), lam(0x8a857a));
+      const skirt = new THREE.Mesh(new THREE.BoxGeometry(9.6, 3, 9.6), lam(0xb3ab9c));
       skirt.position.y = -1.5;
       skirt.receiveShadow = true;
       g.add(skirt);
-      const y = Math.min(...[-4, 4].flatMap((dx) => [-4, 4].map((dz) => terrainY(x + dx, z + dz))));
+      const y = Math.min(...[-4.8, 4.8].flatMap((dx) => [-4.8, 4.8].map((dz) => terrainY(x + dx, z + dz))));
       g.position.set(x, Math.max(y, terrainY(x, z) - 0.6), z);
       g.rotation.y = 0.3;
-      this.group.add(g);
-      this.group.remove(simple);
-      simple.traverse((o) => o.geometry?.dispose());
-      this.pagodaModel = g;
-    } catch (e) {
-      console.warn('三重塔のモデルを読めなかったので、簡単な塔のままにします', e);
+    }).then((g) => { this.pagodaModel = g; });
+  }
+
+  /** 駅舎：OSM の輪郭のいちばん長い辺の向きにそろえ、正面（+Z）を駅前広場へ */
+  _stationModel() {
+    const poly = this.stationPoly;
+    const cx = poly.reduce((s2, p) => s2 + p[0], 0) / poly.length, cz = poly.reduce((s2, p) => s2 + p[1], 0) / poly.length;
+    let best = 0, ang = 0;
+    for (let i = 0; i < poly.length; i++) {
+      const [ax, az] = poly[i], [bx, bz] = poly[(i + 1) % poly.length];
+      const L = Math.hypot(bx - ax, bz - az);
+      if (L > best) { best = L; ang = Math.atan2(bz - az, bx - ax); }
     }
+    // 輪郭を長い辺の向きに回して、大きさをはかる
+    const ca = Math.cos(-ang), sa = Math.sin(-ang);
+    const us = poly.map(([x, z]) => (x - cx) * ca - (z - cz) * sa), vs = poly.map(([x, z]) => (x - cx) * sa + (z - cz) * ca);
+    const len = Math.max(...us) - Math.min(...us), dep = Math.max(...vs) - Math.min(...vs);
+    const mx = cx + ((Math.max(...us) + Math.min(...us)) / 2) * Math.cos(ang) - ((Math.max(...vs) + Math.min(...vs)) / 2) * Math.sin(ang);
+    const mz = cz + ((Math.max(...us) + Math.min(...us)) / 2) * Math.sin(ang) + ((Math.max(...vs) + Math.min(...vs)) / 2) * Math.cos(ang);
+    const yMin = Math.min(...poly.map(([x, z]) => groundY(x, z)));
+    this._swapModel('station', this.stationSimple, (g, model) => {
+      // モデルは 50m × 約22m。輪郭に合わせて少しだけ伸び縮みさせる
+      model.scale.set(Math.min(1.15, Math.max(0.8, len / 50)), 1, Math.min(1.15, Math.max(0.8, dep / 22)));
+      g.position.set(mx, yMin, mz);
+      // 長い辺の向きに +X をそろえる。正面 +Z は、駅前広場（線路と反対の、海側）を向く
+      g.rotation.y = -ang;
+      const C = this.stationCenter;
+      const front = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), g.rotation.y);
+      if (C && (C.x - mx) * front.x + (C.z - mz) * front.z < 0) g.rotation.y += Math.PI;
+      // 入口の上の看板
+      let sign = null;
+      model.traverse((o) => { if (o.isMesh && o.material.name === 'sign') sign = o; });
+      const box = new THREE.Box3();
+      if (sign) box.setFromObject(sign); else box.set(new THREE.Vector3(-4, 4.2, 12), new THREE.Vector3(4, 5.2, 12.1));
+      const label = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshLambertMaterial({ map: labelTexture('尾道駅', { w: 512, h: 128, size: 76, bg: '#2a2c30', fg: '#f4efe4' }), emissive: 0xffffff, emissiveIntensity: 0.2 }));
+      label.material.emissiveMap = label.material.map;
+      this.specialSignMats.push(label.material);
+      const size = box.getSize(new THREE.Vector3());
+      label.scale.set(Math.min(size.x * 0.9, size.y * 4), size.y * 0.85, 1);
+      label.position.set((box.min.x + box.max.x) / 2, (box.min.y + box.max.y) / 2, box.max.z + 0.03);
+      model.add(label);
+    });
   }
 
   _shrine(x, z) {
     const y = terrainY(x, z);
+    const simple = new THREE.Group();
+    this.group.add(simple);
     const vermilion = lam(0xc8442e);
     const hall = new THREE.Mesh(new THREE.BoxGeometry(6, 3.5, 5), lam(0x7a5a3e));
     hall.position.set(x, y + 1.5, z + 3);
@@ -1248,7 +1369,7 @@ export class Town {
     const hallRoof = new THREE.Mesh(new THREE.ConeGeometry(5.2, 2.4, 4), lam(0x3a3f46));
     hallRoof.rotation.y = Math.PI / 4;
     hallRoof.position.set(x, y + 4.3, z + 3);
-    this.group.add(hall, hallRoof);
+    simple.add(hall, hallRoof);
     // 鳥居は、いちばん近い道の上に
     const torii = new THREE.Group();
     for (const sx of [-1.4, 1.4]) {
@@ -1262,7 +1383,7 @@ export class Town {
     nuki.position.y = 3.1;
     torii.add(kasagi, nuki);
     torii.position.set(x, terrainY(x, z - 6), z - 6);
-    this.group.add(torii);
+    simple.add(torii);
     // 境内の大きな楠
     const kusu = new THREE.Group();
     const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.9, 8, 8), lam(0x4a3a2e));
@@ -1275,7 +1396,12 @@ export class Town {
       kusu.add(crown);
     }
     kusu.position.set(x + 7, terrainY(x + 7, z + 1), z + 1);
-    this.group.add(kusu);
+    simple.add(kusu);
+    // 拝殿・本殿・狛犬・石灯籠・鳥居と、大きな楠。参道（正面）は坂の下へ
+    this._swapModel('ushitora', simple, (g) => {
+      g.position.set(x, y - 0.15, z);
+      g.rotation.y = downhillYaw(x, z, 6);
+    });
   }
 
   // ---------- 渡船のりば・ベンチ ----------
@@ -1619,6 +1745,7 @@ export class Town {
   update(time, elapsed, dt) {
     const night = time.p.night;
     this.nightMats.forEach(({ mat, max }) => { mat.opacity = Math.min(max, night * 1.2); });
+    this.glowMats.forEach(({ mat, base, add }) => { mat.emissiveIntensity = base + night * add; });
     this.lampMat.opacity = Math.min(1, night * 1.3);
     if (this.globeMat) this.globeMat.emissiveIntensity = night * 1.3;
     if (this.lanternHeadMat) this.lanternHeadMat.emissiveIntensity = night * 1.2;

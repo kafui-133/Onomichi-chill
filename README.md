@@ -100,7 +100,8 @@ Three.js（r160）は jsDelivr の CDN から読み込みます。音はすべ�
 tools/
   fetch_data.py       OpenStreetMap と国土地理院の標高を取得
   build_town_data.py  ゲーム用データに変換
-  blender/pagoda.py   天寧寺の三重塔を Blender（Python）で組み立てて assets/models/pagoda.glb に書き出す
+  blender/*.py        Blender（Python）で3Dモデルを組み立てて assets/models/*.glb に書き出す
+                      pagoda（天寧寺三重塔）・senkoji（千光寺）・ushitora（艮神社）・station（JR尾道駅）・gondola（ロープウェイ）
 assets/models/    Blender で作った3Dモデル（glTF）
 index.html        画面の骨組み、importmap、ミニマル UI（ボタンは SVG アイコン）
 style.css         ミニマルデザイン、タイトル／目を閉じる／写真プリントの演出
@@ -194,7 +195,8 @@ python3 tools/build_town_data.py   # ゲーム用の js/data/onomichi.js（約64
 - **千光寺山ロープウェイ**：山麓駅・山頂駅の実際の位置。片道およそ3分。
 - **渡船**：尾道渡船（土堂↔兼吉）、福本渡船（土堂↔小歌島）、駅前渡船（駅前↔富浜）の3航路を、実際の桟橋の間で行き来します。ほかの船は水道の中心線にそって行き交います。
 - **名所**：天寧寺の三重塔、艮神社、千光寺は OpenStreetMap の位置に置いています。
-- **三重塔のモデル**：天寧寺の三重塔は `tools/blender/pagoda.py` で Blender を Python から動かして組み立てたモデルです（反りのある屋根、組物、高欄、相輪。高さ約24m）。読みこめないときは、以前の簡単な形の塔になります（`?pagoda=simple` でも以前の塔）。作りなおすには `pip install bpy` のあと `python tools/blender/pagoda.py`（`--preview a.png` で確認用の絵も描きます）。
+- **Blender で作ったモデル**：天寧寺の三重塔（黒ずんだ古い木、いぶし瓦、組物、相輪）、千光寺（崖に張り出した朱塗りの懸造りの本堂、鐘楼、大きな岩）、艮神社（拝殿・本殿・狛犬・石灯籠・鳥居、大きな楠）、JR尾道駅の駅舎（ガラス張りの1階、杉の縦格子、夜は中が灯る）、ロープウェイのゴンドラは、`tools/blender/` のスクリプトで Blender を Python から動かして組み立てたモデルです。スマホでも軽いよう、1つ数百KB以下・数千三角形に抑えています。読みこめないときは以前の簡単な形になります（`?models=simple` でも以前の形）。作りなおすには `pip install bpy` のあと `python tools/blender/pagoda.py`（`--preview a.png` で確認用の絵も描きます）。
+- **猫**：ほおの張った頭、ω の口もと、虹彩と縦長の瞳とハイライトの入った目、胸が深く腰のくびれた胴。動き（ポーズ・シッポ・耳・まばたき）はこれまでどおりパーツを動かしています。
 - 地図データ © OpenStreetMap contributors（ODbL）、標高 国土地理院 基盤地図情報（DEM5A）。
 
 ## データ・素材と権利
