@@ -16,6 +16,9 @@ import { MapView } from './mapView.js';
 import { Zukan } from './zukan.js';
 import { Diary } from './diary.js';
 import { ITEMS } from './items.js';
+import { quality } from './quality.js';
+import { eventsOn, eventGlow } from './events.js';
+import { Candles } from './candles.js';
 import { PLACES, CROSSINGS, ROADS, BENCHES, ROPEWAY, ROPEWAY_STOPS, POIS, groundY, surfaceY, placeName, zoneWeights, pointAlong, clampToRoads, nearestRoad } from './townMap.js';
 import { kanjiNumber, smoothstep, clamp } from './util.js';
 
@@ -27,11 +30,11 @@ const $ = (id) => document.getElementById(id);
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 // スマホ・タブレット（指で操作する端末）では描画を少し軽くする
 const COARSE = window.matchMedia('(pointer: coarse)').matches;
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, COARSE ? 1.5 : 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality.s.pixelRatio));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.NoToneMapping; // 空のグラデーションを狙いどおりの色で出す
-renderer.shadowMap.enabled = true;
+renderer.shadowMap.enabled = quality.s.shadows;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 $('stage').appendChild(renderer.domElement);
 
@@ -51,7 +54,7 @@ const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1);
 scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xffffff, 2);
 sun.castShadow = true;
-sun.shadow.mapSize.set(COARSE ? 1024 : 2048, COARSE ? 1024 : 2048);
+sun.shadow.mapSize.set(quality.s.shadowSize, quality.s.shadowSize);
 sun.shadow.camera.left = -4.5;
 sun.shadow.camera.right = 4.5;
 sun.shadow.camera.top = 4.5;
@@ -114,6 +117,18 @@ const strays = STRAYS.map((c) => new Cat(scene, {
   fixed: { pos: new THREE.Vector3(c.x, c.y ?? surfaceY(c.x, c.z), c.z), pose: c.pose, heading: c.heading, level: c.level },
 }));
 const allCats = [cat, ...strays];
+
+// ---------- 季節のイベント（尾道灯りまつり など） ----------
+// 灯りは、イベントのある日になってから作る（ふだんは何も足さない）
+let candles = null;
+let eventShownDay = null;
+function prepareEvents() {
+  const evs = eventsOn(time.day);
+  if (evs.some((e) => e.id === 'akari') && !candles) candles = new Candles(scene, town, quality.s.candles);
+  return evs;
+}
+let todaysEvents = prepareEvents();
+time.onDayChange(() => { todaysEvents = prepareEvents(); });
 const COAT_LABEL = (k) => COATS[k]?.label || '';
 const catByHitbox = new Map(allCats.map((c) => [c.hitbox, c]));
 
@@ -404,6 +419,20 @@ volRange.addEventListener('input', () => {
   showVolume();
 });
 $('vol-mute').addEventListener('click', () => { audio.setMuted(!audio.muted); showVolume(); });
+// 画質：高・中・低を順に切りかえる。描画の細かさと影はすぐ、灯りや人の数は次に開いたときに変わる
+const showQuality = () => { $('vol-quality').textContent = `画質 ${quality.s.label}`; };
+showQuality();
+$('vol-quality').addEventListener('click', () => {
+  quality.set(quality.next());
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality.s.pixelRatio));
+  renderer.shadowMap.enabled = quality.s.shadows;
+  sun.shadow.mapSize.set(quality.s.shadowSize, quality.s.shadowSize);
+  sun.shadow.map?.dispose();
+  sun.shadow.map = null;
+  scene.traverse((o) => { if (o.material) [].concat(o.material).forEach((m) => { m.needsUpdate = true; }); });
+  showQuality();
+  toast(`画質：${quality.s.label}（灯りの数などは、次に開いたときに変わります）`, 3200);
+});
 // UI のボタンやつまみを触っているあいだも「操作中」とみなして、UI を隠さない
 ['pointerdown', 'pointermove', 'keydown'].forEach((ev) => document.addEventListener(ev, () => controls.touch(), true));
 document.addEventListener('pointerdown', (e) => {
@@ -587,6 +616,18 @@ function frame(fixedDt) {
     audio.fumikiri({ gain: 0.08 + 0.8 * clamp(1 - d / 500, 0, 1), dirX: cr.x - ears.x, dirZ: cr.z - ears.z, near: clamp(1 - d / 120, 0, 1) });
   }
 
+  // 季節のイベントの灯り（暮れてから）
+  if (candles) {
+    const ev = todaysEvents.find((e) => e.id === 'akari');
+    const glow = ev ? eventGlow(ev, time.hour) * clamp(p.night * 1.4 + p.lamp * 0.6, 0, 1) : 0;
+    candles.update(glow, t, window.innerHeight);
+    if (ev && glow > 0.35 && eventShownDay !== time.day) {
+      eventShownDay = time.day;
+      toast(`今夜は${ev.name}。${ev.note}`, 6000);
+      diary.event(ev.diary);
+    }
+  }
+
   // 夜道の手もとの灯り
   walkLight.position.set(camera.position.x, camera.position.y + 0.6, camera.position.z);
   const inArcade = mode === 'walk' && zoneWeights(walker.x, walker.z).arcade > 0;
@@ -697,7 +738,7 @@ function frame(fixedDt) {
 function loop() { frame(); }
 if (CAPTURE) {
   $('title').style.display = 'none';
-  Object.assign(window, { THREE, scene, camera, time, cat, audio, boats, controls, renderer, town, walker, strays, PLACES, food, diary, enterTown, enterRoom, goHome, startRide, ROADS, pointAlong, getRide: () => ride });
+  Object.assign(window, { THREE, scene, camera, time, cat, audio, boats, controls, renderer, town, walker, strays, PLACES, food, diary, enterTown, enterRoom, goHome, getCandles: () => candles, startRide, ROADS, pointAlong, getRide: () => ride });
   window.captureStep = (dt) => frame(dt);
   window.captureReady = true;
 } else {

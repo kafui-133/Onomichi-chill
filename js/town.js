@@ -1392,6 +1392,8 @@ export class Town {
     const st = POIS.find((p) => p.n === 'JR尾道駅');
     if (!st) return;
     const C = { x: st.x - 5, z: st.z - 60 }, R = 120;
+    this.stationLawn = [];   // 芝生のマス（灯りまつりの模様に使う）
+    this.stationCenter = C;
     this.inStationArea = (x, z) => Math.hypot(x - C.x, z - C.z) < R && terrainY(x, z) - SEA_Y < 8;
     const water = (x, z) => demAt(x, z) < SEA_Y;
     const nearWater = (x, z, d) => {
@@ -1411,6 +1413,7 @@ export class Town {
         if (demAt(cx, cz) < SEA_Y + 0.8 || nearAnyRoad(cx, cz, 0.1) || inBuilding(cx, cz) || inSolid(cx, cz)) continue;
         const w = nearWater(cx, cz, 30);
         const lawn = w > 5 && w < 30;
+        if (lawn) this.stationLawn.push([cx, cz]);
         const k = (Math.floor(x / cell) + Math.floor(z / cell)) & 1;
         if (lawn) col.setRGB(0.42 + this.r() * 0.05, 0.56 + this.r() * 0.05, 0.3);
         else if (w <= 5) col.setRGB(0.6, 0.59, 0.56);                 // 海ぎわの遊歩道
