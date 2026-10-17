@@ -49,6 +49,61 @@ export function buildSignAtlas() {
   };
 }
 
+// 昭和の商店街の看板（架空の屋号）。横長の吊り看板と、縦長の電飾看板・のぼり
+const RETRO_PLATES = [
+  '婦人服 みなと洋品店', '坂井時計店', '人形専門店 マルミ玩具', 'ふじ屋呉服店', '中村電器商会', '肉の大和',
+  'かもめ理容', '松屋寝具店', '潮風薬局', 'たちばな履物店', '汐見食堂', '岡田金物店', 'まるやま茶舗',
+  '二葉写真館', 'はっさく文具', '浜田鮮魚店',
+];
+const PLATE_STYLES = [
+  ['#f2cf2a', '#1e1a16', '#1e1a16'], ['#2f7a48', '#f6f2e6', '#f6f2e6'], ['#f6f2e8', '#c8262a', '#c8262a'],
+  ['#b8282a', '#f6f0e2', '#f6f0e2'], ['#efe6c8', '#2a5a3a', '#2a5a3a'], ['#1f3f6a', '#f4efe4', '#f4efe4'],
+];
+const RETRO_VERTICAL = ['ヤマト靴', '麻雀', '電器', '理容', 'たばこ', 'くすり', '時計', 'サロン', '囲碁', '洋品', 'パーマ', '呉服', '甘味', '金物', '模型', '茶'];
+const VERTICAL_STYLES = [['#efe0aa', '#c8202a'], ['#f6f4ee', '#2a7a42'], ['#f2cf2a', '#c8202a'], ['#f6f4ee', '#1f3f6a'], ['#e8a8b0', '#7a1a2a'], ['#2a5a8a', '#f6f2e6']];
+
+/** 横長の吊り看板（16種）と縦長の看板（16種）を1枚にまとめる。上半分が横長、下半分が縦長 */
+export function buildRetroSignAtlas() {
+  const W = 1024, H = 1024;
+  const tex = canvasTexture(W, H, (g) => {
+    const font = (px) => `700 ${px}px "Hiragino Sans", "Noto Sans JP", "Yu Gothic", sans-serif`;
+    // 横長：4列×8段（256×64）
+    RETRO_PLATES.forEach((name, i) => {
+      const x = (i % 4) * 256, y = Math.floor(i / 4) * 64;
+      const [bg, fg, edge] = PLATE_STYLES[i % PLATE_STYLES.length];
+      g.fillStyle = bg; g.fillRect(x, y, 256, 64);
+      g.strokeStyle = edge; g.lineWidth = 3; g.strokeRect(x + 4, y + 4, 248, 56);
+      const [small, big] = name.includes(' ') ? name.split(' ') : ['', name];
+      g.fillStyle = fg; g.textAlign = 'center'; g.textBaseline = 'middle';
+      if (small) { g.font = font(13); g.fillText(small, x + 128, y + 17, 230); }
+      g.font = font(small ? 28 : 32); g.fillText(big, x + 128, y + (small ? 40 : 33), 232);
+      // 古びた汚れ
+      g.fillStyle = 'rgba(90,60,30,0.12)'; g.fillRect(x, y + 50, 256, 14);
+    });
+    // 縦長：16列（64×512）を下半分に
+    RETRO_VERTICAL.forEach((name, i) => {
+      const x = i * 64, y = 512;
+      const [bg, fg] = VERTICAL_STYLES[i % VERTICAL_STYLES.length];
+      g.fillStyle = bg; g.fillRect(x, y, 64, 512);
+      g.strokeStyle = 'rgba(40,30,20,0.6)'; g.lineWidth = 3; g.strokeRect(x + 3, y + 3, 58, 506);
+      const n = [...name].length;
+      const size = Math.min(52, 440 / n);
+      g.font = font(size); g.textAlign = 'center'; g.textBaseline = 'middle';
+      [...name].forEach((ch, k) => {
+        const cy = y + 256 + (k - (n - 1) / 2) * size * 1.12;
+        g.lineWidth = 4; g.strokeStyle = '#1e1a16'; g.strokeText(ch, x + 32, cy);
+        g.fillStyle = fg; g.fillText(ch, x + 32, cy);
+      });
+    });
+  });
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  return {
+    tex,
+    plate: (i) => { const c = i % 16; const u0 = (c % 4) / 4, v1 = 1 - Math.floor(c / 4) * 64 / 1024; return [u0 + 0.002, v1 - 64 / 1024 + 0.002, u0 + 0.25 - 0.002, v1 - 0.002]; },
+    vertical: (i) => { const c = i % 16; const u0 = c / 16; return [u0 + 0.002, 0.002, u0 + 1 / 16 - 0.002, 0.5 - 0.002]; },
+  };
+}
+
 /** 1枚の看板・掲示用テクスチャ（大きな文字） */
 export function labelTexture(text, { w = 512, h = 128, bg = '#2a2420', fg = '#f2e8d2', size = 64, vertical = false } = {}) {
   const tex = canvasTexture(w, h, (g) => {
