@@ -287,18 +287,23 @@ export class People {
   endTalk() { this.talking = null; }
 
   update(dt, hour, camPos, player) {
+    // 話している相手から離れたら（移動したら）、話はおしまい
+    if (this.talking) {
+      const q = this.talking.p.root.position;
+      if (!player || Math.hypot(q.x - player.x, q.z - player.z) > 4.5) this.talking = null;
+    }
     for (const p of this.list) {
       const pos = p.root.position;
       const dCam = Math.hypot(pos.x - camPos.x, pos.z - camPos.z);
       const present = this._present(p, hour);
-      // いない時間になったら、見ていないところで帰っていく
-      if (!present && (dCam > 40 || !p.root.visible)) { p.root.visible = false; continue; }
-      if (present && !p.root.visible && dCam < 40 && !p.fixed) continue; // 目の前に急にあらわれないように
+      // いない時間になったら、見ていないところで帰っていく。戻ってくるときも、見ていないところから
+      if (!present && (dCam > 40 || p.gone)) p.gone = true;
+      else if (present && p.gone && dCam > 40) p.gone = false;
+      if (p.gone) { p.root.visible = false; continue; }
       p.root.visible = dCam < 260;
       if (!p.root.visible) { if (!p.fixed) this._advance(p, dt); continue; }
       const talkingTo = this.talking?.p === p;
       const dPlayer = player ? Math.hypot(pos.x - player.x, pos.z - player.z) : 99;
-      if (talkingTo && dPlayer > 4.5) this.talking = null;
       let moving = false;
       if (!p.fixed) {
         // こちらとぶつかりそうなら、少し待つ。話しているあいだは止まる
