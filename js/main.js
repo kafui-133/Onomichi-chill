@@ -203,6 +203,11 @@ function setShadowRange(range, dist) {
   c.far = dist * 2.5;
   c.updateProjectionMatrix();
   sun.userData.dist = dist;
+  // 影の1マスの大きさに合わせて、影をずらす量を決める（町は範囲が広くマスが粗いので、
+  // そのままだと地面に縞模様の影＝シャドウアクネが出る。スマホは計算の細かさも低く、出やすい）
+  const texel = (range * 2) / sun.shadow.mapSize.x;
+  sun.shadow.normalBias = Math.max(0.02, texel * 1.6);
+  sun.shadow.bias = range > 10 ? -0.0008 : -0.0004;
 }
 sun.userData.dist = 12;
 
