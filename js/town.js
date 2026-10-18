@@ -8,6 +8,7 @@ import { lam, buildSignAtlas, buildRetroSignAtlas, labelTexture, QuadBatch, inst
 import {
   DATA, SEA_Y, BOUNDS, terrainY, groundY, surfaceY, addTread, addSolid, inSolid, walkable, ROADS, OTHER_ROADS, ARCADE_ROADS, nearAnyRoad, samplePath, roadLength, pointAlong,
   STREET_SHOPS, demAt, ALLEYS, COAST, distToCoast, straitAt, RAILS, CROSSINGS, TRAIN_TRACKS, ROPEWAY, SUMMIT, BENCHES, FERRY_ROUTES, POIS, onOnomichiSide, nearestRoad, inBuilding,
+  ROOFS, DECKS,
 } from './townMap.js';
 
 const SURFACE_LIFT = { asphalt: 0.05, tile: 0.07, stone: 0.09 };
@@ -243,6 +244,8 @@ export class Town {
     this._vendingMachines();
     this._summitDeck();
     this._stationFront();
+    this._canopies();
+    this._deck();
     this._lamps();
     this._train();
   }
@@ -653,6 +656,7 @@ export class Town {
     }
     for (const b of DATA.buildings) {
       if (b.k === 'pagoda') continue; // 三重塔は模型で置く
+      if (b.k === 'roof') continue;   // 屋根だけのもの（屋根つき歩道・桟橋の上屋）は _canopies で
       if (b.n === '展望台') continue;  // 頂上の展望台は、見晴らしのデッキとして別に作る
       tb = b === mainStation ? tbStation : tbTown;
       const poly = [];
@@ -2388,6 +2392,129 @@ export class Town {
    * 尾道駅前：駅舎の前の石畳の広場、海ぎわの芝生（港の緑地）、海沿いの柵、横断歩道、時計の柱。
    * 駅舎の2階から見た写真のように、広場の先に道路と芝生、その向こうに尾道水道と向島のクレーン。
    */
+  /** 屋根だけの建物：駅の西の屋根つき歩道や、桟橋の上屋。細い柱に、うすい屋根 */
+  _canopies() {
+    const tb = new TriBatch(), tbUnder = new TriBatch();
+    const top = new THREE.Color('#7e858a'), under = new THREE.Color('#dedad0'), edge = new THREE.Color('#e9e7e1');
+    const posts = [];
+    const carRoad = (x, z) => { const rd = nearAnyRoad(x, z, 0.3); return rd && rd.surface === 'asphalt' && !['footway', 'pedestrian', 'steps', 'path'].includes(rd.kind); };
+    for (const poly of ROOFS) {
+      const cx = poly.reduce((a, q) => a + q[0], 0) / poly.length, cz = poly.reduce((a, q) => a + q[1], 0) / poly.length;
+      if (inPrecinct(cx, cz)) continue;
+      let base = Math.max(...poly.map(([x, z]) => groundY(x, z)));
+      if (base < SEA_Y + 1) base = SEA_Y + 1;   // 桟橋の上屋（海の上）
+      const y = base + 3.3;
+      const ccw = signedArea(poly) > 0;
+      const contour = poly.map(([x, z]) => new THREE.Vector2(x, z));
+      for (const [a, b, c] of THREE.ShapeUtils.triangulateShape(contour, [])) {
+        const A = poly[a], B = poly[b], C = poly[c];
+        tb.tri([A[0], y + 0.18, A[1]], [B[0], y + 0.18, B[1]], [C[0], y + 0.18, C[1]], top);
+        tbUnder.tri([A[0], y, A[1]], [C[0], y, C[1]], [B[0], y, B[1]], under);
+      }
+      for (let i = 0; i < poly.length; i++) {
+        const [ax, az] = poly[i], [bx, bz] = poly[(i + 1) % poly.length];
+        tb.quad([ax, y - 0.12, az], [bx, y - 0.12, bz], [bx, y + 0.22, bz], [ax, y + 0.22, az], edge);
+        const L = Math.hypot(bx - ax, bz - az);
+        if (L < 2) continue;
+        const dx = (bx - ax) / L, dz = (bz - az) / L;
+        const ix = ccw ? -dz : dz, iz = ccw ? dx : -dx;   // 内向き
+        const n = Math.max(1, Math.round(L / 5.5));
+        for (let k = 0; k <= n; k++) {
+          if (k === n && i < poly.length - 1) continue;    // 角の柱は次の辺で
+          const t = k / n;
+          const x = ax + (bx - ax) * t + ix * 0.35, z = az + (bz - az) * t + iz * 0.35;
+          if (inBuilding(x, z) || carRoad(x, z)) continue;
+          if (posts.some((q) => Math.hypot(q.x - x, q.z - z) < 2.5)) continue;
+          const gy = Math.max(groundY(x, z), SEA_Y + 0.4);
+          posts.push({ x, z, y: (gy + y) / 2, sx: 0.16, sy: y - gy, sz: 0.16, color: '#5a5e62' });
+        }
+      }
+    }
+    const roof = new THREE.Mesh(tb.build(), lam(0xffffff, { vertexColors: true, side: THREE.DoubleSide }));
+    roof.castShadow = true; roof.receiveShadow = true;
+    // 屋根の裏：日は当たらないが、地面の照り返しで明るく見える
+    const ceil = new THREE.Mesh(tbUnder.build(), lam(0xffffff, { vertexColors: true, emissive: 0x4a4740 }));
+    this.group.add(roof, ceil);
+    if (posts.length) this.group.add(instancedChunks(posts, lam(0xffffff)));
+  }
+
+  /** 駅前の大きな歩道橋（2階の高さのデッキ）。駅からロータリーと国道をまたいで、海ぎわへ降りる */
+  _deck() {
+    for (const d of DECKS) {
+      const pts = d.pts.slice();
+      // 駅のほうを終点に
+      const st = this.stationCenter || { x: 520, z: -600 };
+      const dist = (p) => Math.hypot(p[0] - 521, p[1] + 547);
+      if (dist(pts[0]) < dist(pts[pts.length - 1])) pts.reverse();
+      void st;
+      const stEnd = pts[pts.length - 1];
+      const Y = groundY(stEnd[0], stEnd[1]) + 6.2;
+      // 海側のいちばん端の短い区間は、海ぎわへ降りる階段にする
+      const [s0, s1] = [pts[0], pts[1]];
+      const deckPts = pts.slice(1);
+      const W = Math.max(4.5, d.width), hw = W / 2;
+      const tb = new TriBatch();
+      const topC = new THREE.Color('#b9b2a4'), underC = new THREE.Color('#cfccc4'), sideC = new THREE.Color('#eceae4');
+      const s = samplePath(deckPts, 1.2);
+      for (let i = 0; i < s.length - 1; i++) {
+        const a = s[i], b = s[i + 1];
+        const na = [-Math.sin(a.angle) * hw, Math.cos(a.angle) * hw], nb = [-Math.sin(b.angle) * hw, Math.cos(b.angle) * hw];
+        const L = (p, n, y) => [p.x + n[0], y, p.z + n[1]], R = (p, n, y) => [p.x - n[0], y, p.z - n[1]];
+        tb.quad(L(a, na, Y), L(b, nb, Y), R(b, nb, Y), R(a, na, Y), topC);
+        tb.quad(L(a, na, Y - 0.9), R(a, na, Y - 0.9), R(b, nb, Y - 0.9), L(b, nb, Y - 0.9), underC);
+        tb.quad(L(a, na, Y - 0.9), L(b, nb, Y - 0.9), L(b, nb, Y + 0.1), L(a, na, Y + 0.1), sideC);
+        tb.quad(R(a, na, Y - 0.9), R(a, na, Y + 0.1), R(b, nb, Y + 0.1), R(b, nb, Y - 0.9), sideC);
+      }
+      const parts = [], glass = [];
+      // 手すり（白い腰壁と、上の細い手すり）
+      for (const p of samplePath(deckPts, 2)) {
+        for (const sd of [-1, 1]) {
+          const x = p.x - Math.sin(p.angle) * (hw - 0.1) * sd, z = p.z + Math.cos(p.angle) * (hw - 0.1) * sd;
+          glass.push({ x, y: Y + 0.55, z, sx: 2.05, sy: 0.9, sz: 0.06, ry: -p.angle, color: '#c8d4d6' });
+          parts.push({ x, y: Y + 1.08, z, sx: 2.05, sy: 0.08, sz: 0.12, ry: -p.angle, color: '#e8e6e0' });
+        }
+      }
+      // 柱（車道の上には立てない）
+      const carRoad = (x, z) => { const rd = nearAnyRoad(x, z, 1.2); return rd && rd.surface === 'asphalt' && !['footway', 'pedestrian', 'steps', 'path'].includes(rd.kind); };
+      const total = roadLength(deckPts);
+      for (let t = 6; t < total - 3; t += 11) {
+        let spot = null;
+        for (const o of [0, 2.5, -2.5, 5, -5]) {
+          const q = pointAlong(deckPts, Math.min(1, Math.max(0, (t + o) / total)));
+          if (q && !carRoad(q.x, q.z) && !inBuilding(q.x, q.z)) { spot = q; break; }
+        }
+        if (!spot) continue;
+        const gy = groundY(spot.x, spot.z);
+        parts.push({ x: spot.x, y: (gy + Y - 0.9) / 2, z: spot.z, sx: 0.9, sy: Y - 0.9 - gy, sz: 0.9, color: '#d6d2c8' });
+        addSolid(spot.x, spot.z, 1.1, 1.1, 0);
+      }
+      // 海ぎわへ降りる階段
+      {
+        const ang = Math.atan2(s0[1] - s1[1], s0[0] - s1[0]);
+        const tx = Math.cos(ang), tz = Math.sin(ang), nx = -tz, nz = tx;
+        const gy = groundY(s0[0], s0[1]);
+        const rise = Y - gy, n = Math.ceil(rise / 0.18), run = 0.3;
+        for (let k = 0; k < n; k++) {
+          const u = k * run + run / 2, x = s1[0] + tx * u, z = s1[1] + tz * u;
+          const yTop = Y - (k + 1) * (rise / n);
+          parts.push({ x, y: (yTop + Math.max(gy, yTop - 0.6)) / 2, z, sx: run + 0.02, sy: Math.max(0.2, Math.min(0.6, yTop - gy + 0.01)), sz: 3, ry: -ang, color: '#bdb7aa' });
+        }
+        const len = n * run, ym = (Y + gy) / 2, pitch = Math.atan2(rise, len);
+        for (const sd of [-1, 1]) {
+          const x = s1[0] + tx * len / 2 + nx * 1.55 * sd, z = s1[1] + tz * len / 2 + nz * 1.55 * sd;
+          parts.push({ x, y: ym + 0.6, z, sx: len / Math.cos(pitch), sy: 1.0, sz: 0.1, ry: -ang, rz: pitch, color: '#e4e2dc' });
+        }
+      }
+      const mesh = new THREE.Mesh(tb.build(), lam(0xffffff, { vertexColors: true, side: THREE.DoubleSide, emissive: 0x2e2b26 }));
+      mesh.castShadow = true; mesh.receiveShadow = true;
+      this.group.add(mesh);
+      this.group.add(instancedChunks(parts, lam(0xffffff)));
+      this.group.add(instancedChunks(glass, lam(0xffffff), { receive: false }));
+      // 夜の足もとの灯り
+      for (const p of samplePath(deckPts, 12)) this.lampPositions.push([p.x, Y + 1.2, p.z]);
+    }
+  }
+
   _stationFront() {
     const st = POIS.find((p) => p.n === 'JR尾道駅');
     if (!st) return;

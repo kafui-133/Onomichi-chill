@@ -160,15 +160,22 @@ const DOOR_PATH = (() => {
   return { k: 'steps', w: 1.8, p: [sx, sz, sx - 2.5, sz, mx, mz, best.x, best.z], n: '空き家への石段' };
 })();
 
-const ALL_ROADS = [...DATA.roads, DOOR_PATH].map((r, id) => {
+const ALL_ROADS_RAW = [...DATA.roads, DOOR_PATH].map((r, id) => {
   const pts = [];
   for (let k = 0; k < r.p.length; k += 2) pts.push([r.p[k], r.p[k + 1]]);
   return {
     id, name: r.n || '', label: r.n || KIND_LABEL[r.k] || '道', kind: r.k, width: r.w, pts,
-    surface: SURFACE[r.k] || 'asphalt', covered: !!r.c || ARCADE_NAMES.includes(r.n),
+    // 商店街のアーケードは名前のある4つの通りだけ。ほかの「屋根つき」（桟橋の通路、駅の階段など）は roofed
+    surface: SURFACE[r.k] || 'asphalt', covered: ARCADE_NAMES.includes(r.n), roofed: !!r.c,
     layered: !!r.l,
   };
 });
+
+// 駅前の大きな歩道橋（2階の高さのデッキ）：地図で「上の階」にある長い歩行者道。地面の道からは外し、別に作る
+const polyLen = (pts) => pts.reduce((s, p, i) => (i ? s + Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1]) : 0), 0);
+export const DECKS = ALL_ROADS_RAW.filter((r) => r.layered && ['pedestrian', 'footway'].includes(r.kind) && polyLen(r.pts) > 60);
+const nearDeck = (r) => r.layered && DECKS.some((d) => r.pts.every(([x, z]) => d.pts.some(([dx, dz]) => Math.hypot(dx - x, dz - z) < 14)));
+const ALL_ROADS = ALL_ROADS_RAW.filter((r) => !DECKS.includes(r) && !nearDeck(r));
 
 // 空き家から歩いて行ける道だけを残す（同じ座標の点を共有する道どうしはつながっている）
 function connectedFrom(roads, start) {
@@ -511,7 +518,9 @@ export const ROPEWAY = (() => {
 // ---------- 建物の中かどうか（グリッドで引く） ----------
 const BCELL = 40;
 const bgrid = new Map();
-const BUILDINGS = DATA.buildings.map((b) => { const a = []; for (let k = 0; k < b.p.length; k += 2) a.push([b.p[k], b.p[k + 1]]); return a; });
+// 屋根だけの建物（駅の西の屋根つき歩道、桟橋の上屋など）：壁はなく、下を歩ける
+export const ROOFS = DATA.buildings.filter((b) => b.k === 'roof').map((b) => { const a = []; for (let k = 0; k < b.p.length; k += 2) a.push([b.p[k], b.p[k + 1]]); return a; });
+const BUILDINGS = DATA.buildings.filter((b) => b.k !== 'roof').map((b) => { const a = []; for (let k = 0; k < b.p.length; k += 2) a.push([b.p[k], b.p[k + 1]]); return a; });
 BUILDINGS.forEach((poly) => {
   const xs = poly.map((p) => p[0]), zs = poly.map((p) => p[1]);
   for (let i = Math.floor(Math.min(...xs) / BCELL); i <= Math.floor(Math.max(...xs) / BCELL); i++) {
