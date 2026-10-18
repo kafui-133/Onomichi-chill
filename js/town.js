@@ -2166,11 +2166,25 @@ export class Town {
         if (nearAnyRoad(x, z, 0.6) || inSolid(x, z) || inBuilding(x, z) || Math.hypot(x - px, z - pz) < 9) continue;
         if (this.occupied.has(Math.floor(x / 4) * 100003 + Math.floor(z / 4))) continue;
         const y = terrainY(x, z);
-        const g = 0.55 + r() * 0.2;
+        // 墓石：台石・中台・竿石の三段。灰色の御影石が多く、ところどころ黒御影
+        const black = r() < 0.15;
+        const g = black ? 0.2 + r() * 0.05 : 0.42 + r() * 0.16;
         const c = new THREE.Color().setRGB(g, g * 0.99, g * 0.96);
-        bases.push({ x, y: y + 0.12, z, sx: 0.7, sy: 0.3, sz: 0.7, ry: yaw, color: c });
-        const h = 0.6 + r() * 0.5;
-        stones.push({ x, y: y + 0.27 + h / 2, z, sx: 0.32, sy: h, sz: 0.28, ry: yaw, color: c.clone().multiplyScalar(0.92) });
+        bases.push({ x, y: y + 0.12, z, sx: 0.78, sy: 0.26, sz: 0.74, ry: yaw, color: c.clone().multiplyScalar(0.9) });
+        bases.push({ x, y: y + 0.36, z, sx: 0.56, sy: 0.22, sz: 0.52, ry: yaw, color: c });
+        const h = 0.55 + r() * 0.35;
+        stones.push({ x, y: y + 0.47 + h / 2, z, sx: 0.3, sy: h, sz: 0.27, ry: yaw, color: c.clone().multiplyScalar(1.05) });
+        // 花立ての花（手前の両わき）
+        if (r() < 0.55) for (const sd of [-1, 1]) {
+          const fx2 = x + fx * 0.32 + sx * sd * 0.22, fz2 = z + fz * 0.32 + sz * sd * 0.22;
+          stones.push({ x: fx2, y: y + 0.45, z: fz2, sx: 0.08, sy: 0.18, sz: 0.08, color: '#7a7670' });
+          stones.push({ x: fx2, y: y + 0.58, z: fz2, sx: 0.1, sy: 0.1, sz: 0.1, color: ['#c8a838', '#b84a52', '#e6e0d6', '#8a5a98'][Math.floor(r() * 4)] });
+        }
+        // 卒塔婆（うしろに立てた木の板）
+        if (r() < 0.3) for (let k = 0; k < 1 + Math.floor(r() * 3); k++) {
+          const off = (k - 1) * 0.16;
+          stones.push({ x: x - fx * 0.42 + sx * off, y: y + 0.85, z: z - fz * 0.42 + sz * off, sx: 0.07, sy: 1.4 + r() * 0.3, sz: 0.02, ry: yaw, rz: (r() - 0.5) * 0.08, color: '#cbb894' });
+        }
       }
     }
     const mat = lam(0xffffff);
@@ -2209,6 +2223,7 @@ export class Town {
     this.group.add(g);
     // Blender で作った三重塔（assets/models/pagoda.glb）が読めたら差しかえる。読めなければ上の簡単な塔のまま
     this._pagodaModel(x, z, g);
+    this._pagodaGrounds(x, z);
   }
 
   /**
@@ -2276,6 +2291,74 @@ export class Town {
     }
     if (/gold/.test(n)) return lam(color, { emissive: 0x2a2208 });
     return lam(color);
+  }
+
+  /** 三重塔のまわり：玉砂利、石の玉垣、参道の石灯籠、塔を囲む桜と松（尾道の、塔と桜の眺め） */
+  _pagodaGrounds(x, z) {
+    const r = seededRandom('tenneiji');
+    const tb = new TriBatch();
+    for (let a = -8; a < 8; a += 1.2) for (let b = -8; b < 8; b += 1.2) {
+      if (Math.hypot(a, b) > 7.6) continue;
+      const qx = x + a, qz = z + b;
+      if (nearAnyRoad(qx + 0.6, qz + 0.6, 0)) continue;
+      const v = 0.68 + r() * 0.06, col = new THREE.Color(v, v * 0.97, v * 0.92);
+      const P = (px, pz) => [px, groundY(px, pz) + 0.05, pz];
+      tb.quad(P(qx, qz), P(qx, qz + 1.2), P(qx + 1.2, qz + 1.2), P(qx + 1.2, qz), col);
+    }
+    const ground = new THREE.Mesh(tb.build(), lam(0xffffff, { vertexColors: true, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -0.6, polygonOffsetUnits: -1 }));
+    ground.receiveShadow = true;
+    this.group.add(ground);
+    const parts = [], trunks = [], crowns = [];
+    // 玉垣
+    for (let a = 0; a < Math.PI * 2; a += 0.13) {
+      const qx = x + Math.cos(a) * 7.8, qz = z + Math.sin(a) * 7.8;
+      if (nearAnyRoad(qx, qz, 0.4)) continue;
+      const y = groundY(qx, qz);
+      parts.push({ x: qx, y: y + 0.4, z: qz, sx: 0.2, sy: 0.8, sz: 0.2, color: '#a49e92' });
+      const mx = x + Math.cos(a + 0.065) * 7.8, mz = z + Math.sin(a + 0.065) * 7.8;
+      parts.push({ x: mx, y: y + 0.65, z: mz, sx: 1.05, sy: 0.1, sz: 0.12, ry: -(a + 0.065) - Math.PI / 2, color: '#9a9488' });
+    }
+    // 石灯籠：塔のいちばん近い道のほうに一対
+    const n = nearestRoad(x, z);
+    if (n) {
+      const dx = n.px - x, dz = n.pz - z, L = Math.hypot(dx, dz) || 1;
+      for (const sd of [-1, 1]) {
+        const qx = x + dx / L * 6 - dz / L * sd * 2.2, qz = z + dz / L * 6 + dx / L * sd * 2.2;
+        if (nearAnyRoad(qx, qz, 0.3)) continue;
+        const y = groundY(qx, qz);
+        parts.push({ x: qx, y: y + 0.2, z: qz, sx: 0.8, sy: 0.4, sz: 0.8, color: '#a8a296' });
+        parts.push({ x: qx, y: y + 0.85, z: qz, sx: 0.28, sy: 0.9, sz: 0.28, color: '#aaa498' });
+        parts.push({ x: qx, y: y + 1.6, z: qz, sx: 0.44, sy: 0.4, sz: 0.44, color: '#b8b2a4' });
+        parts.push({ x: qx, y: y + 1.95, z: qz, sx: 0.9, sy: 0.25, sz: 0.9, color: '#8e897e' });
+        this.lampPositions.push([qx, y + 1.6, qz]);
+        addSolid(qx, qz, 0.9, 0.9, 0);
+      }
+    }
+    // 桜（春は薄紅、秋は少し色づく）と松
+    const month = new Date().getMonth() + 1;
+    const leaf = month === 3 || month === 4 ? ['#f2c4cf', '#eab4c2', '#f6d4dc'] : month === 10 || month === 11 ? ['#c86a3a', '#6a8444', '#b8803a'] : ['#5f8a44', '#6e9a4c', '#557c3c'];
+    let placed = 0;
+    for (let k = 0; k < 24 && placed < 7; k++) {
+      const a = r() * Math.PI * 2, d = 9.5 + r() * 6;
+      const qx = x + Math.cos(a) * d, qz = z + Math.sin(a) * d;
+      if (nearAnyRoad(qx, qz, 2.2) || inBuilding(qx, qz) || inSolid(qx, qz)) continue;
+      placed++;
+      const y = groundY(qx, qz);
+      const pine = placed % 3 === 0;
+      const h = pine ? 6 + r() * 2 : 4.5 + r() * 1.5;
+      trunks.push({ x: qx, y: y + h / 2, z: qz, sx: 0.3, sy: h, sz: 0.3, rz: (r() - 0.5) * 0.25, color: pine ? '#5a4636' : '#4e3a30' });
+      if (pine) {
+        for (let j = 0; j < 3; j++) crowns.push({ x: qx + (r() - 0.5) * 1.5, y: y + h - 1.6 + j * 0.9, z: qz + (r() - 0.5) * 1.5, sx: 3.2 - j * 0.6, sy: 1, sz: 2.8 - j * 0.5, ry: r() * 6, color: '#3e5a34' });
+      } else {
+        for (let j = 0; j < 4; j++) crowns.push({ x: qx + (r() - 0.5) * 3, y: y + h - 0.4 + r() * 1.2, z: qz + (r() - 0.5) * 3, sx: 2.8 + r() * 1.2, sy: 1.8 + r() * 0.6, sz: 2.8 + r() * 1.2, ry: r() * 6, color: leaf[j % 3] });
+      }
+      addSolid(qx, qz, 0.8, 0.8, 0);
+    }
+    this.group.add(instancedChunks(parts, lam(0xffffff)));
+    if (trunks.length) {
+      this.group.add(instancedChunks(trunks, lam(0xffffff), { geo: new THREE.CylinderGeometry(0.4, 0.55, 1, 6) }));
+      this.group.add(instancedChunks(crowns, lam(0xffffff, { flatShading: true }), { geo: new THREE.IcosahedronGeometry(0.6, 1) }));
+    }
   }
 
   _pagodaModel(x, z, simple) {
