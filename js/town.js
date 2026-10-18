@@ -2587,7 +2587,7 @@ export class Town {
     for (let k = 0; k < 7; k++) add(new THREE.SphereGeometry(0.075, 8, 6), mk, 0.75 + (k % 4) * 0.13 + (k > 3 ? 0.06 : 0), 1.12 + (k > 3 ? 0.1 : 0), 1.0 + (k % 2) * 0.08);
     add(new THREE.CylinderGeometry(0.32, 0.26, 0.12, 12), wood, 0.95, 1.1, 1.04);
     // 看板
-    const tex = labelTexture('みかんジュース', { w: 640, h: 160, size: 84, bg: '#e8822a', fg: '#fff8e8' });
+    const tex = labelTexture('みかんジュース', { w: 640, h: 160, size: 70, bg: '#e8822a', fg: '#fff8e8' });
     const sign = new THREE.Mesh(new THREE.PlaneGeometry(3.0, 0.75), new THREE.MeshLambertMaterial({ map: tex, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.2 }));
     sign.position.set(0, 2.35, 1.0);
     this.specialSignMats.push(sign.material);
