@@ -257,6 +257,7 @@ export class Town {
     this._lamps();
     this._seaside();
     this._streetDetails();
+    this._sculptures();
     this._train();
   }
 
@@ -3961,6 +3962,117 @@ export class Town {
         g.add(pole, ring, face);
         this.group.add(g);
       }
+    }
+  }
+
+  /**
+   * 尾道水道ぞいの野外彫刻：駅前の海ぎわの芝生から、海岸通りの遊歩道にかけて、間をあけて並べる。
+   * 立つ人のブロンズ像、ステンレスのねじれた輪、積んだ御影石、帆のかたち、ベンチに座る像。台座と銘板つき。
+   * それと、本通りの入口（駅のほう）に、旅行かばんを持って座る林芙美子の像
+   */
+  _sculptures() {
+    const r = seededRandom('sculpture');
+    const bronze = lam(0x5a5a3e), steel = new THREE.MeshLambertMaterial({ color: 0xd8dde0, emissive: 0x202428 }), granite = lam(0xa49e92), plinthM = lam(0xbab4a8), brass = lam(0xb8984a);
+    const spots = [];
+    for (const line of COAST) {
+      for (const p of samplePath(line, 4)) {
+        if (!onOnomichiSide(p.x, p.z) || p.x < -420 || p.x > 640) continue;
+        if (spots.some((q) => Math.hypot(q.x - p.x, q.z - p.z) < 60)) continue;
+        let nx = -Math.sin(p.angle), nz = Math.cos(p.angle);
+        if (terrainY(p.x + nx * 6, p.z + nz * 6) < terrainY(p.x - nx * 6, p.z - nz * 6)) { nx = -nx; nz = -nz; }
+        const x = p.x + nx * 5.2, z = p.z + nz * 5.2;
+        if (groundY(x, z) - SEA_Y > 6) continue;
+        let ok = true;
+        for (const [a, b] of [[0, 0], [1.4, 0], [-1.4, 0], [0, 1.4], [0, -1.4]]) if (nearAnyRoad(x + a, z + b, 0.2) || inBuilding(x + a, z + b) || inSolid(x + a, z + b) || demAt(x + a, z + b) < SEA_Y + 0.8) ok = false;
+        if (!ok) continue;
+        spots.push({ x, z, face: Math.atan2(-nx, -nz) });   // 海を向く
+      }
+    }
+    const make = (kind, g) => {
+      const add = (geo, mat, x, y, z, rx = 0, ry = 0, rz = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.set(rx, ry, rz); m.castShadow = true; g.add(m); return m; };
+      if (kind === 0) {
+        // 海を見て立つ人（ブロンズ）
+        add(new THREE.CylinderGeometry(0.11, 0.09, 0.85, 8), bronze, -0.12, 1.5, 0);
+        add(new THREE.CylinderGeometry(0.11, 0.09, 0.85, 8), bronze, 0.12, 1.5, 0.05);
+        add(new THREE.CylinderGeometry(0.2, 0.15, 0.75, 10), bronze, 0, 2.25, 0);
+        add(new THREE.SphereGeometry(0.15, 12, 10), bronze, 0, 2.78, 0.02);
+        add(new THREE.CylinderGeometry(0.06, 0.05, 0.7, 6), bronze, -0.26, 2.2, 0.08, 0.3, 0, 0.15);
+        add(new THREE.CylinderGeometry(0.06, 0.05, 0.7, 6), bronze, 0.27, 2.35, 0.2, -1.1, 0, -0.2);   // 遠くを指す腕
+      } else if (kind === 1) {
+        // ステンレスのねじれた輪
+        add(new THREE.TorusKnotGeometry(0.8, 0.14, 80, 10, 2, 3), steel, 0, 2.2, 0, 0.2, 0, 0.3);
+      } else if (kind === 2) {
+        // 積んだ御影石（少しずつずらして）
+        for (let k = 0; k < 4; k++) add(new THREE.BoxGeometry(1.1 - k * 0.15, 0.5, 0.8 - k * 0.1), granite, (r() - 0.5) * 0.25, 1.35 + k * 0.5, (r() - 0.5) * 0.2, 0, r() * 0.6, 0);
+        add(new THREE.SphereGeometry(0.28, 12, 10), granite, 0, 3.35, 0);
+      } else if (kind === 3) {
+        // 帆のかたち（ブロンズの曲面）
+        const sail = add(new THREE.CylinderGeometry(1.4, 1.4, 2.6, 16, 1, true, 0, Math.PI * 0.6), new THREE.MeshLambertMaterial({ color: 0x6a6448, side: THREE.DoubleSide }), 0, 2.4, -1.0);
+        sail.rotation.z = 0.12;
+        add(new THREE.CylinderGeometry(0.05, 0.05, 3.2, 6), bronze, 0, 2.6, 0.38);
+      } else {
+        // ベンチに座る人（ブロンズ）。となりに座れそうな空き
+        add(new THREE.BoxGeometry(1.8, 0.08, 0.45), bronze, 0, 1.45, 0);
+        for (const sd of [-0.75, 0.75]) add(new THREE.BoxGeometry(0.08, 0.45, 0.4), bronze, sd, 1.2, 0);
+        add(new THREE.BoxGeometry(0.3, 0.12, 0.45), bronze, -0.45, 1.56, 0.12);
+        add(new THREE.CylinderGeometry(0.17, 0.15, 0.6, 10), bronze, -0.45, 1.9, -0.05);
+        add(new THREE.SphereGeometry(0.13, 12, 10), bronze, -0.45, 2.33, -0.02);
+        for (const sd of [-0.55, -0.35]) add(new THREE.CylinderGeometry(0.06, 0.05, 0.45, 6), bronze, sd, 1.3, 0.32);
+      }
+    };
+    const names = ['海をのぞむ', '潮のかたち', '石のことば', '帆', '待ちびと', '風', '舟出', '凪'];
+    spots.slice(0, 8).forEach((sp, i) => {
+      const g = new THREE.Group();
+      const y = groundY(sp.x, sp.z);
+      const plinth = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.1, 1.5), plinthM);
+      plinth.position.y = 0.55;
+      plinth.castShadow = plinth.receiveShadow = true;
+      g.add(plinth);
+      make(i % 5, g);
+      // 銘板（題名）
+      const tex = labelTexture(names[i % names.length], { w: 256, h: 96, size: 46, bg: '#b8984a', fg: '#3a2a18' });
+      const plate = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.22), new THREE.MeshLambertMaterial({ map: tex }));
+      plate.position.set(0, 0.7, -0.76);
+      plate.rotation.y = Math.PI;
+      g.add(plate);
+      g.position.set(sp.x, y, sp.z);
+      g.rotation.y = sp.face;
+      this.group.add(g);
+      this.lampPositions.push([sp.x, y + 0.3, sp.z]);   // 夜は足もとから照らす
+      addSolid(sp.x, sp.z, 1.6, 1.6, -sp.face);
+      void brass;
+    });
+    this.sculptureSpots = spots.slice(0, 8);
+    // 林芙美子像：本通り（駅前商店街）の入口。旅行かばんを横に、しゃがんで頬杖をつく姿
+    const arc = ROADS.find((rd) => rd.name === '駅前商店街');
+    if (arc) {
+      const end = arc.pts[0][0] > arc.pts[arc.pts.length - 1][0] ? arc.pts[0] : arc.pts[arc.pts.length - 1];   // 駅に近い端
+      const n = nearestRoad(end[0], end[1]);
+      const ang = n ? Math.atan2(n.seg.dz, n.seg.dx) : 0;
+      let px = end[0], pz = end[1];
+      for (const sd of [1, -1]) for (const d of [3, 4, 5]) {
+        const x = end[0] - Math.sin(ang) * sd * d, z = end[1] + Math.cos(ang) * sd * d;
+        if (!nearAnyRoad(x, z, 0.3) && !inBuilding(x, z) && !inSolid(x, z)) { px = x; pz = z; break; }
+      }
+      const g = new THREE.Group();
+      const y = groundY(px, pz);
+      const base = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.5, 1.2), granite);
+      base.position.y = 0.25;
+      g.add(base);
+      const add = (geo, x, yy, z, rx = 0, rz = 0) => { const m = new THREE.Mesh(geo, bronze); m.position.set(x, yy, z); m.rotation.set(rx, 0, rz); m.castShadow = true; g.add(m); };
+      add(new THREE.BoxGeometry(0.55, 0.38, 0.25), 0.45, 0.7, 0.05);                 // 旅行かばん
+      add(new THREE.CylinderGeometry(0.2, 0.25, 0.55, 10), -0.1, 0.85, 0, 0.35);       // しゃがんだ体
+      add(new THREE.SphereGeometry(0.13, 12, 10), -0.08, 1.25, 0.12);                  // 頭
+      add(new THREE.CylinderGeometry(0.05, 0.05, 0.4, 6), -0.05, 1.05, 0.25, 0.9);      // 頬杖の腕
+      const tex = labelTexture('林芙美子', { w: 256, h: 96, size: 52, bg: '#a49e92', fg: '#2e2a26' });
+      const plate = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.26), new THREE.MeshLambertMaterial({ map: tex }));
+      plate.position.set(0, 0.26, 0.61);
+      g.add(plate);
+      g.position.set(px, y, pz);
+      g.rotation.y = Math.atan2(end[0] - px, end[1] - pz);
+      this.group.add(g);
+      addSolid(px, pz, 1.4, 1.2, 0);
+      this.fumikoAt = { x: px, z: pz };
     }
   }
 
