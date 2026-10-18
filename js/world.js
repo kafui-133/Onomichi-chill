@@ -301,16 +301,38 @@ export class World {
   _litCrane(g, mats) {
     const own = new Map();
     const lines = [];
+    // 下からの投光：足もとほど明るく、上へいくほど暗くなる（骨組みの色も残す）
+    const uBase = { value: g.position.y }, uSpan = { value: 55 };
+    const uplight = (m) => {
+      m.onBeforeCompile = (sh) => {
+        sh.uniforms.uBase = uBase;
+        sh.uniforms.uSpan = uSpan;
+        sh.vertexShader = 'varying float vLiftY;\n' + sh.vertexShader.replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvLiftY = (modelMatrix * vec4(transformed, 1.0)).y;');
+        sh.fragmentShader = 'uniform float uBase, uSpan;\nvarying float vLiftY;\n' + sh.fragmentShader.replace(
+          'vec3 totalEmissiveRadiance = emissive;',
+          'float upl = 1.0 - smoothstep(uBase, uBase + uSpan, vLiftY);\nvec3 totalEmissiveRadiance = emissive * (0.12 + 0.88 * upl * upl) * (0.45 + 0.55 * diffuseColor.rgb);');
+      };
+      m.customProgramCacheKey = () => 'crane-uplight';
+    };
     g.traverse((o) => {
       if (o.isMesh && mats.includes(o.material)) {
-        if (!own.has(o.material)) own.set(o.material, o.material.clone());
+        if (!own.has(o.material)) { const m = o.material.clone(); uplight(m); own.set(o.material, m); }
         o.material = own.get(o.material);
       } else if (o.isLineSegments && o.material.color.getHex() !== 0x2a2e2c) {
         o.material = o.material.clone();
         lines.push({ mat: o.material, base: o.material.color.clone() });
       }
     });
-    this.craneLights.push({ mats: [...own.values()], lines });
+    // 足もとの投光器のにじみ（地面と水面がほんのり色づく）
+    const glows = [];
+    for (const [dx, dz] of [[-8, 9], [8, 9], [0, -9]]) {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: 0xffffff, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+      sp.position.set(g.position.x + dx, g.position.y + 2, g.position.z + dz);
+      sp.scale.set(26, 14, 1);
+      this.group.add(sp);
+      glows.push(sp);
+    }
+    this.craneLights.push({ mats: [...own.values()], lines, glows });
   }
 
   /**
@@ -335,8 +357,12 @@ export class World {
     this.craneLights.forEach((L, i) => {
       c.set(this._cranePlan.colors[i]);
       if (this._cranePlan.mode === 'shift') c.offsetHSL(((elapsed * 0.01 + i * 0.12) % 1), 0, 0);
-      for (const m of L.mats) { m.emissive.copy(c); m.emissiveIntensity = lit * 0.85; }
-      for (const l of L.lines) l.mat.color.copy(l.base).lerp(c.clone().multiplyScalar(1.6), lit);
+      // 色は少しだけ落ち着かせる（白とまぜる）
+      c.lerp(new THREE.Color(0xffffff), 0.12);
+      for (const m of L.mats) { m.emissive.copy(c); m.emissiveIntensity = lit * 0.75; }
+      // 細い格子の線は、照らされた骨組みよりも控えめに
+      for (const l of L.lines) l.mat.color.copy(l.base).multiplyScalar(1 - lit * 0.75).lerp(c, lit * 0.45);
+      for (const sp of L.glows) { sp.material.color.copy(c); sp.material.opacity = lit * 0.32; }
     });
   }
 
