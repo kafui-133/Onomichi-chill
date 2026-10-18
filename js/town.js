@@ -845,7 +845,7 @@ export class Town {
   _sando() {
     if (SANDO.length < 2) return;
     const r = this.r;
-    const stone = [], roofs = [], fire = [], rocks = [], poles = [], cloth = [], jizo = [], heads = [], trunks = [], crowns = [];
+    const stone = [], roofs = [], fire = [], rocks = [], poles = [], cloth = [], jizo = [], heads = [], trunks = [], crowns = [], walls = [], moss = [];
     const month = new Date().getMonth() + 1;
     const autumn = month === 10 || month === 11;
     const free = (x, z, m = 0.6) => !nearAnyRoad(x, z, m) && !inBuilding(x, z) && !inSolid(x, z) && !inPrecinct(x, z, -4);
@@ -859,6 +859,34 @@ export class Town {
       const n = nearestRoad(p.x, p.z);
       const hw = n ? n.seg.half : 1;
       const nx = -Math.sin(p.angle), nz = Math.cos(p.angle);
+      // 両わきの石垣（野面積み）：山側は土を受けて高く、谷側は低い。上と、道に向いた面に苔
+      if (i < pts.length - 1) {
+        const py = groundY(p.x, p.z);
+        for (const sd of [-1, 1]) {
+          const wx = p.x + nx * sd * (hw + 0.25), wz = p.z + nz * sd * (hw + 0.25);
+          if (nearAnyRoad(wx, wz, 0.05) || inBuilding(wx, wz) || inPrecinct(wx, wz, -4)) continue;
+          const beside = groundY(p.x + nx * sd * (hw + 1.6), p.z + nz * sd * (hw + 1.6));
+          const h = beside > py + 0.3 ? Math.min(2.2, beside - py + 0.45) : 0.55;
+          const tone = ['#a39d90', '#968f82', '#aaa598', '#8f8a7e'][Math.floor(r() * 4)];
+          walls.push({ x: wx, y: py + h / 2 - 0.15, z: wz, sx: 2.08, sy: h + 0.3, sz: 0.5, ry: -p.angle, color: tone });
+          // 積んだ石の出っぱり（ところどころ、色のちがう石）
+          for (let k = 0; k < Math.round(h * 2); k++) {
+            const u = (r() - 0.5) * 1.6, v = 0.15 + r() * (h - 0.25);
+            const tx = Math.cos(p.angle) * u, tz = Math.sin(p.angle) * u;
+            walls.push({ x: wx + tx - nx * sd * 0.27, y: py + v, z: wz + tz - nz * sd * 0.27, sx: 0.35 + r() * 0.3, sy: 0.22 + r() * 0.18, sz: 0.06, ry: -p.angle, color: ['#b4afa2', '#8a8478', '#9f998c'][Math.floor(r() * 3)] });
+          }
+          // 苔：石垣の上、道に向いた面のすそ、道ばた
+          if (r() < 0.6) moss.push({ x: wx, y: py + h + 0.02, z: wz, sx: 1.6 + r() * 0.5, sy: 0.07, sz: 0.56, ry: -p.angle, color: ['#5d7a3a', '#6a8444', '#4e6a32'][Math.floor(r() * 3)] });
+          if (r() < 0.45) {
+            const u = (r() - 0.5) * 1.2, ph = 0.25 + r() * Math.min(0.6, h * 0.5);
+            moss.push({ x: wx + Math.cos(p.angle) * u - nx * sd * 0.26, y: py + ph / 2, z: wz + Math.sin(p.angle) * u - nz * sd * 0.26, sx: 0.5 + r() * 0.7, sy: ph, sz: 0.04, ry: -p.angle, color: ['#5a7438', '#6c8848', '#4a6230'][Math.floor(r() * 3)] });
+          }
+          if (r() < 0.6) {
+            const gx = p.x + nx * sd * (hw - 0.05), gz = p.z + nz * sd * (hw - 0.05);
+            moss.push({ x: gx, y: groundY(gx, gz) + 0.03, z: gz, sx: 1.2 + r() * 0.8, sy: 0.05, sz: 0.25 + r() * 0.15, ry: -p.angle, color: ['#5f7c3c', '#6e8a48'][Math.floor(r() * 2)] });
+          }
+        }
+      }
       // 石灯籠：両側に、約14m ごと
       if (total - lastLantern > 14) {
         for (const sd of [-1, 1]) {
@@ -939,6 +967,8 @@ export class Town {
       }
     }
     if (stone.length) this.group.add(instancedChunks(stone, lam(0xffffff)));
+    if (walls.length) this.group.add(instancedChunks(walls, lam(0xffffff)));
+    if (moss.length) this.group.add(instancedChunks(moss, lam(0xffffff), { cast: false }));
     if (roofs.length) this.group.add(instancedChunks(roofs, lam(0xffffff), { geo: new THREE.CylinderGeometry(0.2, 0.75, 1, 4, 1, false, Math.PI / 4) }));
     if (fire.length) {
       // 火袋：昼は石の色、夜はほんのり灯る
