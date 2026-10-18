@@ -35,7 +35,7 @@ export class Diary {
   _reset() {
     const d = this.getDay();
     this.day = d.day;
-    this.log = { events: [], places: [], foods: [], cats: [], petted: [], friends: [], photos: 0, photo: null, ropeway: false, summit: false, sat: 0, eyes: 0, moods: [], talks: [] };
+    this.log = { events: [], places: [], foods: [], cats: [], petted: [], friends: [], photos: 0, photo: null, ropeway: false, summit: false, sat: 0, eyes: 0, moods: [], talks: [], temples: [] };
   }
 
   _today() {
@@ -54,6 +54,7 @@ export class Diary {
   /** 季節のイベントの日（日記のはじめに一行） */
   event(text) { const l = this._today(); if (text && !l.events.includes(text)) l.events.push(text); }
   summit() { this._today().summit = true; }
+  temple(name) { const l = this._today(); (l.temples ||= []); if (name && !l.temples.includes(name)) l.temples.push(name); }
   talked(who) { const l = this._today(); (l.talks ||= []); if (who && !l.talks.includes(who)) l.talks.push(who); }
   sat() { this._today().sat++; }
   closedEyes() { this._today().eyes++; }
@@ -83,6 +84,7 @@ export class Diary {
     else lines.push(`今日は、${join(places)}のあたりを歩いた。`);
     if (l.ropeway) lines.push(l.summit ? 'ロープウェイで千光寺山にのぼって、山頂から尾道水道を見わたした。' : 'ロープウェイに乗った。ゴンドラの窓の下を、町がゆっくり流れていった。');
     else if (l.summit) lines.push('千光寺山の頂上から、尾道水道を見わたした。');
+    if (l.temples?.length) lines.push(l.temples.length >= 3 ? `古寺めぐりで、${join(l.temples.slice(0, 3))}など、${l.temples.length}のお寺にお参りした。` : `${join(l.temples)}にお参りした。`);
     if (l.foods.length) lines.push(`${join(l.foods.slice(0, 3))}をいただいた。`);
     if (l.friends.length) lines.push(`${join(l.friends)}が、すっかり懐いてくれた。`);
     else if (l.petted.length) lines.push(`${join(l.petted.slice(0, 3))}を、そっとなでた。`);

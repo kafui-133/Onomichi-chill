@@ -8,7 +8,7 @@ import { lam, buildSignAtlas, buildRetroSignAtlas, buildShopInteriorAtlas, SHOP_
 import {
   DATA, SEA_Y, BOUNDS, terrainY, groundY, surfaceY, addTread, addSolid, inSolid, walkable, ROADS, OTHER_ROADS, ARCADE_ROADS, nearAnyRoad, samplePath, roadLength, pointAlong,
   STREET_SHOPS, demAt, ALLEYS, COAST, distToCoast, straitAt, RAILS, CROSSINGS, TRAIN_TRACKS, ROPEWAY, SUMMIT, BENCHES, FERRY_ROUTES, POIS, onOnomichiSide, nearestRoad, inBuilding,
-  ROOFS, DECKS, addUpper, SANDO,
+  ROOFS, DECKS, addUpper, SANDO, KOJI,
 } from './townMap.js';
 
 const SURFACE_LIFT = { asphalt: 0.05, tile: 0.07, stone: 0.09 };
@@ -243,6 +243,8 @@ export class Town {
     this._rails();
     this._ropeway();
     this._landmarks();
+    this._moreSights();
+    this._koji();
     this._piersAndBenches();
     this._nekoStones();
     this._pine();
@@ -692,7 +694,9 @@ export class Town {
       }
       const station = b.k === 'train_station';
       if (station) top = Math.min(top, yMin + 8.5);
-      const wc = new THREE.Color(station ? '#efede6' : walls[Math.floor(r() * walls.length)]);
+      const u2 = b.n === 'ONOMICHI U2';
+      if (u2) this.u2Poly = poly;
+      const wc = new THREE.Color(station ? '#efede6' : u2 ? '#5a6068' : walls[Math.floor(r() * walls.length)]);
       roofTile = roofTiles[Math.floor(r() * roofTiles.length)];
       for (let i = 0; i < poly.length; i++) {
         const [ax, az] = poly[i], [bx, bz] = poly[(i + 1) % poly.length];
@@ -2185,6 +2189,267 @@ export class Town {
         g.rotation.y = fit.yaw;
         this._addSolids(fit, MODEL_RECTS.senkoji);
       });
+    }
+  }
+
+  /**
+   * 古寺めぐり：めぐる寺ごとに、寺の名を刻んだ石標と、お参りの場所。地図に堂のない寺には、本堂と鐘楼。
+   * 寺と寺のあいだの道には、「古寺めぐり」の小さな道しるべ（およそ60m ごと）
+   */
+  _koji() {
+    const r = seededRandom('koji');
+    const stones = [], posts = [];
+    const granite = lam(0xb0aa9e);
+    const hasBuilding = (x, z) => DATA.buildings.some((b) => { let bx = 0, bz = 0; const n = b.p.length / 2; for (let k = 0; k < b.p.length; k += 2) { bx += b.p[k]; bz += b.p[k + 1]; } return Math.hypot(bx / n - x, bz / n - z) < 18; });
+    const signTex = labelTexture('古寺めぐり', { w: 128, h: 512, size: 92, bg: '#a8a296', fg: '#3a3430', vertical: true });
+    const signMat = new THREE.MeshLambertMaterial({ map: signTex });
+    KOJI.forEach((t, i) => {
+      // 石標（寺の名）：お参りの場所の道ばた
+      const n = nearestRoad(t.stand.x, t.stand.z);
+      const ang = n ? Math.atan2(n.seg.dz, n.seg.dx) : 0;
+      const hw = n ? n.seg.half : 1;
+      let sx = t.stand.x, sz = t.stand.z;
+      for (const sd of [1, -1]) {
+        const x = t.stand.x - Math.sin(ang) * sd * (hw + 0.5), z = t.stand.z + Math.cos(ang) * sd * (hw + 0.5);
+        if (!nearAnyRoad(x, z, 0.1) && !inBuilding(x, z) && !inSolid(x, z)) { sx = x; sz = z; break; }
+      }
+      const sy = groundY(sx, sz);
+      const tex = labelTexture(t.name, { w: 128, h: 512, size: Math.min(100, 440 / t.name.length), bg: '#b0aa9e', fg: '#2e2a26', vertical: true });
+      const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.42, 1.8, 0.42), [granite, granite, granite, granite, new THREE.MeshLambertMaterial({ map: tex }), new THREE.MeshLambertMaterial({ map: tex })]);
+      pillar.position.set(sx, sy + 0.9, sz);
+      pillar.rotation.y = Math.atan2(t.stand.x - sx, t.stand.z - sz);   // 文字の面を道へ
+      pillar.castShadow = true;
+      this.group.add(pillar);
+      stones.push({ x: sx, y: sy + 0.1, z: sz, sx: 0.7, sy: 0.2, sz: 0.7, ry: -ang, color: '#9a9488' });
+      addSolid(sx, sz, 0.6, 0.6, -ang);
+      // 地図に堂がない寺：本堂を建てる（道にかからない場所に、坂の下へ向けて）
+      if (!hasBuilding(t.x, t.z) && t.name !== '御袖天満宮') {
+        const fit = fitPlacement(t.x, t.z, [[-4.5, 4.5, -4, 4]], { maxShift: 14 });
+        if (fit && fit.hits < 3) {
+          const hall = this._hall(7, 6, 3.6);
+          hall.position.set(fit.x, Math.min(...[[-4, -4], [4, -4], [-4, 4], [4, 4]].map(([a, b]) => terrainY(fit.x + a, fit.z + b))) - 0.2, fit.z);
+          hall.rotation.y = fit.yaw;
+          this.group.add(hall);
+          addSolid(fit.x, fit.z, 8, 7, -fit.yaw);
+        }
+      }
+      this.interactables.push({ type: 'temple', name: t.name, idx: i, x: t.stand.x, z: t.stand.z, radius: 4.5 });
+      // 道しるべ：前の寺からの道すじに、およそ60m ごと
+      if (t.route.length > 1) {
+        const pts = samplePath(t.route, 4);
+        let run = 0, last = 0;
+        for (const p of pts) {
+          run += 4;
+          if (run - last < 60 || run < 20) continue;
+          const nr = nearestRoad(p.x, p.z);
+          const w = nr ? nr.seg.half + 0.45 : 1.2;
+          const sd = r() < 0.5 ? -1 : 1;
+          const x = p.x - Math.sin(p.angle) * sd * w, z = p.z + Math.cos(p.angle) * sd * w;
+          if (nearAnyRoad(x, z, 0.05) || inBuilding(x, z) || inSolid(x, z)) continue;
+          last = run;
+          posts.push({ x, z, y: groundY(x, z), face: Math.atan2(p.x - x, p.z - z) });
+        }
+      }
+    });
+    if (stones.length) this.group.add(instancedChunks(stones, lam(0xffffff)));
+    for (const p of posts) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.95, 0.22), [granite, granite, granite, granite, signMat, signMat]);
+      m.position.set(p.x, p.y + 0.47, p.z);
+      m.rotation.y = p.face;
+      this.group.add(m);
+    }
+  }
+
+  /** 木造の堂・社殿（低ポリゴン）：石の基壇、柱と壁、四方に軒の出た屋根（寄棟風）。正面は +Z */
+  _hall(w, d, h, { wall = 0x5a3e2c, roof = 0x3c4148, plaster = 0xeae4d6, base = 0x9a9488 } = {}) {
+    const g = new THREE.Group();
+    const add = (geo, color, x, y, z) => { const m = new THREE.Mesh(geo, lam(color)); m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true; g.add(m); return m; };
+    add(new THREE.BoxGeometry(w + 1.2, 0.8, d + 1.2), base, 0, 0.1, 0);
+    add(new THREE.BoxGeometry(w, h, d), wall, 0, 0.5 + h / 2, 0);
+    add(new THREE.BoxGeometry(w + 0.02, h * 0.28, d + 0.02), plaster, 0, 0.5 + h * 0.84, 0);
+    for (const x of [-w / 2, -w / 6, w / 6, w / 2]) add(new THREE.BoxGeometry(0.28, h, 0.28), 0x3a2a20, x, 0.5 + h / 2, d / 2 + 0.05);
+    const R = Math.hypot(w, d) / 2 + 1.6;
+    const rf = add(new THREE.ConeGeometry(R, h * 0.75, 4), roof, 0, 0.5 + h + h * 0.36, 0);
+    rf.rotation.y = Math.PI / 4;
+    rf.scale.set(1, 1, d / w);
+    const eave = add(new THREE.BoxGeometry(w + 2.4, 0.25, d + 2.4), roof, 0, 0.5 + h + 0.05, 0);
+    eave.castShadow = true;
+    add(new THREE.BoxGeometry(w * 0.5, 0.3, 0.3), roof, 0, 0.5 + h + h * 0.72, 0);   // 棟
+    return g;
+  }
+
+  /** 町のほかの名所：御袖天満宮の大石段と社殿、持光寺の延命門、ONOMICHI U2、ロープウェイ山頂駅 */
+  _moreSights() {
+    const poi = (n) => POIS.find((q) => q.n === n);
+    const stone = lam(0xa8a296), granite = lam(0xb4aea2);
+    // ---- 御袖天満宮：下の道から、まっすぐ上る長い石段（一枚岩の段）、上に社殿 ----
+    const tm = poi('御袖天満宮');
+    if (tm) {
+      // 石段は、社殿より下の道から上る（いちばん近い、下の道の点）
+      const gTm = groundY(tm.x, tm.z);
+      let n = null;
+      for (const road of ROADS) for (const [x, z] of road.pts) {
+        const d = Math.hypot(x - tm.x, z - tm.z), gy = groundY(x, z);
+        if (d < 80 && gy < gTm - 4 && road.surface !== 'stone' || d < 80 && gy < gTm - 4 && road.kind === 'steps') if (!n || d < n.d) n = { d, px: x, pz: z };
+      }
+      if (n) {
+        const bx = n.px, bz = n.pz, by = surfaceY(bx, bz);
+        let dx = tm.x - bx, dz = tm.z - bz;
+        const dist = Math.hypot(dx, dz); dx /= dist; dz /= dist;
+        const ang = Math.atan2(dz, dx);
+        const run = Math.max(8, dist - 7);
+        const ty = groundY(bx + dx * run, bz + dz * run);
+        const topY = Math.max(ty, by + 2) + 0.3;
+        const stairs = [];
+        const steps = Math.max(10, Math.round((topY - by) / 0.19)), sr = run / steps;
+        for (let k = 0; k < steps; k++) {
+          const u = (k + 0.5) * sr, y = by + (k + 1) * (topY - by) / steps;
+          const x = bx + dx * (u + 1), z = bz + dz * (u + 1);
+          stairs.push({ x, y: y - 0.35, z, sx: sr + 0.02, sy: 0.7, sz: 2.6, ry: -ang, color: k % 2 ? '#aaa498' : '#b2ac9f' });
+        }
+        // 両わきの石垣
+        for (const sd of [-1, 1]) for (let u = 0; u < run; u += 2) {
+          const x = bx + dx * (u + 2) - dz * sd * 1.6, z = bz + dz * (u + 2) + dx * sd * 1.6;
+          const y = by + (u + 1) / run * (topY - by);
+          const gy = groundY(x, z);
+          stairs.push({ x, y: (y + 0.6 + Math.min(gy, y) - 1) / 2, z, sx: 2.05, sy: Math.max(0.8, y + 0.6 - Math.min(gy, y) + 1), sz: 0.5, ry: -ang, color: '#9a948a' });
+        }
+        this.group.add(instancedChunks(stairs, lam(0xffffff)));
+        addUpper(bx + dx * (run / 2 + 0.6), bz + dz * (run / 2 + 0.6), run + 0.8, 2.3, ang, by + 0.02, topY);
+        // 石段の上：石を敷いた境内（平ら）と、社殿・狛犬・石灯籠
+        const cx = bx + dx * (run + 6), cz = bz + dz * (run + 6);
+        const low = Math.min(...[[-6, -6], [6, -6], [-6, 6], [6, 6]].map(([a2, b2]) => groundY(cx + a2, cz + b2)));
+        const yard = new THREE.Mesh(new THREE.BoxGeometry(12, Math.min(3, Math.max(0.6, topY - low + 0.4)), 12), stone);
+        yard.position.set(cx, topY - yard.geometry.parameters.height / 2, cz);
+        yard.rotation.y = -ang;
+        yard.receiveShadow = true;
+        this.group.add(yard);
+        addUpper(cx, cz, 12, 12, ang, topY);
+        const hall = this._hall(6, 5, 3.4, { wall: 0x4a3324 });
+        hall.position.set(bx + dx * (run + 9), topY - 0.3, bz + dz * (run + 9));
+        hall.rotation.y = Math.atan2(-dx, -dz);
+        this.group.add(hall);
+        // 鳥居（石）を石段の下に
+        const torii = new THREE.Group();
+        for (const sx of [-1.5, 1.5]) { const post = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.24, 4, 10), granite); post.position.set(sx, 2, 0); torii.add(post); }
+        const kasagi = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.35, 0.5), granite); kasagi.position.y = 4.1;
+        const nuki = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.25, 0.3), granite); nuki.position.y = 3.4;
+        torii.add(kasagi, nuki);
+        torii.position.set(bx + dx * 0.6, by, bz + dz * 0.6);
+        torii.rotation.y = Math.atan2(dx, dz) + Math.PI / 2 - Math.PI / 2;
+        torii.rotation.y = -ang + Math.PI / 2;
+        this.group.add(torii);
+        for (const sd of [-1, 1]) {
+          const lx = cx - dx * 4 - dz * sd * 3, lz = cz - dz * 4 + dx * sd * 3;
+          const parts = [[0.8, 0.4, 0.2], [0.28, 0.9, 0.85], [0.44, 0.4, 1.5], [0.9, 0.25, 1.85]];
+          for (const [w, hh, yy] of parts) { const m = new THREE.Mesh(new THREE.BoxGeometry(w, hh, w), stone); m.position.set(lx, topY + yy, lz); this.group.add(m); }
+          this.lampPositions.push([lx, topY + 1.5, lz]);
+        }
+      }
+    }
+    // ---- 持光寺の延命門：花崗岩を組んだ石の門（道がくぐる） ----
+    const jk = poi('持光寺');
+    if (jk) {
+      const n = nearestRoad(jk.x, jk.z);
+      if (n) {
+        const ang = Math.atan2(n.seg.dz, n.seg.dx), hw = n.seg.half;
+        const g = new THREE.Group();
+        const y0 = groundY(n.px, n.pz);
+        for (const sd of [-1, 1]) {
+          for (let k = 0; k < 3; k++) {
+            const blk = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.05, 1.3), granite);
+            blk.position.set(0, 0.52 + k * 1.05, sd * (hw + 0.75));
+            blk.castShadow = true;
+            g.add(blk);
+          }
+        }
+        const lintel = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.9, hw * 2 + 2.8), granite);
+        lintel.position.y = 3.6;
+        const roofG = new THREE.Mesh(new THREE.ConeGeometry(Math.hypot(1.2, hw * 2 + 2.8) / 2 + 1, 1.3, 4), lam(0x3c4148));
+        roofG.rotation.y = Math.PI / 4;
+        roofG.scale.set(1, 1, (hw * 2 + 3.6) / 2.6);
+        roofG.position.y = 4.7;
+        g.add(lintel, roofG);
+        g.position.set(n.px, y0, n.pz);
+        g.rotation.y = -ang;
+        this.group.add(g);
+        for (const sd of [-1, 1]) addSolid(n.px - Math.sin(ang) * sd * (hw + 0.75), n.pz + Math.cos(ang) * sd * (hw + 0.75), 1.3, 1.3, -ang);
+      }
+    }
+    // ---- ONOMICHI U2：海ぞいの倉庫（濃い灰色の壁）に、館名、海側の木のデッキとテーブル、自転車 ----
+    if (this.u2Poly) {
+      const poly = this.u2Poly;
+      let bestL = 0, a0 = null;
+      for (let i = 0; i < poly.length; i++) {
+        const [ax, az] = poly[i], [bx2, bz2] = poly[(i + 1) % poly.length];
+        const mx = (ax + bx2) / 2, mz = (az + bz2) / 2, L = Math.hypot(bx2 - ax, bz2 - az);
+        if (L > bestL && distToCoast(mx, mz) < 25) { bestL = L; a0 = { ax, az, bx: bx2, bz: bz2, mx, mz, L }; }
+      }
+      if (a0) {
+        const ang = Math.atan2(a0.bz - a0.az, a0.bx - a0.ax);
+        let nx = -Math.sin(ang), nz = Math.cos(ang);
+        if (inBuilding(a0.mx + nx * 2, a0.mz + nz * 2)) { nx = -nx; nz = -nz; }   // 外向き（海側）
+        const y = groundY(a0.mx + nx * 2, a0.mz + nz * 2);
+        const tex = labelTexture('ONOMICHI U2', { w: 1024, h: 192, size: 120, bg: 'rgba(0,0,0,0)', fg: '#f2efe8' });
+        const sign = new THREE.Mesh(new THREE.PlaneGeometry(9, 1.7), new THREE.MeshLambertMaterial({ map: tex, transparent: true, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.2 }));
+        sign.position.set(a0.mx + nx * 0.08, y + 6.5, a0.mz + nz * 0.08);
+        sign.rotation.y = Math.atan2(nx, nz);
+        this.specialSignMats.push(sign.material);
+        this.group.add(sign);
+        const items = [];
+        const dl = Math.min(a0.L - 4, 40);
+        // 木のデッキ
+        items.push({ x: a0.mx + nx * 3, y: y + 0.12, z: a0.mz + nz * 3, sx: dl, sy: 0.24, sz: 5, ry: -ang, color: '#8a6a48' });
+        // 大きなガラスの開口（夜は灯る）
+        const glassMat = new THREE.MeshLambertMaterial({ color: 0x6a7a84, emissive: 0xffc888, emissiveIntensity: 0.2 });
+        this.specialSignMats.push(glassMat);
+        for (let u = -dl / 2 + 3; u < dl / 2 - 2; u += 6) {
+          const gx = a0.mx + Math.cos(ang) * u + nx * 0.06, gz = a0.mz + Math.sin(ang) * u + nz * 0.06;
+          const m = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 3), glassMat);
+          m.position.set(gx, y + 1.8, gz);
+          m.rotation.y = Math.atan2(nx, nz);
+          this.group.add(m);
+          // テーブルと椅子
+          const tx = gx + nx * 3.2, tz = gz + nz * 3.2;
+          items.push({ x: tx, y: y + 0.95, z: tz, sx: 1.2, sy: 0.06, sz: 0.8, ry: -ang, color: '#e8e4dc' });
+          items.push({ x: tx, y: y + 0.6, z: tz, sx: 0.08, sy: 0.7, sz: 0.08, color: '#3a3a3a' });
+          for (const sd of [-1, 1]) items.push({ x: tx + Math.cos(ang) * sd * 0.9, y: y + 0.5, z: tz + Math.sin(ang) * sd * 0.9, sx: 0.45, sy: 0.08, sz: 0.45, color: '#3a3a3a' });
+        }
+        // 自転車（サイクリストのホテルなので、ずらりと）
+        for (let k = 0; k < 6; k++) {
+          const u = -dl / 2 + 1.5 + k * 0.9, bx3 = a0.mx + Math.cos(ang) * u + nx * 1.3, bz3 = a0.mz + Math.sin(ang) * u + nz * 1.3;
+          items.push({ x: bx3, y: y + 0.6, z: bz3, sx: 0.06, sy: 0.5, sz: 1.6, ry: -ang + Math.PI / 2, color: ['#c8302a', '#2a5aa8', '#e8e4dc', '#3a3a3a'][k % 4] });
+          items.push({ x: bx3, y: y + 0.38, z: bz3, sx: 0.04, sy: 0.65, sz: 0.65, ry: -ang + Math.PI / 2, color: '#222' });
+        }
+        this.group.add(instancedChunks(items, lam(0xffffff)));
+      }
+    }
+    // ---- ロープウェイ山頂駅：白い駅舎（ガラスの帯）と、ゴンドラの乗り場の大きな滑車 ----
+    {
+      const { base, top } = ROPEWAY;
+      const ty = terrainY(top.x, top.z);
+      const ax = top.x - base.x, az = top.z - base.z, L = Math.hypot(ax, az);
+      const ux = ax / L, uz = az / L;
+      const g = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.BoxGeometry(10, 7, 9), lam(0xe8e6e0));
+      body.position.set(0, 3.5, 0);
+      const band = new THREE.Mesh(new THREE.BoxGeometry(10.05, 1.6, 9.05), new THREE.MeshLambertMaterial({ color: 0x6a7a84, emissive: 0xffd8a8, emissiveIntensity: 0.2 }));
+      band.position.set(0, 4.6, 0);
+      this.specialSignMats.push(band.material);
+      const wheel = new THREE.Mesh(new THREE.CylinderGeometry(2.3, 2.3, 0.4, 20), lam(0x50565c));
+      wheel.position.set(-7, 6.3, 0);
+      const plat = new THREE.Mesh(new THREE.BoxGeometry(6, 0.4, 7), lam(0xb8b2a6));
+      plat.position.set(-7, 1, 0);
+      [body, band, wheel, plat].forEach((m) => { m.castShadow = true; g.add(m); });
+      const tex = labelTexture('山頂駅', { w: 512, h: 128, size: 80, bg: '#7a2a22', fg: '#f6ead8' });
+      const sign = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 0.8), new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide }));
+      sign.position.set(-5.05, 6.4, 0);
+      sign.rotation.y = Math.PI / 2;
+      g.add(sign);
+      // 駅舎は、ケーブルの来るほう（-X）に乗り場が向くよう、ケーブルの延長上の奥に
+      g.position.set(top.x + ux * 8, ty, top.z + uz * 8);
+      g.rotation.y = -Math.atan2(uz, ux);
+      this.group.add(g);
     }
   }
 

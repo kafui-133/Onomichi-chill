@@ -1,7 +1,7 @@
 // 手帳の地図：実データ（OpenStreetMap＋国土地理院の標高）から、海・陸・道・線路・名所を描く。
 // 名所の印か名前を押すと、その場所へ移動できる。
 import { drawCatFace } from './zukan.js';
-import { DATA, SEA_Y, ROADS, OTHER_ROADS, RAILS, PLACES, ARCADE_ROADS, FERRY_PIERS, ATTRIBUTION } from './townMap.js';
+import { DATA, SEA_Y, ROADS, OTHER_ROADS, RAILS, PLACES, ARCADE_ROADS, FERRY_PIERS, ATTRIBUTION, KOJI } from './townMap.js';
 
 // 表示する範囲（尾道駅〜長江口、尾道水道まで）。西を左に描く
 const X_WEST = 640, X_EAST = -720;
@@ -43,8 +43,9 @@ function baseImage() {
 }
 
 export class MapView {
-  constructor({ canvas, list, onTravel, cats, onVisitCat }) {
+  constructor({ canvas, list, onTravel, cats, onVisitCat, koji }) {
     this.canvas = canvas;
+    this.koji = koji;
     this.onTravel = onTravel;
     this.cats = cats || (() => []);
     this.onVisitCat = onVisitCat;
@@ -142,6 +143,32 @@ export class MapView {
     g.font = '11px "Shippori Mincho", serif';
     g.fillText('向島', sx(150), sy(-735));
     FERRY_PIERS.forEach((p) => g.fillText('渡船', sx(p.x), sy(p.z) + 14));
+
+    // 古寺めぐりの道（点線）と、お寺の印（お参りしたお寺は朱の印）
+    g.save();
+    g.strokeStyle = 'rgba(168,58,40,0.75)';
+    g.lineWidth = 2;
+    g.setLineDash([4, 4]);
+    for (const t of KOJI) {
+      if (t.route.length < 2) continue;
+      g.beginPath();
+      t.route.forEach(([x, z], i) => (i ? g.lineTo(sx(x), sy(z)) : g.moveTo(sx(x), sy(z))));
+      g.stroke();
+    }
+    g.restore();
+    for (const t of KOJI) {
+      const x = sx(t.x), y = sy(t.z), done = this.koji?.has(t.name);
+      g.fillStyle = done ? '#b83a2a' : '#f6f0e4';
+      g.strokeStyle = '#8a2a1e';
+      g.lineWidth = 1.5;
+      g.beginPath(); g.rect(x - 4, y - 4, 8, 8); g.fill(); g.stroke();
+    }
+    if (this.koji) {
+      g.fillStyle = '#8a2a1e';
+      g.font = '12px "Shippori Mincho", serif';
+      g.textAlign = 'left';
+      g.fillText(`古寺めぐり　${this.koji.count} / ${this.koji.total}`, 12, 22);
+    }
 
     // 名所の印
     this.markers = [];

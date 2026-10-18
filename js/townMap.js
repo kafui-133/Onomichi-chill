@@ -769,11 +769,8 @@ export const STREET_SHOPS = (() => {
   return out;
 })();
 
-// 千光寺の参道：千光寺から、坂を下って本通り（本町センター街）へ出るまでの、歩ける道のいちばん近い道すじ
-export const SANDO = (() => {
-  const temple = POIS.find((p) => p.n === '千光寺');
-  const goal = ROADS.find((r) => r.name === '本町センター街');
-  if (!temple || !goal) return [];
+// ---------- 歩ける道の道すじ（ダイクストラ法、小さな二分ヒープで） ----------
+const ROUTE_GRAPH = (() => {
   const key = (p) => `${Math.round(p[0] * 10)},${Math.round(p[1] * 10)}`;
   const adj = new Map(), pt = new Map();
   const link = (a, b, w) => { if (!adj.has(a)) adj.set(a, []); adj.get(a).push([b, w]); };
@@ -783,10 +780,16 @@ export const SANDO = (() => {
     const w = Math.hypot(r.pts[i + 1][0] - r.pts[i][0], r.pts[i + 1][1] - r.pts[i][1]) * (r.surface === 'stone' ? 1 : 1.6);
     link(a, b, w); link(b, a, w);
   }
-  const nearest = (x, z) => { let best = null, bd = Infinity; for (const [k, p] of pt) { const d = Math.hypot(p[0] - x, p[1] - z); if (d < bd) { bd = d; best = k; } } return best; };
-  const src = nearest(temple.x, temple.z);
-  const goals = new Set(goal.pts.map(key));
-  // ダイクストラ法（小さな二分ヒープで）
+  return { key, adj, pt };
+})();
+function nearestNode(x, z) {
+  let best = null, bd = Infinity;
+  for (const [k, p] of ROUTE_GRAPH.pt) { const d = Math.hypot(p[0] - x, p[1] - z); if (d < bd) { bd = d; best = k; } }
+  return best;
+}
+/** (from) から、goals のどれかの点までの道すじ（点の列）。goals は点の key の集合 */
+function routeTo(src, goals) {
+  const { adj, pt } = ROUTE_GRAPH;
   const dist = new Map([[src, 0]]), prev = new Map(), heap = [[0, src]];
   const push = (e) => { heap.push(e); let i = heap.length - 1; while (i > 0) { const j = (i - 1) >> 1; if (heap[j][0] <= heap[i][0]) break; [heap[i], heap[j]] = [heap[j], heap[i]]; i = j; } };
   const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let i = 0; for (;;) { const l = i * 2 + 1, r = l + 1; let m = i; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === i) break; [heap[i], heap[m]] = [heap[m], heap[i]]; i = m; } } return top; };
@@ -800,7 +803,36 @@ export const SANDO = (() => {
   if (!end) return [];
   const out = [];
   for (let u = end; u; u = prev.get(u)) out.push(pt.get(u));
-  return out.reverse();   // 千光寺から下へ
+  return out.reverse();
+}
+
+// 千光寺の参道：千光寺から、坂を下って本通り（本町センター街）へ出るまでの、歩ける道のいちばん近い道すじ
+export const SANDO = (() => {
+  const temple = POIS.find((p) => p.n === '千光寺');
+  const goal = ROADS.find((r) => r.name === '本町センター街');
+  if (!temple || !goal) return [];
+  return routeTo(nearestNode(temple.x, temple.z), new Set(goal.pts.map(ROUTE_GRAPH.key)));
+})();
+
+// ---------- 古寺めぐり ----------
+// 尾道の古寺めぐりの道（駅に近い西の持光寺から、東の浄土寺・海龍寺まで）。
+// stand：お参りする場所（寺にいちばん近い、歩ける道の上）。route：前の寺からの道すじ
+const KOJI_ORDER = ['持光寺', '光明寺', '海福寺', '宝土寺', '信行寺', '天寧寺', '千光寺', '正授院', '慈観寺', '妙宣寺', '善勝寺', '大山寺', '御袖天満宮',
+  '福善寺', '常称寺', '浄泉寺', '尊光寺', '正念寺', '海徳寺', '浄土寺', '海龍寺'];
+export const KOJI = (() => {
+  const out = [];
+  for (const name of KOJI_ORDER) {
+    const p = POIS.find((q) => q.n === name);
+    if (!p) continue;
+    const k = nearestNode(p.x, p.z);
+    const s = ROUTE_GRAPH.pt.get(k);
+    if (!s || Math.hypot(s[0] - p.x, s[1] - p.z) > 50) continue;
+    const prev = out[out.length - 1];
+    const route = prev ? routeTo(prev.node, new Set([k])) : [];
+    if (prev && !route.length) continue;
+    out.push({ name, x: p.x, z: p.z, stand: { x: s[0], z: s[1] }, node: k, route });
+  }
+  return out;
 })();
 
 // ロープウェイの乗り場（駅前の道の上）と、山頂の展望台
