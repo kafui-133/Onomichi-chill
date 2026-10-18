@@ -303,13 +303,11 @@ export class People {
       p.root.visible = dCam < 260;
       if (!p.root.visible) { if (!p.fixed) this._advance(p, dt); continue; }
       const talkingTo = this.talking?.p === p;
-      const dPlayer = player ? Math.hypot(pos.x - player.x, pos.z - player.z) : 99;
       let moving = false;
       if (!p.fixed) {
-        // こちらとぶつかりそうなら、少し待つ。話しているあいだは止まる
-        const blocked = talkingTo || (dPlayer < (KINDS[p.kind].bike ? 3 : 1.3) && this._ahead(p, player));
+        // こちらがいても立ち止まらずに通りすぎる（すり抜けてよい）。話しているあいだだけ止まる
         if (p.pause > 0) p.pause -= dt;
-        else if (!blocked) { this._advance(p, dt); moving = true; }
+        else if (!talkingTo) { this._advance(p, dt); moving = true; }
       }
       // 向き：歩く向き、話しているときはこちら
       let face = p.face;
@@ -319,11 +317,6 @@ export class People {
       p.root.rotation.y += d * (1 - Math.exp(-6 * dt));
       this._animate(p, dt, moving, talkingTo);
     }
-  }
-
-  _ahead(p, player) {
-    const pos = p.root.position;
-    return (player.x - pos.x) * Math.sin(p.face) + (player.z - pos.z) * Math.cos(p.face) > -0.3;
   }
 
   _advance(p, dt) {
