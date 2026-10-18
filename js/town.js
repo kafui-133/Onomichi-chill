@@ -247,6 +247,7 @@ export class Town {
     this._canopies();
     this._deck();
     this._lamps();
+    this._seaside();
     this._train();
   }
 
@@ -808,6 +809,7 @@ export class Town {
         if (Math.hypot(hx, hz) < 14) continue;                    // 空き家のまわり
         if (this.occupied.has(Math.floor(hx / 4) * 100003 + Math.floor(hz / 4))) continue;
         if (inPrecinct(hx, hz, 4) || inStationFront(hx, hz)) continue;
+        if (onOnomichiSide(hx, hz) && distToCoast(hx, hz) < 16) continue;   // 海沿いの道（岸壁ぞい）は、地図にある建物だけ
         const w = 4.5 + r() * 3.5, d = 4.5 + r() * 3;
         if (nearRail(hx, hz, Math.max(w, d) / 2 + 3.5)) continue;   // 線路と、その両わきの架線柱・石垣の場所
         if (nearAnyRoad(hx, hz, Math.max(w, d) / 2 + 0.8)) continue;
@@ -2745,6 +2747,99 @@ export class Town {
     }
   }
 
+  /**
+   * 海沿いの道：岸壁ぞいの石畳の帯、濃い緑の鉄の手すり、ところどころ船をつなぐ係船柱と小舟、
+   * 植えこみの松や桜。尾道側の、水ぎわの低いところだけ
+   */
+  _seaside() {
+    const r = this.r;
+    const tb = new TriBatch();
+    const rail = [], bitts = [], planters = [], trunks = [], crowns = [], hulls = [], cabins = [];
+    const tileA = new THREE.Color('#bdb4a3'), tileB = new THREE.Color('#ada392'), edgeC = new THREE.Color('#8a8072');
+    const piers = POIS.filter((p) => p.k === 'ferry_terminal');
+    let lastTree = -99, run = 0;
+    for (const line of COAST) {
+      const pts = samplePath(line, 2.5);
+      let mode = 'rail', modeLeft = 0;
+      for (let i = 0; i < pts.length - 1; i++) {
+        const a = pts[i], b = pts[i + 1];
+        run += 2.5;
+        if (a.x < BOUNDS.x0 || a.x > BOUNDS.x1 || a.z < BOUNDS.z0 || a.z > BOUNDS.z1) continue;
+        if (!onOnomichiSide(a.x, a.z) || this.inStationArea?.(a.x, a.z)) continue;
+        const gy = groundY(a.x, a.z);
+        if (gy - SEA_Y > 6) continue;
+        let nx = -Math.sin(a.angle), nz = Math.cos(a.angle);
+        if (terrainY(a.x + nx * 6, a.z + nz * 6) < terrainY(a.x - nx * 6, a.z - nz * 6)) { nx = -nx; nz = -nz; }
+        // 建物が水ぎわまで建っているところ、桟橋のところは空けておく
+        if (inBuilding(a.x + nx * 1.5, a.z + nz * 1.5)) continue;
+        if (piers.some((q) => Math.hypot(q.x - a.x, q.z - a.z) < 14)) continue;
+        // 30m ほどごとに、手すりの区間と、船をつなぐ岸壁の区間を切りかえる
+        if (modeLeft <= 0) { mode = r() < 0.72 ? 'rail' : 'quay'; modeLeft = 8 + Math.floor(r() * 8); }
+        modeLeft--;
+        // 石畳の帯（幅3m、1.25m ごとに色を変える）
+        const W = 3;
+        for (let h = 0; h < 2; h++) {
+          const t0 = h / 2, t1 = (h + 1) / 2;
+          const P = (q, t, w) => { const x = q.x + (b.x - a.x) * t + nx * w, z = q.z + (b.z - a.z) * t + nz * w; return [x, groundY(x, z) + 0.06, z]; };
+          tb.quad(P(a, t0, 0.35), P(a, t0, W), P(a, t1, W), P(a, t1, 0.35), (i * 2 + h) % 2 ? tileA : tileB);
+        }
+        const P2 = (t, w) => { const x = a.x + (b.x - a.x) * t + nx * w, z = a.z + (b.z - a.z) * t + nz * w; return [x, groundY(x, z) + 0.065, z]; };
+        tb.quad(P2(0, W), P2(0, W + 0.25), P2(1, W + 0.25), P2(1, W), edgeC);
+        const ry = -a.angle;
+        if (mode === 'rail') {
+          // 鉄の手すり（濃い緑の柱と、上・中の横棒）
+          const x = a.x + nx * 0.45, z = a.z + nz * 0.45, y = groundY(x, z);
+          rail.push({ x, y: y + 0.55, z, sx: 0.07, sy: 1.1, sz: 0.07, color: '#2f4a42' });
+          const mx = (a.x + b.x) / 2 + nx * 0.45, mz = (a.z + b.z) / 2 + nz * 0.45;
+          rail.push({ x: mx, y: y + 1.08, z: mz, sx: 2.55, sy: 0.07, sz: 0.07, ry, color: '#2f4a42' });
+          rail.push({ x: mx, y: y + 0.6, z: mz, sx: 2.55, sy: 0.04, sz: 0.04, ry, color: '#2f4a42' });
+        } else if (i % 3 === 0) {
+          // 係船柱（黒い、頭のふくらんだ短い柱）
+          const x = a.x + nx * 0.6, z = a.z + nz * 0.6, y = groundY(x, z);
+          bitts.push({ x, y: y + 0.25, z, sx: 0.32, sy: 0.5, sz: 0.32, color: '#25272a' });
+          // ときどき、小舟をつないでおく（海側に水があるところだけ）
+          if (r() < 0.45 && demAt(a.x - nx * 3, a.z - nz * 3) < SEA_Y - 0.5) {
+            const bx = a.x - nx * 1.7, bz = a.z - nz * 1.7, by = SEA_Y + 0.2;
+            const white = r() < 0.7;
+            hulls.push({ x: bx, y: by, z: bz, sx: 4.4, sy: 0.75, sz: 1.6, ry, color: white ? '#ece9e2' : '#5a7a8a' });
+            hulls.push({ x: bx, y: by + 0.2, z: bz, sx: 4.42, sy: 0.12, sz: 1.62, ry, color: white ? '#2a5a8a' : '#e8e4da' });
+            if (r() < 0.6) cabins.push({ x: bx + Math.cos(a.angle) * 0.6, y: by + 0.75, z: bz + Math.sin(a.angle) * 0.6, sx: 1.3, sy: 0.8, sz: 1.2, ry, color: '#f4f2ec' });
+          }
+        }
+        // 植えこみ（約28m ごと）：コンクリートの鉢に、松か桜
+        if (run - lastTree > 28) {
+          const x = a.x + nx * (W + 1.4), z = a.z + nz * (W + 1.4);
+          if (!nearAnyRoad(x, z, 1) && !inBuilding(x, z) && !inSolid(x, z) && demAt(x, z) > SEA_Y + 0.8) {
+            lastTree = run;
+            const y = groundY(x, z);
+            planters.push({ x, y: y + 0.25, z, sx: 1.7, sy: 0.5, sz: 1.7, ry, color: '#b8b2a6' });
+            const pine = r() < 0.5;
+            const autumn = [9, 10].includes(new Date().getMonth());
+            trunks.push({ x, y: y + 1.5, z, sx: 0.22, sy: 2.4, sz: 0.22, color: '#5a4636' });
+            const cc = pine ? '#3e5a34' : autumn && r() < 0.6 ? '#c8703a' : '#5f8a44';
+            crowns.push({ x, y: y + 3.0, z, sx: pine ? 2.6 : 2.4, sy: pine ? 1.1 : 1.9, sz: pine ? 2.2 : 2.4, ry: r() * 3, color: cc });
+            if (pine) crowns.push({ x: x + nx * 0.6, y: y + 2.3, z: z + nz * 0.6, sx: 1.6, sy: 0.7, sz: 1.4, ry: r() * 3, color: '#46623a' });
+            addSolid(x, z, 1.7, 1.7, -a.angle);
+          }
+        }
+      }
+    }
+    const ground = new THREE.Mesh(tb.build(), lam(0xffffff, { vertexColors: true, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }));
+    ground.receiveShadow = true;
+    this.group.add(ground);
+    if (rail.length) this.group.add(instancedChunks(rail, lam(0xffffff), { receive: false }));
+    if (bitts.length) this.group.add(instancedChunks(bitts, lam(0xffffff), { geo: new THREE.CylinderGeometry(0.42, 0.5, 1, 8) }));
+    if (planters.length) {
+      this.group.add(instancedChunks(planters, lam(0xffffff)));
+      this.group.add(instancedChunks(trunks, lam(0xffffff), { geo: new THREE.CylinderGeometry(0.4, 0.5, 1, 6) }));
+      this.group.add(instancedChunks(crowns, lam(0xffffff, { flatShading: true }), { geo: new THREE.IcosahedronGeometry(0.6, 1) }));
+    }
+    if (hulls.length) {
+      this.group.add(instancedChunks(hulls, lam(0xffffff)));
+      if (cabins.length) this.group.add(instancedChunks(cabins, lam(0xffffff)));
+    }
+  }
+
   _lamps() {
     const posts = [];
     for (const road of ROADS) {
@@ -2767,13 +2862,12 @@ export class Town {
           return;
         }
         posts.push({ x, y: y + 1.7, z, sx: 0.1, sy: 3.4, sz: 0.1, color: '#2f3336' });
-        this.lampPositions.push([x, y + 3.5, z]);
+        // 道のほうへ短い腕を出して、乳白の灯具
+        const ax = -Math.sin(p.angle) * -0.35, az = Math.cos(p.angle) * -0.35;
+        posts.push({ x: x + ax / 2, y: y + 3.42, z: z + az / 2, sx: 0.06, sy: 0.06, sz: 0.7, ry: -p.angle + Math.PI / 2, color: '#2f3336' });
+        this.stationLanterns.push({ x: x + ax, y: y + 3.3, z: z + az, sx: 0.24, sy: 0.3, sz: 0.24 });
+        this.lampPositions.push([x + ax, y + 3.3, z + az]);
       });
-    }
-    this.group.add(instancedChunks(posts, lam(0xffffff), { receive: false, geo: new THREE.CylinderGeometry(0.5, 0.6, 1, 5) }));
-    if (this.stationLanterns.length) {
-      this.lanternHeadMat = new THREE.MeshLambertMaterial({ color: 0xf4f0e6, emissive: 0xffb060, emissiveIntensity: 0 });
-      this.group.add(instancedBoxes(this.stationLanterns, this.lanternHeadMat, { cast: false, receive: false, geo: new THREE.CylinderGeometry(0.5, 0.42, 1, 6) }));
     }
     // 海ぞいの岸壁と、向島の岸にも、オレンジの灯りの列（町の夜景の、水ぎわの灯り）
     const shore = [];
@@ -2783,7 +2877,24 @@ export class Town {
         const gy = groundY(p.x, p.z);
         if (gy - SEA_Y > 6) continue;
         shore.push([p.x, gy + 4.5, p.z]);
+        // 尾道側の岸壁は、灯りの下に柱を立てる（陸側へ少し入ったところ）
+        if (onOnomichiSide(p.x, p.z) && !this.inStationArea?.(p.x, p.z)) {
+          let nx = -Math.sin(p.angle), nz = Math.cos(p.angle);
+          if (terrainY(p.x + nx * 6, p.z + nz * 6) < terrainY(p.x - nx * 6, p.z - nz * 6)) { nx = -nx; nz = -nz; }
+          const x = p.x + nx * 0.9, z = p.z + nz * 0.9;
+          if (!inBuilding(x, z)) {
+            const y = groundY(x, z);
+            posts.push({ x, y: y + 2.2, z, sx: 0.13, sy: 4.4, sz: 0.13, color: '#3a3f42' });
+            this.stationLanterns.push({ x, y: y + 4.5, z, sx: 0.34, sy: 0.42, sz: 0.34 });
+            shore[shore.length - 1] = [x, y + 4.5, z];
+          }
+        }
       }
+    }
+    this.group.add(instancedChunks(posts, lam(0xffffff), { receive: false, geo: new THREE.CylinderGeometry(0.5, 0.6, 1, 5) }));
+    if (this.stationLanterns.length) {
+      this.lanternHeadMat = new THREE.MeshLambertMaterial({ color: 0xf4f0e6, emissive: 0xffb060, emissiveIntensity: 0 });
+      this.group.add(instancedBoxes(this.stationLanterns, this.lanternHeadMat, { cast: false, receive: false, geo: new THREE.CylinderGeometry(0.5, 0.42, 1, 6) }));
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute([...this.lampPositions.flat(), ...shore.flat()], 3));

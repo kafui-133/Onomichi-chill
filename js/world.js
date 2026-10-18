@@ -2,7 +2,7 @@
 // 尾道と向島の地形・道・建物は実データから town.js が作る。
 import * as THREE from 'three';
 import { seededRandom, glowTexture } from './util.js';
-import { SEA_Y, BOUNDS, straitAt } from './townMap.js';
+import { SEA_Y, BOUNDS, straitAt, demAt } from './townMap.js';
 
 export const SEA_LEVEL = SEA_Y;
 
@@ -225,59 +225,117 @@ export class World {
       this.group.add(g);
       this._litCrane(g, [green, pale]);
     };
-    const crawler = (x, z, slew) => {
-      const g = new THREE.Group();
-      const red = this.mat(0xc8463a), white = this.mat(0xe8e6e0);
-      box(g, dark, 7, 1.4, 5, 0, 0.7, 0);
-      const top = new THREE.Group();
-      top.position.y = 1.4;
-      top.rotation.y = slew;
-      g.add(top);
-      box(top, red, 5, 2.6, 3.6, -0.5, 1.3, 0);
-      box(top, white, 1.6, 1.6, 1.4, 2, 2.2, 1.2);
-      const root = new THREE.Vector3(1.5, 2.5, 0);
-      const ang = 1.2, len = 46;
-      const tip = root.clone().add(new THREE.Vector3(Math.cos(ang) * len, Math.sin(ang) * len, 0));
-      lattice(top, red, root, tip, 1.4, 0xc8463a);
-      top.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-2.5, 3, 0), tip, tip, new THREE.Vector3(tip.x, 6, 0)]), lineMat(0x2a2e2c)));
-      blink(top, tip.x, tip.y + 1.2, 0);
-      g.position.set(x, SEA_LEVEL + 1.5, z);
-      this.group.add(g);
-      this._litCrane(g, [red, white]);
-    };
     // 向島側の岸辺（水道の中心から南へ）
     const fz = (x) => straitAt(x).z - 135;
-    jibCrane(140, fz(140), 0.5, 0.95, 46);
-    jibCrane(185, fz(185) - 4, 2.2, 1.05, 42);
-    jibCrane(232, fz(232) - 2, 0.9, 0.85, 48);
-    jibCrane(300, fz(300) - 8, 2.6, 1.0, 40);
-    crawler(262, fz(262) - 18, 1.9);
-    // 写真の造船所：うす緑の大きな門型のトラスクレーン（青い台車つき）と、白い引込みクレーン
+    // 向島の岸の線（水道の中心から南へたどって、最初に陸になるところ）
+    const shore = (x) => { const c = straitAt(x).z; let z = c; while (demAt(x, z) < SEA_Y && z > c - 400) z -= 1; return z; };
+    // 夜にライトアップされる、うす緑の引込みクレーン4基（駅前から見て少し西）
+    jibCrane(330, shore(330) + 3, 0.5, 0.95, 46);
+    jibCrane(372, shore(372) + 2, 2.2, 1.05, 42);
+    jibCrane(418, shore(418) + 3, 0.9, 0.85, 48);
+    jibCrane(470, shore(470) + 2, 2.6, 1.0, 40);
+    // 駅前の向かい：写真の、うす緑の門型トラスクレーン、白い引込みクレーン、黒い格子のクローラークレーン、
+    // 低い事務所と赤い屋根の工場、積み上げた鉄板（ここはライトアップしない）
     {
-      const teal = this.mat(0x9fd8c4), blue = this.mat(0x3a6ab8), white = this.mat(0xe8e8e2);
+      const teal = this.mat(0x9fd8c4), blue = this.mat(0x3a6ab8), white = this.mat(0xe8e8e2), rust = this.mat(0xa8a090);
       const g = new THREE.Group();
-      const L = 90, H = 26, W = 16;
-      for (const x of [-L / 2 + 8, -L / 6, L / 6, L / 2 - 8]) {
+      const L = 96, H = 24, W = 16, over = 28;   // over：海の上へ張り出す片持ちの長さ
+      const legsX = [-L / 2 + 6, -L / 6, L / 6, L / 2 - 6];
+      for (const x of legsX) {
         for (const z of [-W / 2, W / 2]) {
-          // 脚：下が広がるトラスの柱（4本の細い角材で）
-          strut(g, teal, new THREE.Vector3(x - 3, 0, z), new THREE.Vector3(x, H, z), 0.9);
-          strut(g, teal, new THREE.Vector3(x + 3, 0, z), new THREE.Vector3(x, H, z), 0.9);
+          // 脚：下が広がる台形のトラス（前後にも開く）
+          strut(g, teal, new THREE.Vector3(x - 4, 0, z), new THREE.Vector3(x - 1, H, z), 0.9);
+          strut(g, teal, new THREE.Vector3(x + 4, 0, z), new THREE.Vector3(x + 1, H, z), 0.9);
+          strut(g, teal, new THREE.Vector3(x - 4, 0, z), new THREE.Vector3(x + 1, H * 0.55, z), 0.4);
+          strut(g, teal, new THREE.Vector3(x + 4, 0, z), new THREE.Vector3(x - 1, H * 0.55, z), 0.4);
+        }
+        box(g, this.mat(0xb0aea6), 3, 2, W + 3, x, 1, 0);   // 脚の下の台座
+      }
+      const x0 = -L / 2 - over, x1 = L / 2;
+      for (const z of [-W / 2, W / 2]) {
+        box(g, teal, x1 - x0, 1.8, 1.2, (x0 + x1) / 2, H, z);                // 下弦（主桁）
+        box(g, rust, x1 - x0 - 6, 1.0, 0.8, (x0 + x1) / 2 + 3, H - 1.6, z);  // さびの出た走行レール
+        lattice(g, teal, new THREE.Vector3(x0, H + 1, z), new THREE.Vector3(x1, H + 1, z), 2.6, 0x9fd8c4);
+        // 上の三角のトラス（屋根のような形）と、張り出しへ下がる斜めの弦材
+        const pk = new THREE.Vector3(-L / 8, H + 11, z), pk2 = new THREE.Vector3(L / 5, H + 11, z);
+        strut(g, teal, new THREE.Vector3(-L / 2 + 6, H + 1, z), pk, 0.8);
+        strut(g, teal, pk, pk2, 0.8);
+        strut(g, teal, pk2, new THREE.Vector3(L / 2 - 6, H + 1, z), 0.8);
+        strut(g, teal, new THREE.Vector3(-L / 2 + 6, H + 1, z), new THREE.Vector3(x0, H + 4, z), 0.7);
+        for (const t of [0.2, 0.4, 0.6, 0.8]) {
+          const px = -L / 2 + 6 + (L - 12) * t;
+          const topY = px < pk.x ? H + 1 + 10 * (px - (-L / 2 + 6)) / (pk.x - (-L / 2 + 6)) : px > pk2.x ? H + 1 + 10 * ((L / 2 - 6) - px) / ((L / 2 - 6) - pk2.x) : H + 11;
+          strut(g, teal, new THREE.Vector3(px, H + 1, z), new THREE.Vector3(px, topY, z), 0.5);
+          strut(g, teal, new THREE.Vector3(px - 8, H + 1, z), new THREE.Vector3(px, topY, z), 0.4);
         }
       }
-      for (const z of [-W / 2, W / 2]) {
-        box(g, teal, L, 1.6, 1.2, 0, H, z);
-        lattice(g, teal, new THREE.Vector3(-L / 2, H + 0.8, z), new THREE.Vector3(L / 2, H + 0.8, z), 3, 0x9fd8c4);
-      }
-      for (const x of [-L / 2, 0, L / 2]) box(g, teal, 1.2, 1.4, W, x, H, 0);
-      box(g, blue, 8, 3, W + 1, 12, H + 2.5, 0);       // 台車
-      box(g, white, 4, 2.5, 3, 18, H + 2.4, W / 2 + 1); // 運転室
-      g.position.set(205, SEA_LEVEL + 1.5, fz(205) - 30);
-      g.rotation.y = 0.05;
+      for (const x of [x0, ...legsX, x1]) box(g, teal, 1.0, 1.2, W, x, H, 0);
+      box(g, blue, 9, 3, W + 1, 18, H + 3, 0);          // 青い台車
+      box(g, blue, 5, 2.5, 5, 22, H + 5.6, 0);
+      box(g, white, 4, 2.5, 3, 14, H - 2.5, W / 2 + 1); // 運転室
+      // 斜めの階段（黄色い手すり）
+      strut(g, this.mat(0xd8c030), new THREE.Vector3(L / 6 + 3, 0.5, W / 2 + 1.5), new THREE.Vector3(L / 6 + 16, H, W / 2 + 1.5), 0.5);
+      const gx = 215, gz = shore(215) + 2;
+      g.position.set(gx, SEA_LEVEL + 1.5, gz);
+      g.rotation.y = 0.12;
       this.group.add(g);
-      this._litCrane(g, [teal]);
+      // 白い引込みクレーン（台形の脚の上に、運転室と、長い白い腕。黄色い帯）
+      {
+        const c = new THREE.Group(), yel = this.mat(0xd8b040);
+        for (const [lx, lz] of [[-3, -3], [3, -3], [-3, 3], [3, 3]]) strut(c, white, new THREE.Vector3(lx * 1.6, 0, lz * 1.6), new THREE.Vector3(lx * 0.4, 13, lz * 0.4), 0.8);
+        box(c, white, 3.4, 4, 3.4, 0, 14, 0);
+        const top = new THREE.Group();
+        top.position.y = 16;
+        top.rotation.y = 2.3;
+        c.add(top);
+        box(top, white, 7, 4.5, 5, -1.5, 3.5, 0);       // 機械室・運転室
+        box(top, yel, 7.05, 1.4, 5.05, -1.5, 1.9, 0);   // 下の黄色い帯
+        box(top, white, 2, 9, 2, 0.5, 9, 0);            // 塔
+        // 後ろへのびる「く」の字の腕（引込み用のつり合いおもり）
+        strut(top, white, new THREE.Vector3(0.5, 13, 0), new THREE.Vector3(-6, 10, 0), 1.2);
+        box(top, white, 2.4, 2.4, 2.4, -6.5, 9.5, 0);
+        const root = new THREE.Vector3(1.5, 6, 0), tip = new THREE.Vector3(1.5 + Math.cos(1.05) * 34, 6 + Math.sin(1.05) * 34, 0);
+        strut(top, white, root, tip, 1.3);
+        top.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0.5, 13.5, 0), tip, tip, new THREE.Vector3(tip.x, 10, 0)]), lineMat(0x2a2e2c)));
+        box(top, yel, 0.8, 1.2, 0.8, tip.x, 9.5, 0);
+        blink(top, tip.x, tip.y + 1, 0);
+        c.position.set(gx + 70, SEA_LEVEL + 1.5, shore(gx + 70) + 6);
+        this.group.add(c);
+      }
+      // 黒い格子のクローラークレーン（ほぼまっすぐ立てた長いブーム、赤い足まわり）
+      {
+        const c = new THREE.Group(), black = this.mat(0x26282a), red = this.mat(0xc8463a);
+        box(c, dark, 6, 1.4, 5, 0, 0.7, 0);
+        box(c, red, 4.5, 2.6, 3.4, -0.5, 2.7, 0);
+        const root = new THREE.Vector3(1.2, 3.8, 0), tip = new THREE.Vector3(1.2 + Math.cos(1.45) * 44, 3.8 + Math.sin(1.45) * 44, 0);
+        lattice(c, black, root, tip, 1.6, 0x26282a);
+        c.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-2, 4, 0), tip, tip, new THREE.Vector3(tip.x + 0.5, 12, 0)]), lineMat(0x2a2e2c)));
+        blink(c, tip.x, tip.y + 1, 0);
+        c.rotation.y = 0.4;
+        c.position.set(gx + 56, SEA_LEVEL + 1.5, shore(gx + 56) - 4);
+        this.group.add(c);
+      }
+      // 低い事務所（うす緑と白のプレハブ）、赤い屋根の工場、積み上げた鉄板
+      const bld = (x, w, h, d, mat, back = 10) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); m.position.set(x, SEA_LEVEL + 1.5 + h / 2, shore(x) - back); this.group.add(m); return m; };
+      bld(gx + 62, 22, 5, 7, this.mat(0xa8d4c8), 6);
+      bld(gx + 84, 16, 6.5, 9, this.mat(0xe4e4dc), 8);
+      bld(gx + 47, 4, 3, 3, this.mat(0xe8e6de), 3);   // 門型クレーンの下の小屋
+      for (const [x, w] of [[gx + 102, 18], [gx + 120, 16]]) {
+        const shed = bld(x, w, 7, 14, this.mat(0xd8d2c4), 14);
+        const roof = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 9, 3, 4, 1, false, Math.PI / 4), this.mat(0x9a4a3a));
+        roof.scale.set(w / 12.7, 1, 1.05);
+        roof.position.set(shed.position.x, SEA_LEVEL + 1.5 + 8.5, shed.position.z);
+        this.group.add(roof);
+      }
+      const plates = this.mat(0x5a4436);
+      for (let k = 0; k < 7; k++) {
+        const x = gx - 20 + k * 11 + this.r() * 3;
+        bld(x, 8, 0.8 + this.r() * 1.2, 4, plates, 7 + this.r() * 6);
+      }
     }
     // ドック：灰色の岸壁の中に、建造中の大きな船（写真の向島のドックのように）
     const dz = fz(200) + 8;
+    const dockFrom = this.group.children.length;
     const wallM = this.mat(0x8c8a84);
     for (const sz of [-15, 15]) {
       const wall = new THREE.Mesh(new THREE.BoxGeometry(130, 7, 4), wallM);
@@ -329,6 +387,13 @@ export class World {
     tug.add(th, tw);
     tug.position.set(190, SEA_LEVEL, dz + 32);
     this.group.add(tug);
+    // ドックは、ライトアップのクレーン4基のそばへ（岸の向きにそろえる）
+    const dock = new THREE.Group();
+    for (const o of this.group.children.slice(dockFrom)) { o.position.x -= 200; o.position.z -= dz; dock.add(o); }
+    const ddx = 395, ddz = shore(395) + 22;
+    dock.position.set(ddx, 0, ddz);
+    dock.rotation.y = -straitAt(395).angle * 0.6;
+    this.group.add(dock);
   }
 
   /** 尾道大橋（斜張橋）のシルエット */
