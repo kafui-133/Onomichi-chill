@@ -769,6 +769,40 @@ export const STREET_SHOPS = (() => {
   return out;
 })();
 
+// 千光寺の参道：千光寺から、坂を下って本通り（本町センター街）へ出るまでの、歩ける道のいちばん近い道すじ
+export const SANDO = (() => {
+  const temple = POIS.find((p) => p.n === '千光寺');
+  const goal = ROADS.find((r) => r.name === '本町センター街');
+  if (!temple || !goal) return [];
+  const key = (p) => `${Math.round(p[0] * 10)},${Math.round(p[1] * 10)}`;
+  const adj = new Map(), pt = new Map();
+  const link = (a, b, w) => { if (!adj.has(a)) adj.set(a, []); adj.get(a).push([b, w]); };
+  for (const r of ROADS) for (let i = 0; i < r.pts.length - 1; i++) {
+    const a = key(r.pts[i]), b = key(r.pts[i + 1]);
+    pt.set(a, r.pts[i]); pt.set(b, r.pts[i + 1]);
+    const w = Math.hypot(r.pts[i + 1][0] - r.pts[i][0], r.pts[i + 1][1] - r.pts[i][1]) * (r.surface === 'stone' ? 1 : 1.6);
+    link(a, b, w); link(b, a, w);
+  }
+  const nearest = (x, z) => { let best = null, bd = Infinity; for (const [k, p] of pt) { const d = Math.hypot(p[0] - x, p[1] - z); if (d < bd) { bd = d; best = k; } } return best; };
+  const src = nearest(temple.x, temple.z);
+  const goals = new Set(goal.pts.map(key));
+  // ダイクストラ法（小さな二分ヒープで）
+  const dist = new Map([[src, 0]]), prev = new Map(), heap = [[0, src]];
+  const push = (e) => { heap.push(e); let i = heap.length - 1; while (i > 0) { const j = (i - 1) >> 1; if (heap[j][0] <= heap[i][0]) break; [heap[i], heap[j]] = [heap[j], heap[i]]; i = j; } };
+  const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let i = 0; for (;;) { const l = i * 2 + 1, r = l + 1; let m = i; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === i) break; [heap[i], heap[m]] = [heap[m], heap[i]]; i = m; } } return top; };
+  let end = null;
+  while (heap.length) {
+    const [ud, u] = pop();
+    if (ud > dist.get(u)) continue;
+    if (goals.has(u)) { end = u; break; }
+    for (const [v, w] of adj.get(u) || []) if (ud + w < (dist.get(v) ?? Infinity)) { dist.set(v, ud + w); prev.set(v, u); push([ud + w, v]); }
+  }
+  if (!end) return [];
+  const out = [];
+  for (let u = end; u; u = prev.get(u)) out.push(pt.get(u));
+  return out.reverse();   // 千光寺から下へ
+})();
+
 // ロープウェイの乗り場（駅前の道の上）と、山頂の展望台
 export const ROPEWAY_STOPS = (() => {
   const stand = (p) => { const c = clampToRoads(p.x, p.z); return { x: c.x, z: c.z }; };
