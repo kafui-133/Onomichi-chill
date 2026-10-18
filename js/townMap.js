@@ -164,7 +164,7 @@ const ALL_ROADS_RAW = [...DATA.roads, DOOR_PATH].map((r, id) => {
   const pts = [];
   for (let k = 0; k < r.p.length; k += 2) pts.push([r.p[k], r.p[k + 1]]);
   return {
-    id, name: r.n || '', label: r.n || KIND_LABEL[r.k] || '道', kind: r.k, width: r.w, pts,
+    id, name: r.n || '', label: r.n || KIND_LABEL[r.k] || '道', kind: r.k, width: ARCADE_NAMES.includes(r.n) ? Math.max(r.w, 5) : r.w, pts,  // 商店街は店が両側に並ぶ幅に
     // 商店街のアーケードは名前のある4つの通りだけ。ほかの「屋根つき」（桟橋の通路、駅の階段など）は roofed
     surface: SURFACE[r.k] || 'asphalt', covered: ARCADE_NAMES.includes(r.n), roofed: !!r.c,
     layered: !!r.l,

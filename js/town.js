@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { canvasTexture, glowTexture, seededRandom, speckle } from './util.js';
 import { quality } from './quality.js';
-import { lam, buildSignAtlas, buildRetroSignAtlas, labelTexture, QuadBatch, instancedBoxes, instancedChunks } from './townKit.js';
+import { lam, buildSignAtlas, buildRetroSignAtlas, buildShopInteriorAtlas, SHOP_INTERIOR_KINDS, labelTexture, QuadBatch, instancedBoxes, instancedChunks } from './townKit.js';
 import {
   DATA, SEA_Y, BOUNDS, terrainY, groundY, surfaceY, addTread, addSolid, inSolid, walkable, ROADS, OTHER_ROADS, ARCADE_ROADS, nearAnyRoad, samplePath, roadLength, pointAlong,
   STREET_SHOPS, demAt, ALLEYS, COAST, distToCoast, straitAt, RAILS, CROSSINGS, TRAIN_TRACKS, ROPEWAY, SUMMIT, BENCHES, FERRY_ROUTES, POIS, onOnomichiSide, nearestRoad, inBuilding,
@@ -961,6 +961,7 @@ export class Town {
     const r = this.r;
     const atlas = buildSignAtlas();
     const retro = buildRetroSignAtlas();
+    const interior = buildShopInteriorAtlas();
     const signs = new QuadBatch(), glassDay = new QuadBatch(), glassNight = new QuadBatch();
     const tin = new QuadBatch(), shutters = new QuadBatch(), retroSigns = new QuadBatch();
     const awnings = [], fronts = [], ribs = [], lamps = [], shades = [], pipes = [], cases = [], pots = [], plants = [];
@@ -1042,8 +1043,35 @@ export class Town {
             shutters.addOriented(fx - nx * 0.05, gy + 1.4, fz - nz * 0.05, rx, rz, 5.4, 2.8, [0, 0, 1, 1], tint);
             cases.push({ x: fx - nx * 0.2, y: gy + 2.95, z: fz - nz * 0.2, sx: 5.6, sy: 0.32, sz: 0.36, ry: -p.angle, color: '#7c8078' });
           } else {
-            glassDay.addOriented(fx - nx * 0.02, gy + 1.35, fz - nz * 0.02, rx, rz, 5.2, 2.3, undefined, [0.3, 0.27, 0.23]);
-            glassNight.addOriented(fx - nx * 0.04, gy + 1.35, fz - nz * 0.04, rx, rz, 5.2, 2.3, undefined, [warm, 0.78 * warm, 0.5 * warm]);
+            // ガラス戸ごしの店の中（棚と品物）。サッシの縦の桟と、上の欄間
+            const kind = Math.floor(r() * SHOP_INTERIOR_KINDS);
+            const tone = 0.82 + r() * 0.18;
+            glassDay.addOriented(fx - nx * 0.02, gy + 1.35, fz - nz * 0.02, rx, rz, 5.2, 2.3, interior.uv(kind), [tone, tone * 0.97, tone * 0.93]);
+            for (const t of [-2.6, -1.3, 0, 1.3, 2.6]) cases.push({ x: fx - nx * 0.05 + ca * t, y: gy + 1.35, z: fz - nz * 0.05 + sa * t, sx: 0.07, sy: 2.3, sz: 0.06, ry: -p.angle, color: '#3a3a36' });
+            cases.push({ x: fx - nx * 0.05, y: gy + 2.5, z: fz - nz * 0.05, sx: 5.3, sy: 0.08, sz: 0.07, ry: -p.angle, color: '#3a3a36' });
+            // 店先に出した品物（八百屋のひな壇、ワゴンや台に並べた品）
+            if (!sp && r() < 0.55) {
+              const d = kind === 0 ? 0.75 : 0.6;
+              const bx = fx - nx * d, bz = fz - nz * d;
+              const w = kind === 0 ? 4 : 1.6 + r() * 0.8;
+              const t0 = kind === 0 ? 0 : (r() - 0.5) * 2.4;
+              const cx = bx + ca * t0, cz = bz + sa * t0;
+              const th = kind === 0 ? 0.8 : 0.72;
+              cases.push({ x: cx, y: gy + th / 2, z: cz, sx: w, sy: th, sz: kind === 0 ? 0.9 : 0.6, ry: -p.angle, color: kind === 0 ? '#7a5a36' : r() < 0.5 ? '#8a6a4a' : '#b8b4aa' });
+              const goods = kind === 0 ? ['#e0662a', '#3a8a3a', '#c8302a', '#f0b020', '#88b040', '#f08a1c'] : kind === 6 ? ['#e04a6a', '#f0c020', '#5ab0e0', '#70c050'] : kind === 5 ? ['#e8dcc0', '#2e3a5a', '#c89a3a', '#6a6a3a'] : ['#c84a3a', '#e8c050', '#4a7ab0', '#e8e0d0', '#7aa04a', '#a0a4a8'];
+              const n = Math.round(w / 0.42);
+              for (let k2 = 0; k2 < n; k2++) {
+                const u = -w / 2 + 0.25 + (k2 * (w - 0.5)) / Math.max(1, n - 1);
+                const gh = kind === 0 ? 0.16 : 0.12 + r() * 0.18;
+                cases.push({ x: cx + ca * u - nx * (r() - 0.5) * 0.2, y: gy + th + gh / 2, z: cz + sa * u - nz * (r() - 0.5) * 0.2, sx: 0.32, sy: gh, sz: kind === 0 ? 0.5 : 0.3, ry: -p.angle, color: goods[Math.floor(r() * goods.length)] });
+              }
+              // 立て看板
+              if (r() < 0.35) {
+                const t1 = t0 + (t0 > 0 ? -1 : 1) * (w / 2 + 0.6);
+                cases.push({ x: bx - nx * 0.5 + ca * t1, y: gy + 0.45, z: bz - nz * 0.5 + sa * t1, sx: 0.5, sy: 0.9, sz: 0.05, ry: -p.angle + Math.PI / 2, color: r() < 0.5 ? '#2a2a28' : '#f2efe6' });
+              }
+            }
+            glassNight.addOriented(fx - nx * 0.04, gy + 1.35, fz - nz * 0.04, rx, rz, 5.2, 2.3, interior.uv(kind), [warm, 0.86 * warm, 0.66 * warm]);
             if (!sp && r() < 0.45) awnings.push({ x: fx - nx * 0.5, y: gy + 2.75, z: fz - nz * 0.5, sx: 5.6, sy: 0.07, sz: 0.95, ry: -p.angle, rx: side * 0.35, color: awningColors[Math.floor(r() * awningColors.length)] });
             // 鉢植え
             if (!sp && r() < 0.3) {
@@ -1122,6 +1150,13 @@ export class Town {
     this.group.add(roof);
     // 明かり取り：昼は空の光でほんのり白く光る
     this.skylightMat = new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.82, side: THREE.DoubleSide, depthWrite: false, emissive: 0xfffaf0, emissiveIntensity: 0.5 });
+    // 上から（坂の上や空き家の窓から）見ると、光らない灰色の波板に見える
+    this.skylightMat.onBeforeCompile = (sh) => {
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying float vSkyWY;')
+        .replace('#include <project_vertex>', '#include <project_vertex>\nvSkyWY = (modelMatrix * vec4(transformed, 1.0)).y;');
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vSkyWY;')
+        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\nfloat skyAbove = step(vSkyWY, cameraPosition.y);\ntotalEmissiveRadiance *= 1.0 - skyAbove;\ndiffuseColor.rgb *= mix(vec3(1.0), vec3(0.62, 0.66, 0.68), skyAbove);\ndiffuseColor.a = mix(diffuseColor.a, 0.95, skyAbove);');
+    };
     this.group.add(new THREE.Mesh(skyTb.build(), this.skylightMat));
     this.group.add(instancedBoxes(ribs, lam(0xffffff), { receive: false }));
     this.group.add(instancedBoxes(fronts, lam(0xffffff)));
@@ -1132,8 +1167,10 @@ export class Town {
     this.group.add(instancedBoxes(plants, lam(0xffffff, { flatShading: true }), { geo: new THREE.IcosahedronGeometry(0.6, 0) }));
     this.group.add(new THREE.Mesh(tin.build(), lam(0xffffff, { vertexColors: true, map: tinTex })));
     this.group.add(new THREE.Mesh(shutters.build(), lam(0xffffff, { vertexColors: true, map: shutterTex })));
-    this.group.add(new THREE.Mesh(glassDay.build(), lam(0xffffff, { vertexColors: true })));
-    const nightMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0, depthWrite: false });
+    // 店の中は電灯で明るいので、日陰のアーケードでも少し光って見える
+    this.group.add(new THREE.Mesh(glassDay.build(), lam(0xffffff, { vertexColors: true, map: interior.tex, emissive: 0xffffff, emissiveMap: interior.tex, emissiveIntensity: 0.22 })));
+    // 夜は、電灯のついた店の中がガラス戸ごしに見える
+    const nightMat = new THREE.MeshBasicMaterial({ vertexColors: true, map: interior.tex, transparent: true, opacity: 0, depthWrite: false });
     this.group.add(new THREE.Mesh(glassNight.build(), nightMat));
     this.nightMats.push({ mat: nightMat, max: 0.95 });
     this.signMat = new THREE.MeshLambertMaterial({ map: atlas.tex, emissive: 0xffffff, emissiveMap: atlas.tex, emissiveIntensity: 0.15 });
