@@ -771,9 +771,9 @@ export class Town {
       if (batch === tbStation) this.stationSimple = mesh;
     }
     if (this.stationPoly) this._stationModel();
-    const winMat = new THREE.MeshBasicMaterial({ color: 0xffb070, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide });
-    this.group.add(instancedBoxes(winList, winMat, { cast: false, receive: false, geo: new THREE.PlaneGeometry(1, 1) }));
-    this.nightMats.push({ mat: winMat, max: 0.9 });
+    // 夜の窓の灯り：家の窓と、ビルやマンションの窓。一つずつ、日と時間帯で点いたり消えたりする
+    const nightWin = facadeWin.filter((_, i) => (i * 7919) % 4 !== 0).map((w) => ({ x: w.x + Math.sin(w.ry) * 0.05, y: w.y, z: w.z + Math.cos(w.ry) * 0.05, sx: 1.25, sy: 1.0, ry: w.ry }));
+    this.world.scheduledWindows([...winList, ...nightWin]);
   }
 
   /** OSM に建物が載っていない斜面を、小さな家で埋める（尾道の坂の家並み） */
@@ -817,7 +817,7 @@ export class Town {
     }
     const win = [];
     for (const items of bins.values()) win.push(...this.world._houses(items));
-    this.world._windowLights(win);
+    this.world.scheduledWindows(win);
   }
 
   _trees() {

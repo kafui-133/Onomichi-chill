@@ -14,6 +14,9 @@ export class World {
     this.r = seededRandom('onomichi-town');
     this.blinkers = [];
     this.lightMats = [];
+    this.scheduled = [];     // 日と時間帯で、一つずつ点いたり消えたりする窓の灯り
+    this.craneLights = [];   // 夜にライトアップする向島のクレーン
+    this._lastSchedule = -1;
 
     this._cranes();
     this._bridge();
@@ -46,11 +49,11 @@ export class World {
       m.compose(new THREE.Vector3(h.x, h.y + h.h + h.roofH * 0.25, h.z), q, new THREE.Vector3(h.w * 1.08, h.roofH, h.d * 1.15));
       roofs.setMatrixAt(i, m);
       roofs.setColorAt(i, c.set(h.roof));
-      // 夜に灯る窓
-      if (this.r() < 0.75) {
+      // 夜に灯る窓（点くかどうかは、日と時間で決める）
+      if (this.r() < 0.9) {
         const floors = Math.max(1, Math.round(h.h / 3.2));
         for (let f = 0; f < floors; f++) {
-          if (this.r() < 0.45) continue;
+          if (this.r() < 0.25) continue;
           windows.push({ x: h.x + (this.r() - 0.5) * h.w * 0.6, y: h.y + 1.4 + f * 3.1, z: h.z + h.d / 2 + 0.05, s: 0.7 + this.r() * 0.6 });
         }
       }
@@ -74,6 +77,54 @@ export class World {
     this.group.add(mesh);
     this.lightMats.push({ mat, phase: this.r() });
     return mesh;
+  }
+
+  /**
+   * 家や建物の窓の灯り。一つずつ、その日その時間に点いているかを決める（帰りの早い家、夜ふかしの家、
+   * 朝早い家、今日は留守の家）。list: { x, y, z, sx, sy, ry } または { x, y, z, s }
+   */
+  scheduledWindows(list) {
+    if (!list.length) return null;
+    const geo = new THREE.PlaneGeometry(1, 1);
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
+    const mesh = new THREE.InstancedMesh(geo, mat, list.length);
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), black = new THREE.Color(0, 0, 0);
+    const seeds = new Float32Array(list.length);
+    list.forEach((w, i) => {
+      e.set(0, w.ry || 0, 0);
+      q.setFromEuler(e);
+      m.compose(new THREE.Vector3(w.x, w.y, w.z), q, new THREE.Vector3(w.sx ?? w.s, w.sy ?? w.s * 0.8, 1));
+      mesh.setMatrixAt(i, m);
+      mesh.setColorAt(i, black);
+      seeds[i] = this.r() * 1000;
+    });
+    mesh.frustumCulled = false;
+    this.group.add(mesh);
+    this.scheduled.push({ mesh, mat, seeds });
+    return mesh;
+  }
+
+  _updateSchedule(time) {
+    const day = time.day, hour = time.hour < 5 ? time.hour + 24 : time.hour;
+    const fr = (x) => x - Math.floor(x);
+    const hash = (a, b) => fr(Math.sin(a * 12.9898 + b * 78.233) * 43758.5453);
+    const tones = [new THREE.Color(0xffa45a), new THREE.Color(0xffb878), new THREE.Color(0xfff0d6), new THREE.Color(0xc98a50)];
+    const black = new THREE.Color(0, 0, 0);
+    for (const S of this.scheduled) {
+      const n = S.seeds.length;
+      for (let i = 0; i < n; i++) {
+        const sd = S.seeds[i];
+        const h1 = hash(sd, day), h2 = hash(sd + 1.7, day), h3 = hash(sd + 3.1, day), h4 = hash(sd + 5.3, day);
+        let on = false;
+        if (h1 > 0.12) {
+          const evOn = 16.8 + h2 * 3.2, evOff = 20.5 + h3 * 5;          // 夕方に帰ってきて、寝るまで
+          if (hour >= evOn && hour < evOff) on = true;
+          if (h4 < 0.3 && hour >= 5.1 + h2 * 0.8 && hour < 6.5 + h3 * 1.3) on = true; // 朝早い家
+        }
+        S.mesh.setColorAt(i, on ? tones[Math.floor(hash(sd + 7.7, 0) * tones.length)] : black);
+      }
+      S.mesh.instanceColor.needsUpdate = true;
+    }
   }
 
   /** 向島の造船所：赤白のゴライアスクレーンとドックの船体 */
@@ -167,6 +218,7 @@ export class World {
       blink(top, tip.x, tip.y + 1.5, 0);
       g.position.set(x, SEA_LEVEL + 1.5, z);
       this.group.add(g);
+      this._litCrane(g, [green, pale]);
     };
     const crawler = (x, z, slew) => {
       const g = new THREE.Group();
@@ -186,6 +238,7 @@ export class World {
       blink(top, tip.x, tip.y + 1.2, 0);
       g.position.set(x, SEA_LEVEL + 1.5, z);
       this.group.add(g);
+      this._litCrane(g, [red, white]);
     };
     // 向島側の岸辺（水道の中心から南へ）
     const fz = (x) => straitAt(x).z - 135;
@@ -244,6 +297,49 @@ export class World {
     this._windowLights(lamps, 0xffa04a, 1.6);
   }
 
+  /** クレーンの骨組み（mats の素材）を、このクレーン専用の、光る素材に差しかえる */
+  _litCrane(g, mats) {
+    const own = new Map();
+    const lines = [];
+    g.traverse((o) => {
+      if (o.isMesh && mats.includes(o.material)) {
+        if (!own.has(o.material)) own.set(o.material, o.material.clone());
+        o.material = own.get(o.material);
+      } else if (o.isLineSegments && o.material.color.getHex() !== 0x2a2e2c) {
+        o.material = o.material.clone();
+        lines.push({ mat: o.material, base: o.material.color.clone() });
+      }
+    });
+    this.craneLights.push({ mats: [...own.values()], lines });
+  }
+
+  /**
+   * 夜のクレーンのライトアップ。夜ごとに、全部を一色にそろえる日、1基ずつ違う色の日、
+   * ゆっくり色が移ろう日がある（色は紫・緑・青・赤・桃・水色・琥珀）
+   */
+  _updateCranes(time, elapsed) {
+    const COLORS = [0x9a50ff, 0x30e070, 0x3a78ff, 0xff3a3a, 0xff5ab0, 0x40d8ff, 0xffb030];
+    const day = time.day;
+    if (this._craneDay !== day) {
+      this._craneDay = day;
+      const r = seededRandom('crane' + day);
+      const mode = r() < 0.45 ? 'one' : r() < 0.75 ? 'each' : 'shift';
+      const first = Math.floor(r() * COLORS.length);
+      const stepC = 2 + Math.floor(r() * 3);   // 7色を、重ならない間隔でめぐる
+      this._cranePlan = { mode, colors: this.craneLights.map((_, i) => COLORS[mode === 'one' ? first : (first + i * stepC) % COLORS.length]) };
+    }
+    // 日が暮れてから、夜11時ごろまで
+    const h = time.hour;
+    const lit = time.p.night * (h > 12 ? Math.min(1, Math.max(0, (23.2 - h) * 2)) : 0);
+    const c = new THREE.Color();
+    this.craneLights.forEach((L, i) => {
+      c.set(this._cranePlan.colors[i]);
+      if (this._cranePlan.mode === 'shift') c.offsetHSL(((elapsed * 0.01 + i * 0.12) % 1), 0, 0);
+      for (const m of L.mats) { m.emissive.copy(c); m.emissiveIntensity = lit * 0.85; }
+      for (const l of L.lines) l.mat.color.copy(l.base).lerp(c.clone().multiplyScalar(1.6), lit);
+    });
+  }
+
   /** 瀬戸内の島影（霞んで重なる） */
   _farIslands() {
     const r = this.r;
@@ -267,6 +363,11 @@ export class World {
   update(time, elapsed) {
     const night = time.p.night;
     this.lightMats.forEach(({ mat }) => { mat.opacity = Math.min(1, night * 1.2); });
+    // 窓の灯り：ゲームの中の数分ごとに、点いている窓を決めなおす
+    const slot = Math.floor(time.hour * 20) + time.day * 1000;
+    if (slot !== this._lastSchedule) { this._lastSchedule = slot; this._updateSchedule(time); }
+    for (const S of this.scheduled) S.mat.opacity = Math.min(0.95, night * 1.3);
+    this._updateCranes(time, elapsed);
     this.blinkers.forEach((b) => {
       b.mat.opacity = night * (0.5 + 0.5 * Math.sin(elapsed * 1.6 + b.phase)) * 0.9;
     });
