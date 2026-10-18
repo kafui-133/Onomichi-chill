@@ -117,9 +117,10 @@ function nearRail(x, z, m) {
 
 // 本通り商店街の、食べられるお店（店名は架空）。f は通りの中での位置（0〜1）、side は通りのどちら側か
 const SPECIAL_SHOPS = {
-  '本町センター街': [{ f: 0.5, side: 1, type: 'ramen', name: '尾道ラーメン 汐' }, { f: 0.3, side: -1, type: 'kamaboko', name: 'かまぼこ 潮見' },
+  '本町センター街': [{ f: 0.5, side: 1, type: 'ramen', name: '尾道ラーメン 汐' }, { f: 0.3, side: -1, type: 'kamaboko', name: '桂馬蒲鉾' },
     { f: 0.4, side: 1, type: 'sweets', menu: 'sweets', name: 'おやつのウミネコ' }],
-  '中商店街': [{ f: 0.42, side: -1, type: 'bakery', name: 'パン 潮風' }, { f: 0.15, side: 1, type: 'ramen', name: '中華そば 坂の上' }],
+  '中商店街': [{ f: 0.42, side: -1, type: 'bakery', name: 'パン 潮風' }, { f: 0.15, side: 1, type: 'ramen', name: '中華そば 坂の上' },
+    { f: 0.7, side: 1, type: 'cafe', style: 'bath', name: '大和湯' }],
   '一番街': [{ f: 0.55, side: 1, type: 'bakery', name: 'パン屋 あさなぎ' }, { f: 0.3, side: -1, type: 'cafe', name: '尾道マロン珈琲' }],
 };
 const VENDING_COLORS = [0xc8302a, 0x2a5aa8, 0xf2f0ea, 0x3a8a4a];
@@ -1128,7 +1129,7 @@ export class Town {
     const interior = buildShopInteriorAtlas();
     const signs = new QuadBatch(), glassDay = new QuadBatch(), glassNight = new QuadBatch();
     const tin = new QuadBatch(), shutters = new QuadBatch(), retroSigns = new QuadBatch();
-    const awnings = [], fronts = [], ribs = [], lamps = [], shades = [], pipes = [], cases = [], pots = [], plants = [];
+    const awnings = [], fronts = [], ribs = [], lamps = [], shades = [], pipes = [], cases = [], pots = [], plants = [], wheels = [];
     const facadeColors = ['#cfc8b8', '#bdb4a2', '#d9d2c2', '#a89f8c', '#8a7a68', '#c4b8a0'];
     const awningColors = ['#a33a2a', '#2f5a7a', '#3a6a4a', '#c8a050', '#7a6a5a', '#5a3a6a'];
     const roofTb = new TriBatch(), skyTb = new TriBatch();
@@ -1253,6 +1254,33 @@ export class Town {
           }
           const h = 5.5 + r() * 5;
           fronts.push({ x: fx + nx * 4, y: gy + h / 2 - 1, z: fz + nz * 4, sx: 6.3, sy: h + 2, sz: 8, ry: -p.angle, color: facadeColors[Math.floor(r() * facadeColors.length)] });
+          // 店の上の室外機（トタンの壁にとりつけ、ドレンの管が下へ）
+          if (r() < 0.4) {
+            const t = (r() - 0.5) * 3.6, ay = gy + 4.3 + r() * 1.6;
+            const axx = fx - nx * 0.2 + ca * t, azz = fz - nz * 0.2 + sa * t;
+            cases.push({ x: axx, y: ay, z: azz, sx: 0.82, sy: 0.6, sz: 0.3, ry: -p.angle, color: '#dcdad2' });
+            cases.push({ x: axx - nx * 0.16 + ca * 0.12, y: ay, z: azz - nz * 0.16 + sa * 0.12, sx: 0.44, sy: 0.44, sz: 0.02, ry: -p.angle, color: '#5a5a58' });
+            cases.push({ x: axx - ca * 0.3, y: ay - 0.4, z: azz - sa * 0.3, sx: 0.05, sy: 0.25, sz: 0.05, color: '#c8c4b8' });
+            pipes.push({ x: axx + ca * 0.36, y: (ay + gy) / 2, z: azz + sa * 0.36, sx: 0.35, sy: ay - gy, sz: 0.35, color: '#e6e2d6' });
+          }
+          if (!sp) {
+            // 店先のこまごましたもの：自転車、積んだコンテナ、バケツ
+            const roll2 = r();
+            if (roll2 < 0.12) {
+              const t = (r() - 0.5) * 4, bx = fx - nx * 0.55 + ca * t, bz = fz - nz * 0.55 + sa * t;
+              const col = ['#c8302a', '#2a5aa8', '#3a3a3a', '#e8e4dc'][Math.floor(r() * 4)];
+              cases.push({ x: bx, y: gy + 0.62, z: bz, sx: 1.05, sy: 0.05, sz: 0.05, ry: -p.angle, rz: 0.12, color: col });
+              cases.push({ x: bx + ca * 0.25, y: gy + 0.5, z: bz + sa * 0.25, sx: 0.05, sy: 0.5, sz: 0.05, ry: -p.angle, color: col });
+              cases.push({ x: bx - ca * 0.42, y: gy + 0.85, z: bz - sa * 0.42, sx: 0.06, sy: 0.06, sz: 0.5, ry: -p.angle, color: '#222' });
+              for (const w of [-0.5, 0.5]) wheels.push({ x: bx + ca * w, y: gy + 0.34, z: bz + sa * w, sx: 0.68, sy: 0.68, sz: 0.68, ry: -p.angle, color: '#1e1e20' });
+            } else if (roll2 < 0.3) {
+              const t = (r() - 0.5) * 4, bx = fx - nx * 0.5 + ca * t, bz = fz - nz * 0.5 + sa * t;
+              for (let k = 0; k < 1 + Math.floor(r() * 3); k++) cases.push({ x: bx + (r() - 0.5) * 0.06, y: gy + 0.16 + k * 0.32, z: bz, sx: 0.6, sy: 0.3, sz: 0.42, ry: -p.angle + (r() - 0.5) * 0.2, color: ['#2a6ab8', '#e8c030', '#3a8a5a'][Math.floor(r() * 3)] });
+              if (r() < 0.5) cases.push({ x: bx + ca * 0.7, y: gy + 0.15, z: bz + sa * 0.7, sx: 0.3, sy: 0.3, sz: 0.3, color: '#3a9ad8' });
+            }
+            // 住所の板（茶色）と、黄色い縦長の看板
+            if (r() < 0.1) cases.push({ x: fx - nx * 0.07 + ca * 3.05, y: gy + 1.7, z: fz - nz * 0.07 + sa * 3.05, sx: 0.16, sy: 0.5, sz: 0.02, ry: -p.angle, color: '#6a3a24' });
+          }
           // 通りに張り出す看板（通りの向きから読める、両面）
           const roll = r();
           if (roll < 0.42) {
@@ -1297,6 +1325,28 @@ export class Town {
         for (const f of [0.02, 0.98]) {
           const q = samplePath(road.pts, 1);
           const p = q[Math.floor(f * (q.length - 1))];
+          // 入口の標識：車両進入禁止（自動二輪をのぞく）と高さ制限、通りの名を刻んだ石柱
+          {
+            const nx2 = -Math.sin(p.angle), nz2 = Math.cos(p.angle);
+            const sx2 = p.x + nx2 * (hw - 0.3), sz2 = p.z + nz2 * (hw - 0.3), y2 = groundY(sx2, sz2);
+            const face = f < 0.5 ? -p.angle + Math.PI / 2 : -p.angle - Math.PI / 2;
+            ribs.push({ x: sx2, y: y2 + 1.3, z: sz2, sx: 0.06, sy: 2.6, sz: 0.06, color: '#8a8e90' });
+            const signG = new THREE.Group();
+            signG.position.set(sx2, y2, sz2);
+            signG.rotation.y = face;
+            const disc = (y, tex) => { const m = new THREE.Mesh(new THREE.CircleGeometry(0.3, 20), new THREE.MeshBasicMaterial({ map: tex })); m.position.set(0, y, 0.05); signG.add(m); };
+            disc(2.35, this._signTex = this._signTex || canvasTexture(128, 128, (g2) => { g2.fillStyle = '#fff'; g2.beginPath(); g2.arc(64, 64, 62, 0, 7); g2.fill(); g2.strokeStyle = '#c8202a'; g2.lineWidth = 14; g2.beginPath(); g2.arc(64, 64, 52, 0, 7); g2.stroke(); g2.beginPath(); g2.moveTo(28, 28); g2.lineTo(100, 100); g2.stroke(); }));
+            disc(1.5, this._heightTex = this._heightTex || canvasTexture(128, 128, (g2) => { g2.fillStyle = '#fff'; g2.beginPath(); g2.arc(64, 64, 62, 0, 7); g2.fill(); g2.strokeStyle = '#c8202a'; g2.lineWidth = 12; g2.beginPath(); g2.arc(64, 64, 54, 0, 7); g2.stroke(); g2.fillStyle = '#1e3a8a'; g2.font = 'bold 48px sans-serif'; g2.textAlign = 'center'; g2.textBaseline = 'middle'; g2.fillText('2.3', 64, 68); }));
+            const plate = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.32), new THREE.MeshBasicMaterial({ map: labelTexture('自動車　自動2輪車を除く', { w: 256, h: 128, size: 22, bg: '#ffffff', fg: '#222222' }) }));
+            plate.position.set(0, 1.9, 0.05);
+            signG.add(plate);
+            this.group.add(signG);
+            const px2 = p.x - nx2 * (hw - 0.3), pz2 = p.z - nz2 * (hw - 0.3), py2 = groundY(px2, pz2);
+            const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.32, 1.4, 0.32), [lam(0x9a958a), lam(0x9a958a), lam(0x9a958a), lam(0x9a958a), new THREE.MeshLambertMaterial({ map: labelTexture(road.name + '通り', { w: 128, h: 512, size: Math.min(80, 420 / (road.name.length + 2)), bg: '#9a958a', fg: '#2a2622', vertical: true }) }), lam(0x9a958a)]);
+            pillar.position.set(px2, py2 + 0.7, pz2);
+            pillar.rotation.y = face;
+            this.group.add(pillar);
+          }
           const tex = labelTexture(road.name, { w: 1024, h: 160, size: 96, bg: '#2a2622', fg: '#f3e6c8' });
           for (const flip of [0, Math.PI]) {
             const m = new THREE.Mesh(new THREE.PlaneGeometry(4.8, 0.8), new THREE.MeshBasicMaterial({ map: tex }));
@@ -1326,6 +1376,7 @@ export class Town {
     this.group.add(instancedBoxes(fronts, lam(0xffffff)));
     this.group.add(instancedBoxes(awnings, lam(0xffffff, { side: THREE.DoubleSide }), { receive: false }));
     this.group.add(instancedBoxes(cases, lam(0xffffff), { receive: false }));
+    if (wheels.length) this.group.add(instancedBoxes(wheels, lam(0xffffff), { receive: false, geo: new THREE.TorusGeometry(0.5, 0.06, 6, 14) }));
     this.group.add(instancedBoxes(pipes, lam(0xffffff), { receive: false, geo: new THREE.CylinderGeometry(0.07, 0.07, 1, 8) }));
     this.group.add(instancedBoxes(pots, lam(0xffffff), { geo: new THREE.CylinderGeometry(0.5, 0.38, 1, 10) }));
     this.group.add(instancedBoxes(plants, lam(0xffffff, { flatShading: true }), { geo: new THREE.IcosahedronGeometry(0.6, 0) }));
@@ -1382,6 +1433,35 @@ export class Town {
         this.specialSignMats.push(lan.material);
         g.add(lan);
       }
+    } else if (cafe && sp.style === 'bath') {
+      // 大和湯：むかしの銭湯の正面。下は豆タイル、入口の上に唐破風（そりあがった屋根）、紺ののれん「ゆ」
+      sign.position.y = 4.25;   // 屋号は唐破風の上に
+      const tile = new THREE.Mesh(new THREE.BoxGeometry(5.6, 1.1, 0.12), lam(0x6a8a8a));
+      tile.position.set(0, 0.55, 0.08);
+      const wall = new THREE.Mesh(new THREE.BoxGeometry(5.6, 1.9, 0.1), lam(0xe8e0cc));
+      wall.position.set(0, 2.05, 0.06);
+      g.add(tile, wall);
+      for (const x of [-2.75, 2.75]) { const post = new THREE.Mesh(new THREE.BoxGeometry(0.2, 3, 0.2), lam(0x4a3324)); post.position.set(x, 1.5, 0.2); g.add(post); }
+      const door = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 2.1), new THREE.MeshLambertMaterial({ color: 0x5a4030, emissive: 0xffb060, emissiveIntensity: 0.3 }));
+      door.position.set(0, 1.05, 0.15);
+      this.specialSignMats.push(door.material);
+      g.add(door);
+      const noren = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 0.85), new THREE.MeshLambertMaterial({ map: labelTexture('ゆ', { w: 256, h: 96, size: 80, bg: '#24406a', fg: '#f6f2ea' }), side: THREE.DoubleSide }));
+      noren.position.set(0, 1.75, 0.3);
+      g.add(noren);
+      // 唐破風：前へ張り出した、まんなかが盛りあがる屋根（瓦は銀ねず）
+      const roofM = lam(0x4e545c);
+      const arch = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 1.8, 1.4, 16, 1, true, -Math.PI / 2, Math.PI), new THREE.MeshLambertMaterial({ color: 0x4e545c, side: THREE.DoubleSide }));
+      arch.rotation.x = -Math.PI / 2;
+      arch.scale.set(1, 1, 0.42);   // 低くそらせる
+      arch.position.set(0, 2.95, 0.6);
+      g.add(arch);
+      const ridge = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.25, 1.4), roofM);
+      ridge.position.set(0, 3.72, 0.6);
+      g.add(ridge);
+      const gable = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.25, 1.4), lam(0x5a3e2c));
+      gable.position.set(0, 2.85, 0.6);
+      g.add(gable);
     } else if (cafe) {
       // 喫茶店：濃い木の扉と、あたたかい灯りの窓
       const door = new THREE.Mesh(new THREE.BoxGeometry(1.0, 2.2, 0.1), lam(0x4a2e1e));

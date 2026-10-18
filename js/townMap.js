@@ -957,7 +957,7 @@ export const PLACES = [
   placeOnRoad('本町センター街', '本町センター街', 0.5),
   placeOnRoad('尾道ラーメン 汐', '本町センター街', 0.52),
   placeOnRoad('パン 潮風', '中商店街', 0.44),
-  placeOnRoad('かまぼこ 潮見', '本町センター街', 0.3),
+  placeOnRoad('桂馬蒲鉾', '本町センター街', 0.3),
   placeOnRoad('おやつのウミネコ', '本町センター街', 0.4),
   placeOnRoad('尾道マロン珈琲', '一番街', 0.3),
   ...STREET_SHOPS.map((sh) => ({ id: sh.name, name: sh.name, x: sh.standX, z: sh.standZ, yaw: Math.atan2(sh.nx, sh.nz) })),
