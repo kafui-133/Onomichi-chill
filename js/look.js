@@ -42,12 +42,17 @@ float toonStep( float x ) {
   return mix( 0.32, 0.9 + 0.1 * x, lit );
 }
 `;
+  // Lambert（町のほとんど）：直接光の当たりぐあいを丸める
   const from = 'float dotNL = saturate( dot( geometryNormal, directLight.direction ) );';
   const to = 'float dotNL = toonStep( saturate( dot( geometryNormal, directLight.direction ) ) );';
-  for (const name of ['lights_lambert_pars_fragment', 'lights_physical_pars_fragment']) {
-    const src = THREE.ShaderChunk[name];
-    if (!src || !src.includes(from) || src.includes('toonStep')) continue;
-    THREE.ShaderChunk[name] = fn + src.replace(from, to);
+  const lam = THREE.ShaderChunk.lights_lambert_pars_fragment;
+  if (lam && lam.includes(from) && !lam.includes('toonStep')) THREE.ShaderChunk.lights_lambert_pars_fragment = fn + lam.replace(from, to);
+  // Standard（猫や部屋）：丸めるのは拡散光だけ。照り返しまで丸めると、影の側のふち（輪郭）で照り返しが強く出て、
+  // 光る線のように見えてしまう
+  const diff = 'reflectedLight.directDiffuse += irradiance * BRDF_Lambert( material.diffuseColor );';
+  const phy = THREE.ShaderChunk.lights_physical_pars_fragment;
+  if (phy && phy.includes(diff) && !phy.includes('toonStep')) {
+    THREE.ShaderChunk.lights_physical_pars_fragment = fn + phy.replace(diff, 'reflectedLight.directDiffuse += toonStep( dotNL ) * directLight.color * BRDF_Lambert( material.diffuseColor );');
   }
 }
 
