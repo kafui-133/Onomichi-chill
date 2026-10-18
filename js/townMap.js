@@ -806,6 +806,11 @@ function routeTo(src, goals) {
   return out.reverse();
 }
 
+/** 2点のあいだの、歩ける道の道すじ（点の列） */
+export function walkRoute(ax, az, bx, bz) {
+  return routeTo(nearestNode(ax, az), new Set([nearestNode(bx, bz)]));
+}
+
 // 千光寺の参道：千光寺から、坂を下って本通り（本町センター街）へ出るまでの、歩ける道のいちばん近い道すじ
 export const SANDO = (() => {
   const temple = POIS.find((p) => p.n === '千光寺');

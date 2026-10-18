@@ -8,7 +8,7 @@ import { lam, buildSignAtlas, buildRetroSignAtlas, buildShopInteriorAtlas, SHOP_
 import {
   DATA, SEA_Y, BOUNDS, terrainY, groundY, surfaceY, addTread, addSolid, inSolid, walkable, ROADS, OTHER_ROADS, ARCADE_ROADS, nearAnyRoad, samplePath, roadLength, pointAlong,
   STREET_SHOPS, demAt, ALLEYS, COAST, distToCoast, straitAt, RAILS, CROSSINGS, TRAIN_TRACKS, ROPEWAY, SUMMIT, BENCHES, FERRY_ROUTES, POIS, onOnomichiSide, nearestRoad, inBuilding,
-  ROOFS, DECKS, addUpper, SANDO, KOJI,
+  ROOFS, DECKS, addUpper, SANDO, KOJI, walkRoute,
 } from './townMap.js';
 
 const SURFACE_LIFT = { asphalt: 0.05, tile: 0.07, stone: 0.09 };
@@ -245,6 +245,7 @@ export class Town {
     this._landmarks();
     this._moreSights();
     this._koji();
+    this._parks();
     this._piersAndBenches();
     this._nekoStones();
     this._pine();
@@ -2257,6 +2258,172 @@ export class Town {
       m.position.set(p.x, p.y + 0.47, p.z);
       m.rotation.y = p.face;
       this.group.add(m);
+    }
+  }
+
+  /**
+   * 坂の町の公園と広場：
+   * ・千光寺公園（山頂のまわり）：桜の林、ベンチ、東屋
+   * ・文学のこみち（山頂から千光寺へ下る小道）：文人の名を刻んだ自然石の文学碑
+   * ・坂の途中の小さな公園：平らなあき地に、砂の広場、ぶらんこ、すべり台、ベンチ、木
+   */
+  _parks() {
+    const r = seededRandom('parks');
+    const month = new Date().getMonth() + 1;
+    const sakura = month === 3 || month === 4 ? ['#f2c4cf', '#eab4c2', '#f6d4dc'] : month === 10 || month === 11 ? ['#c86a3a', '#b8803a', '#7a8a44'] : ['#5f8a44', '#6e9a4c', '#557c3c'];
+    const boxes = [], trunks = [], crowns = [], rocks = [];
+    const free = (x, z, m = 1) => !nearAnyRoad(x, z, m) && !inBuilding(x, z) && !inSolid(x, z);
+    const tree = (x, z, colors, h = 4.5 + r() * 1.5) => {
+      const y = groundY(x, z);
+      trunks.push({ x, y: y + h / 2, z, sx: 0.32, sy: h, sz: 0.32, rz: (r() - 0.5) * 0.25, color: '#4e3a30' });
+      for (let j = 0; j < 4; j++) crowns.push({ x: x + (r() - 0.5) * 3, y: y + h - 0.3 + r() * 1.2, z: z + (r() - 0.5) * 3, sx: 2.8 + r() * 1.2, sy: 1.8 + r() * 0.6, sz: 2.8 + r() * 1.2, ry: r() * 6, color: colors[j % colors.length] });
+      addSolid(x, z, 0.7, 0.7, 0);
+    };
+    const bench = (x, z, ang) => {
+      const y = groundY(x, z);
+      boxes.push({ x, y: y + 0.42, z, sx: 1.6, sy: 0.08, sz: 0.42, ry: ang, color: '#8a6a48' });
+      boxes.push({ x: x - Math.sin(ang) * 0.18, y: y + 0.7, z: z - Math.cos(ang) * 0.18, sx: 1.6, sy: 0.35, sz: 0.06, ry: ang, color: '#8a6a48' });
+      for (const sd of [-0.65, 0.65]) boxes.push({ x: x + Math.cos(ang) * sd, y: y + 0.21, z: z - Math.sin(ang) * sd, sx: 0.08, sy: 0.42, sz: 0.4, ry: ang, color: '#3a3a3a' });
+      addSolid(x, z, 1.7, 0.6, ang);
+    };
+    // ---- 千光寺公園：山頂のまわり、ゆるい斜面に桜をまとめて ----
+    const S = SUMMIT;
+    let n = 0;
+    for (let k = 0; k < 160 && n < 34; k++) {
+      const a = r() * Math.PI * 2, d = 20 + r() * 110;
+      const x = S.x + Math.cos(a) * d, z = S.z + Math.sin(a) * d;
+      if (!free(x, z, 2.5) || inPrecinct(x, z, 2)) continue;
+      const above = terrainY(x, z) - SEA_Y;
+      if (above < 100) continue;
+      n++;
+      tree(x, z, sakura);
+      // 木の下にベンチ（ときどき）
+      if (n % 4 === 0) {
+        const bx = x + 2.4, bz = z;
+        if (free(bx, bz, 0.5)) bench(bx, bz, r() * 6);
+      }
+    }
+    // 東屋（四本柱に方形の屋根）を、山頂の広場の近くに
+    for (let k = 0; k < 40; k++) {
+      const a = r() * Math.PI * 2, d = 26 + r() * 30;
+      const x = S.x + Math.cos(a) * d, z = S.z + Math.sin(a) * d;
+      if (!free(x, z, 3.5) || inPrecinct(x, z, 3)) continue;
+      const y = groundY(x, z);
+      for (const [px, pz] of [[-1.6, -1.6], [1.6, -1.6], [-1.6, 1.6], [1.6, 1.6]]) boxes.push({ x: x + px, y: y + 1.3, z: z + pz, sx: 0.2, sy: 2.6, sz: 0.2, color: '#5a3e2c' });
+      const roof = new THREE.Mesh(new THREE.ConeGeometry(3.4, 1.4, 4), lam(0x3c4148));
+      roof.rotation.y = Math.PI / 4;
+      roof.position.set(x, y + 3.25, z);
+      roof.castShadow = true;
+      this.group.add(roof);
+      boxes.push({ x, y: y + 0.45, z: z + 1.0, sx: 2.6, sy: 0.08, sz: 0.4, color: '#8a6a48' });
+      boxes.push({ x, y: y + 0.45, z: z - 1.0, sx: 2.6, sy: 0.08, sz: 0.4, color: '#8a6a48' });
+      boxes.push({ x, y: y + 0.72, z, sx: 1.2, sy: 0.06, sz: 0.8, color: '#8a6a48' });
+      addSolid(x, z, 3.6, 3.6, 0);
+      break;
+    }
+    // ---- 文学のこみち：山頂から千光寺へ下る道に、文学碑（自然石に、文人の名） ----
+    const sk = POIS.find((q) => q.n === '千光寺');
+    if (sk) {
+      const route = walkRoute(S.x, S.z, sk.x, sk.z);
+      const names = ['正岡子規', '松尾芭蕉', '十返舎一九', '徳冨蘆花', '頼山陽', '林芙美子', '志賀直哉', '金田一京助', '中村憲吉', '山口誓子', '緒方洪庵', '吉井勇', '巌谷小波', '前田夕暮', '小林和作', '江戸川乱歩', '柳原白蓮', '寺内萬治郎', '森田思軒', '物外和尚', '高垣眸', '亀山光夫', '尾崎紅葉', '下村湖人', '良寛'];
+      const pts = samplePath(route, 2);
+      let run = 0, last = -99, ni = 0;
+      for (const p of pts) {
+        run += 2;
+        if (run - last < 16 || ni >= names.length) continue;
+        const nr = nearestRoad(p.x, p.z);
+        const w = nr ? nr.seg.half : 1;
+        const sd = ni % 2 ? 1 : -1;
+        const x = p.x - Math.sin(p.angle) * sd * (w + 1.3), z = p.z + Math.cos(p.angle) * sd * (w + 1.3);
+        if (!free(x, z, 0.6)) continue;
+        last = run;
+        const y = groundY(x, z), size = 1.2 + r() * 0.8;
+        rocks.push({ x, y: y + size * 0.45, z, sx: size * 1.2, sy: size * 1.1, sz: size * 0.8, ry: Math.atan2(p.x - x, p.z - z), rx: (r() - 0.5) * 0.2, color: ['#9a958a', '#8e897e', '#a29d92'][Math.floor(r() * 3)] });
+        // 刻んだ文字の板（道に向けて）
+        const tex = labelTexture(names[ni], { w: 128, h: 384, size: Math.min(84, 330 / names[ni].length), bg: '#8a857a', fg: '#2e2a26', vertical: true });
+        const plate = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 1.0), new THREE.MeshLambertMaterial({ map: tex }));
+        const face = Math.atan2(p.x - x, p.z - z);
+        plate.position.set(x + Math.sin(face) * size * 0.42, y + size * 0.55, z + Math.cos(face) * size * 0.42);
+        plate.rotation.y = face;
+        this.group.add(plate);
+        addSolid(x, z, size, size, 0);
+        ni++;
+      }
+    }
+    // ---- 坂の途中の小さな公園：平らなあき地（石段の小道のそば） ----
+    const parks = [];
+    const flatAt = (x, z) => { const ys = [[-6, 0], [6, 0], [0, -6], [0, 6], [0, 0]].map(([a, b]) => terrainY(x + a, z + b)); return Math.max(...ys) - Math.min(...ys); };
+    for (const road of ROADS) {
+      if (road.surface !== 'stone' || parks.length >= 6) continue;
+      for (const p of samplePath(road.pts, 10)) {
+        if (parks.length >= 6) break;
+        const above = terrainY(p.x, p.z) - SEA_Y;
+        if (above < 12 || above > 85) continue;
+        for (const sd of [-1, 1]) {
+          const x = p.x - Math.sin(p.angle) * sd * 9, z = p.z + Math.cos(p.angle) * sd * 9;
+          if (parks.some((q) => Math.hypot(q.x - x, q.z - z) < 140) || flatAt(x, z) > 1.6) continue;
+          let ok = true;
+          for (let a = 0; a < 6.3 && ok; a += 0.8) for (const d of [0, 3, 6]) { const qx = x + Math.cos(a) * d, qz = z + Math.sin(a) * d; if (!free(qx, qz, 0.3) || inPrecinct(qx, qz, 2)) { ok = false; break; } }
+          if (!ok) continue;
+          parks.push({ x, z, face: Math.atan2(p.x - x, p.z - z) });
+          break;
+        }
+      }
+    }
+    const tb = new TriBatch();
+    for (const pk of parks) {
+      // 砂の地面
+      for (let a = -7; a < 7; a += 1) for (let b = -7; b < 7; b += 1) {
+        if (Math.hypot(a, b) > 7) continue;
+        const v = 0.78 + r() * 0.05, col = new THREE.Color(v, v * 0.92, v * 0.78);
+        const P = (px, pz) => [pk.x + px, groundY(pk.x + px, pk.z + pz) + 0.05, pk.z + pz];
+        tb.quad(P(a, b), P(a, b + 1), P(a + 1, b + 1), P(a + 1, b), col);
+      }
+      const y = groundY(pk.x, pk.z), c = Math.cos(pk.face), sn = Math.sin(pk.face);
+      const W = (lx, lz) => ({ x: pk.x + lx * c + lz * sn, z: pk.z - lx * sn + lz * c });
+      // ぶらんこ（黄色い鉄の枠、赤い座板ふたつ）
+      const sw = W(-3, -2);
+      for (const sd of [-1.6, 1.6]) for (const t of [-0.6, 0.6]) {
+        const q = W(-3 + sd, -2 + t);
+        boxes.push({ x: q.x, y: y + 1.2, z: q.z, sx: 0.1, sy: 2.5, sz: 0.1, rx: -t * 0.4, ry: pk.face, color: '#e0b030' });
+      }
+      boxes.push({ x: sw.x, y: y + 2.4, z: sw.z, sx: 3.4, sy: 0.12, sz: 0.12, ry: pk.face, color: '#e0b030' });
+      for (const sd of [-0.8, 0.8]) {
+        const q = W(-3 + sd, -2);
+        boxes.push({ x: q.x, y: y + 0.45, z: q.z, sx: 0.5, sy: 0.06, sz: 0.25, ry: pk.face, color: '#c8302a' });
+        boxes.push({ x: q.x, y: y + 1.45, z: q.z, sx: 0.02, sy: 1.95, sz: 0.02, ry: pk.face, color: '#888' });
+      }
+      addSolid(sw.x, sw.z, 3.6, 1.6, -pk.face);
+      // すべり台（青い階段と、銀色のすべり面）
+      const sl = W(3, -1.5);
+      boxes.push({ x: sl.x, y: y + 0.9, z: sl.z, sx: 0.9, sy: 0.1, sz: 0.9, ry: pk.face, color: '#3a6ab8' });
+      for (const t of [-0.4, 0.4]) { const q = W(3 + t, -2); boxes.push({ x: q.x, y: y + 0.45, z: q.z, sx: 0.08, sy: 0.9, sz: 0.08, color: '#3a6ab8' }); }
+      const sm = W(3, -0.1);
+      boxes.push({ x: sm.x, y: y + 0.5, z: sm.z, sx: 0.7, sy: 0.06, sz: 2.2, ry: pk.face, rx: -0.42, color: '#c8ccd0' });
+      addSolid(sl.x, sl.z, 1.2, 3, -pk.face);
+      // ベンチ2つと、木2本（桜と、緑の木）、低い柵
+      for (const [lx, lz] of [[-4.5, 4], [1.5, 4.5]]) { const q = W(lx, lz); bench(q.x, q.z, pk.face + Math.PI); }
+      const t1 = W(-5.5, 5.5), t2 = W(5.5, 4);
+      tree(t1.x, t1.z, sakura);
+      tree(t2.x, t2.z, ['#3e6e34', '#4f7c3e', '#5a8a44'], 5 + r() * 2);
+      for (let a = 0; a < Math.PI * 2; a += 0.35) {
+        const qx = pk.x + Math.cos(a) * 7.3, qz = pk.z + Math.sin(a) * 7.3;
+        if (nearAnyRoad(qx, qz, 0.6)) continue;
+        boxes.push({ x: qx, y: groundY(qx, qz) + 0.35, z: qz, sx: 0.08, sy: 0.7, sz: 0.08, color: '#4a6a4a' });
+        boxes.push({ x: qx, y: groundY(qx, qz) + 0.66, z: qz, sx: 2.5, sy: 0.06, sz: 0.06, ry: -(a + Math.PI / 2), color: '#4a6a4a' });
+      }
+    }
+    if (parks.length) {
+      const sand = new THREE.Mesh(tb.build(), lam(0xffffff, { vertexColors: true, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -0.6, polygonOffsetUnits: -1 }));
+      sand.receiveShadow = true;
+      this.group.add(sand);
+    }
+    this.parkSpots = parks;
+    if (boxes.length) this.group.add(instancedChunks(boxes, lam(0xffffff)));
+    if (rocks.length) this.group.add(instancedChunks(rocks, lam(0xffffff, { flatShading: true }), { geo: new THREE.DodecahedronGeometry(0.6, 0) }));
+    if (trunks.length) {
+      this.group.add(instancedChunks(trunks, lam(0xffffff), { geo: new THREE.CylinderGeometry(0.4, 0.55, 1, 6) }));
+      this.group.add(instancedChunks(crowns, lam(0xffffff, { flatShading: true }), { geo: new THREE.IcosahedronGeometry(0.6, 1) }));
     }
   }
 
