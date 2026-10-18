@@ -205,6 +205,11 @@ python3 tools/build_town_data.py   # ゲーム用の js/data/onomichi.js（約64
 - **標高**：国土地理院の[標高タイル](https://maps.gsi.go.jp/development/ichiran.html)（DEM5A）を加工して作成（[国土地理院コンテンツ利用規約](https://www.gsi.go.jp/kikakuchousei/kikakuchousei40182.html)に基づく出典の明示）
 - **Three.js**：MIT License（CDN から読み込み）／ **フォント**：しっぽり明朝（SIL Open Font License、Google Fonts）
 - **音・絵**：すべてプログラムで合成・描画しています（音声ファイル・画像素材は使っていません。三重塔の3Dモデルも、このリポジトリのスクリプトで作ったものです）
+- **見た目の参考にした写真**：作者の写真のほか、Wikimedia Commons の次の写真を参考にしました（画像そのものはゲームに含めていません）
+  - [2017-05-03 JNR 115 (JR West) in Shonan Livery in Onomichi 01.jpg](https://commons.wikimedia.org/wiki/File:2017-05-03_JNR_115_(JR_West)_in_Shonan_Livery_in_Onomichi_01.jpg) — khws4v1（CC BY-SA 2.0）
+  - [Onomichi 10.jpg](https://commons.wikimedia.org/wiki/File:Onomichi_10.jpg) — RitikaPahwa4444（CC BY-SA 4.0）
+  - [Onomichi 101.jpg](https://commons.wikimedia.org/wiki/File:Onomichi_101.jpg) — RitikaPahwa4444（CC BY-SA 4.0）
+  - [Onomichi 12.jpg](https://commons.wikimedia.org/wiki/File:Onomichi_12.jpg) — RitikaPahwa4444（CC BY-SA 4.0）
 - 実在の町並み・地名・公共の施設（寺社、ロープウェイ、駅、渡船、商店街の通り名）をもとにしたフィクションです。**お店・猫・人物はすべて架空**で、実在のお店とは関係ありません
 
 ## 次のステップ（企画書より）

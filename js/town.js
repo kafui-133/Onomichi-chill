@@ -2237,6 +2237,13 @@ export class Town {
         roof.rotation.x = Math.PI / 2;
         roof.position.y = 0.6;
         arch.add(roof);
+        // 夜はアーチの下が明るく灯る（写真の夜の渡船のりば）
+        const archLight = new THREE.MeshBasicMaterial({ color: 0xfff2d8, transparent: true, opacity: 0 });
+        this.nightMats.push({ mat: archLight, max: 0.9 });
+        const glowPanel = new THREE.Mesh(new THREE.PlaneGeometry(4.5, 2.6), archLight);
+        glowPanel.rotation.x = Math.PI / 2;
+        glowPanel.position.y = 3.5;
+        arch.add(glowPanel);
         for (const sx of [-3.1, 3.1]) {
           const pole = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.7, 0.12), poleMat);
           pole.position.set(sx, 0.35, 0);
@@ -2598,8 +2605,8 @@ export class Town {
       const b = new THREE.Mesh(new THREE.BoxGeometry(19.5, 3.2, 2.9), body);
       b.position.y = 2.1;
       b.castShadow = true;
-      const s = new THREE.Mesh(new THREE.BoxGeometry(19.55, 0.35, 2.95), stripe);
-      s.position.y = 1.2;
+      const s = new THREE.Mesh(new THREE.BoxGeometry(19.55, 0.7, 2.95), stripe);
+      s.position.y = 1.3;
       const w = new THREE.Mesh(new THREE.BoxGeometry(17.5, 0.9, 2.95), dark);
       w.position.y = 2.6;
       const wl = new THREE.Mesh(new THREE.BoxGeometry(17.4, 0.8, 2.97), this.trainWinMat);
@@ -2609,7 +2616,7 @@ export class Town {
       this.group.add(car);
       cars.push(car);
     }
-    this.train = { cars, track: 0, s: 0, dir: 1, active: false, timer: 20 + this.r() * 30, speed: 17 };
+    this.train = { cars, body, stripe, track: 0, s: 0, dir: 1, active: false, timer: 20 + this.r() * 30, speed: 17 };
   }
 
   _trackPoint(t, s) {
@@ -2673,6 +2680,11 @@ export class Town {
       T.timer -= dt;
       if (T.timer <= 0) {
         T.active = true;
+        // 走ってくる電車の色：白に赤い帯（227系のような）、橙と緑の湘南色、黄色一色（115系）
+        const LIVERY = [[0xe8e6e0, 0xb8322a], [0xe0702a, 0x2f6b3a], [0xe8c020, 0xd8b018]];
+        const lv = LIVERY[Math.floor(this.r() * LIVERY.length)];
+        T.body.color.setHex(lv[0]);
+        T.stripe.color.setHex(lv[1]);
         T.track = this.r() < 0.5 ? 0 : 1;
         T.dir = T.track === 0 ? 1 : -1;
         const L = this.tracks[T.track].length;
