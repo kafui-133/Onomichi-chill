@@ -78,6 +78,7 @@ const PRECINCTS = [
   MODEL_FITS.senkoji && { ...MODEL_FITS.senkoji, r: 19 },
   MODEL_FITS.ushitora && { ...MODEL_FITS.ushitora, r: 18 },
   ...[['天寧寺三重塔', 9]].map(([n, r]) => { const p = POIS.find((q) => q.n === n); return p && { x: p.x, z: p.z, r }; }),
+  (() => { const p = POIS.find((q) => q.n === '尾道城'); return p && { x: p.x, z: p.z, r: 20 }; })(),
   // 三重塔の下の墓地（家を建てずにあけておく）
   (() => { const p = POIS.find((q) => q.n === '天寧寺三重塔'); if (!p) return null; const y = downhillYaw(p.x, p.z, 8); return { x: p.x + Math.sin(y) * 26, z: p.z + Math.cos(y) * 26, r: 17 }; })(),
 ].filter(Boolean);
@@ -1868,6 +1869,7 @@ export class Town {
     const poi = (n) => POIS.find((p) => p.n === n);
     const pagoda = poi('天寧寺三重塔');
     if (pagoda) { this._pagoda(pagoda.x, pagoda.z); this._cemetery(pagoda.x, pagoda.z); }
+    this._castle();
     const ushitora = poi('艮神社');
     if (ushitora) this._shrine(ushitora.x, ushitora.z);
     const senkoji = poi('千光寺');
@@ -1893,6 +1895,42 @@ export class Town {
         this._addSolids(fit, MODEL_RECTS.senkoji);
       });
     }
+  }
+
+  /** 山の上の、お城のかたちの建物（白壁に黒い瓦の屋根を重ねた天守閣風）と石垣 */
+  _castle() {
+    const P = POIS.find((q) => q.n === '尾道城');
+    if (!P) return;
+    const y = terrainY(P.x, P.z);
+    const g = new THREE.Group();
+    const white = lam(0xeeece4), roof = lam(0x3c4250), stone = lam(0x8f897d);
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(9, 11, 6, 4), stone);
+    base.rotation.y = Math.PI / 4;
+    base.position.y = 1;
+    g.add(base);
+    let h = 4, w = 12;
+    for (let i = 0; i < 5; i++) {
+      const body = new THREE.Mesh(new THREE.BoxGeometry(w, 3.2, w * 0.85), white);
+      body.position.y = h + 1.6;
+      body.castShadow = true;
+      const rf = new THREE.Mesh(new THREE.ConeGeometry(w * 0.82, 1.6, 4), roof);
+      rf.rotation.y = Math.PI / 4;
+      rf.scale.z = 0.85;
+      rf.position.y = h + 3.6;
+      g.add(body, rf);
+      h += 3.4;
+      w *= 0.8;
+    }
+    // てっぺんの入母屋の屋根と、しゃちほこ代わりの小さな飾り
+    const cap = new THREE.Mesh(new THREE.ConeGeometry(w * 0.9, 2.4, 4), roof);
+    cap.rotation.y = Math.PI / 4;
+    cap.position.y = h + 1.6;
+    g.add(cap);
+    g.position.set(P.x, y - 2, P.z);
+    g.scale.setScalar(1.55);   // 天守閣風の5層、高さ25mほど
+    g.rotation.y = downhillYaw(P.x, P.z, 8);
+    this.group.add(g);
+    addSolid(P.x, P.z, 16, 16, g.rotation.y);
   }
 
   /** 三重塔の下の斜面に広がる墓地（灰色の墓石が段々に並ぶ） */
@@ -2129,12 +2167,53 @@ export class Town {
     const signTex = labelTexture('渡船のりば', { w: 512, h: 128, size: 72, bg: '#1f3b5a', fg: '#f4efe4' });
     const mukaiTex = labelTexture('向 島 行 渡 船 の り ば', { w: 1024, h: 128, size: 76, bg: '#f4f2ec', fg: '#1f3b8a' });
     const archMat = lam(0x5e9a72, { side: THREE.DoubleSide }), poleMat = lam(0xe8e6e0);
+    // 浮き桟橋：緑の床の台船、ふちに古タイヤの防舷材。岸からは、赤い手すりの渡り橋（写真の福本渡船のように）
+    const deckMat = lam(0x5f7a5a), tireMat = lam(0x1e1e20), redMat = lam(0xb8403a), rampMat = lam(0x8a8680);
+    const tireGeo = new THREE.TorusGeometry(0.42, 0.16, 6, 10);
     FERRY_ROUTES.forEach((route, ri) => {
       for (const end of [route.a, route.b]) {
-        const p = new THREE.Mesh(new THREE.BoxGeometry(10, 1.2, 8), pontoonMat);
-        p.position.set(end.x, SEA_Y + 0.6, end.z);
+        const other = end === route.a ? route.b : route.a;
+        const dir = Math.atan2(other.z - end.z, other.x - end.x);   // 海へ向かう向き
+        const g = new THREE.Group();
+        g.position.set(end.x, SEA_Y, end.z);
+        g.rotation.y = -dir;
+        const p = new THREE.Mesh(new THREE.BoxGeometry(10, 1.2, 9), pontoonMat);
+        p.position.y = 0.6;
         p.receiveShadow = true;
-        this.group.add(p);
+        const top = new THREE.Mesh(new THREE.BoxGeometry(9.6, 0.06, 8.6), deckMat);
+        top.position.y = 1.23;
+        g.add(p, top);
+        for (const sz of [4.6, -4.6]) {
+          for (let k = 0; k < 7; k++) {
+            const tire = new THREE.Mesh(tireGeo, tireMat);
+            tire.position.set(-4.2 + k * 1.4, 0.55, sz);
+            g.add(tire);
+          }
+        }
+        // 岸から台船へ、ゆるく下る渡り橋（赤い手すり）。岸までの長さをはかる
+        let L = 6;
+        for (let d = 5; d < 40; d += 0.5) {
+          if (groundY(end.x - Math.cos(dir) * d, end.z - Math.sin(dir) * d) > SEA_Y + 1.2) { L = Math.max(4, d - 5 + 1); break; }
+        }
+        const shoreY = Math.max(groundY(end.x - Math.cos(dir) * (L + 5), end.z - Math.sin(dir) * (L + 5)), SEA_Y + 2);
+        const drop = shoreY - (SEA_Y + 1.25);
+        const ramp = new THREE.Group();
+        ramp.position.set(-5 - L / 2, 1.25 + drop / 2, 0);
+        ramp.rotation.z = -Math.atan2(drop, L);
+        const deck = new THREE.Mesh(new THREE.BoxGeometry(Math.hypot(L, drop), 0.25, 3.2), rampMat);
+        ramp.add(deck);
+        for (const sz of [-1.55, 1.55]) {
+          const rail = new THREE.Mesh(new THREE.BoxGeometry(Math.hypot(L, drop), 0.1, 0.1), redMat);
+          rail.position.set(0, 1.0, sz);
+          ramp.add(rail);
+          for (let k = -4; k <= 4; k++) {
+            const post = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.0, 0.08), redMat);
+            post.position.set(k * Math.hypot(L, drop) / 9, 0.5, sz);
+            ramp.add(post);
+          }
+        }
+        g.add(ramp);
+        this.group.add(g);
       }
       // 尾道側に待合の小屋
       const a = route.a;

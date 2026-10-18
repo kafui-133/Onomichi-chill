@@ -252,6 +252,30 @@ export class World {
     jibCrane(232, fz(232) - 2, 0.9, 0.85, 48);
     jibCrane(300, fz(300) - 8, 2.6, 1.0, 40);
     crawler(262, fz(262) - 18, 1.9);
+    // 写真の造船所：うす緑の大きな門型のトラスクレーン（青い台車つき）と、白い引込みクレーン
+    {
+      const teal = this.mat(0x9fd8c4), blue = this.mat(0x3a6ab8), white = this.mat(0xe8e8e2);
+      const g = new THREE.Group();
+      const L = 90, H = 26, W = 16;
+      for (const x of [-L / 2 + 8, -L / 6, L / 6, L / 2 - 8]) {
+        for (const z of [-W / 2, W / 2]) {
+          // 脚：下が広がるトラスの柱（4本の細い角材で）
+          strut(g, teal, new THREE.Vector3(x - 3, 0, z), new THREE.Vector3(x, H, z), 0.9);
+          strut(g, teal, new THREE.Vector3(x + 3, 0, z), new THREE.Vector3(x, H, z), 0.9);
+        }
+      }
+      for (const z of [-W / 2, W / 2]) {
+        box(g, teal, L, 1.6, 1.2, 0, H, z);
+        lattice(g, teal, new THREE.Vector3(-L / 2, H + 0.8, z), new THREE.Vector3(L / 2, H + 0.8, z), 3, 0x9fd8c4);
+      }
+      for (const x of [-L / 2, 0, L / 2]) box(g, teal, 1.2, 1.4, W, x, H, 0);
+      box(g, blue, 8, 3, W + 1, 12, H + 2.5, 0);       // 台車
+      box(g, white, 4, 2.5, 3, 18, H + 2.4, W / 2 + 1); // 運転室
+      g.position.set(205, SEA_LEVEL + 1.5, fz(205) - 30);
+      g.rotation.y = 0.05;
+      this.group.add(g);
+      this._litCrane(g, [teal]);
+    }
     // ドックの船体と船橋
     const hull = new THREE.Mesh(new THREE.BoxGeometry(110, 12, 22), this.mat(0x2f4a66));
     hull.position.set(200, SEA_LEVEL + 5, fz(200) + 8);
