@@ -8,7 +8,7 @@ import { lam, buildSignAtlas, buildRetroSignAtlas, buildShopInteriorAtlas, SHOP_
 import {
   DATA, SEA_Y, BOUNDS, terrainY, groundY, surfaceY, addTread, addSolid, inSolid, walkable, ROADS, OTHER_ROADS, ARCADE_ROADS, nearAnyRoad, samplePath, roadLength, pointAlong,
   STREET_SHOPS, demAt, ALLEYS, COAST, distToCoast, straitAt, RAILS, CROSSINGS, TRAIN_TRACKS, ROPEWAY, SUMMIT, BENCHES, FERRY_ROUTES, POIS, onOnomichiSide, nearestRoad, inBuilding,
-  ROOFS, DECKS, addUpper, SANDO,
+  ROOFS, DECKS, addUpper, SANDO, KOJI,
 } from './townMap.js';
 
 const SURFACE_LIFT = { asphalt: 0.05, tile: 0.07, stone: 0.09 };
@@ -244,6 +244,7 @@ export class Town {
     this._ropeway();
     this._landmarks();
     this._moreSights();
+    this._koji();
     this._piersAndBenches();
     this._nekoStones();
     this._pine();
@@ -2188,6 +2189,74 @@ export class Town {
         g.rotation.y = fit.yaw;
         this._addSolids(fit, MODEL_RECTS.senkoji);
       });
+    }
+  }
+
+  /**
+   * 古寺めぐり：めぐる寺ごとに、寺の名を刻んだ石標と、お参りの場所。地図に堂のない寺には、本堂と鐘楼。
+   * 寺と寺のあいだの道には、「古寺めぐり」の小さな道しるべ（およそ60m ごと）
+   */
+  _koji() {
+    const r = seededRandom('koji');
+    const stones = [], posts = [];
+    const granite = lam(0xb0aa9e);
+    const hasBuilding = (x, z) => DATA.buildings.some((b) => { let bx = 0, bz = 0; const n = b.p.length / 2; for (let k = 0; k < b.p.length; k += 2) { bx += b.p[k]; bz += b.p[k + 1]; } return Math.hypot(bx / n - x, bz / n - z) < 18; });
+    const signTex = labelTexture('古寺めぐり', { w: 128, h: 512, size: 92, bg: '#a8a296', fg: '#3a3430', vertical: true });
+    const signMat = new THREE.MeshLambertMaterial({ map: signTex });
+    KOJI.forEach((t, i) => {
+      // 石標（寺の名）：お参りの場所の道ばた
+      const n = nearestRoad(t.stand.x, t.stand.z);
+      const ang = n ? Math.atan2(n.seg.dz, n.seg.dx) : 0;
+      const hw = n ? n.seg.half : 1;
+      let sx = t.stand.x, sz = t.stand.z;
+      for (const sd of [1, -1]) {
+        const x = t.stand.x - Math.sin(ang) * sd * (hw + 0.5), z = t.stand.z + Math.cos(ang) * sd * (hw + 0.5);
+        if (!nearAnyRoad(x, z, 0.1) && !inBuilding(x, z) && !inSolid(x, z)) { sx = x; sz = z; break; }
+      }
+      const sy = groundY(sx, sz);
+      const tex = labelTexture(t.name, { w: 128, h: 512, size: Math.min(100, 440 / t.name.length), bg: '#b0aa9e', fg: '#2e2a26', vertical: true });
+      const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.42, 1.8, 0.42), [granite, granite, granite, granite, new THREE.MeshLambertMaterial({ map: tex }), new THREE.MeshLambertMaterial({ map: tex })]);
+      pillar.position.set(sx, sy + 0.9, sz);
+      pillar.rotation.y = Math.atan2(t.stand.x - sx, t.stand.z - sz);   // 文字の面を道へ
+      pillar.castShadow = true;
+      this.group.add(pillar);
+      stones.push({ x: sx, y: sy + 0.1, z: sz, sx: 0.7, sy: 0.2, sz: 0.7, ry: -ang, color: '#9a9488' });
+      addSolid(sx, sz, 0.6, 0.6, -ang);
+      // 地図に堂がない寺：本堂を建てる（道にかからない場所に、坂の下へ向けて）
+      if (!hasBuilding(t.x, t.z) && t.name !== '御袖天満宮') {
+        const fit = fitPlacement(t.x, t.z, [[-4.5, 4.5, -4, 4]], { maxShift: 14 });
+        if (fit && fit.hits < 3) {
+          const hall = this._hall(7, 6, 3.6);
+          hall.position.set(fit.x, Math.min(...[[-4, -4], [4, -4], [-4, 4], [4, 4]].map(([a, b]) => terrainY(fit.x + a, fit.z + b))) - 0.2, fit.z);
+          hall.rotation.y = fit.yaw;
+          this.group.add(hall);
+          addSolid(fit.x, fit.z, 8, 7, -fit.yaw);
+        }
+      }
+      this.interactables.push({ type: 'temple', name: t.name, idx: i, x: t.stand.x, z: t.stand.z, radius: 4.5 });
+      // 道しるべ：前の寺からの道すじに、およそ60m ごと
+      if (t.route.length > 1) {
+        const pts = samplePath(t.route, 4);
+        let run = 0, last = 0;
+        for (const p of pts) {
+          run += 4;
+          if (run - last < 60 || run < 20) continue;
+          const nr = nearestRoad(p.x, p.z);
+          const w = nr ? nr.seg.half + 0.45 : 1.2;
+          const sd = r() < 0.5 ? -1 : 1;
+          const x = p.x - Math.sin(p.angle) * sd * w, z = p.z + Math.cos(p.angle) * sd * w;
+          if (nearAnyRoad(x, z, 0.05) || inBuilding(x, z) || inSolid(x, z)) continue;
+          last = run;
+          posts.push({ x, z, y: groundY(x, z), face: Math.atan2(p.x - x, p.z - z) });
+        }
+      }
+    });
+    if (stones.length) this.group.add(instancedChunks(stones, lam(0xffffff)));
+    for (const p of posts) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.95, 0.22), [granite, granite, granite, granite, signMat, signMat]);
+      m.position.set(p.x, p.y + 0.47, p.z);
+      m.rotation.y = p.face;
+      this.group.add(m);
     }
   }
 

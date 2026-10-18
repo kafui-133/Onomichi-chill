@@ -21,10 +21,11 @@ import { eventsOn, eventGlow } from './events.js';
 import { Candles } from './candles.js';
 import { look, Look, applyToonShading } from './look.js';
 import { People } from './people.js';
+import { Koji } from './koji.js';
 
 // 絵作り：トゥーン調の陰影は、シェーダーを組み立てる前（いちばん初めの描画の前）に入れる
 applyToonShading();
-import { PLACES, CROSSINGS, ROADS, BENCHES, ROPEWAY, ROPEWAY_STOPS, POIS, groundY, surfaceY, placeName, zoneWeights, pointAlong, clampToRoads, nearestRoad } from './townMap.js';
+import { PLACES, CROSSINGS, ROADS, BENCHES, ROPEWAY, ROPEWAY_STOPS, POIS, KOJI, groundY, surfaceY, placeName, zoneWeights, pointAlong, clampToRoads, nearestRoad } from './townMap.js';
 import { kanjiNumber, smoothstep, clamp } from './util.js';
 
 const params = new URLSearchParams(location.search);
@@ -255,7 +256,8 @@ function travel(place) {
   fadeTo(() => enterTown(place));
 }
 
-const mapView = new MapView({ canvas: $('map-canvas'), list: $('map-list'), onTravel: travel, cats: () => zukan.friends(), onVisitCat: (e) => visitCat(e) });
+const koji = new Koji(KOJI.length);
+const mapView = new MapView({ canvas: $('map-canvas'), list: $('map-list'), onTravel: travel, cats: () => zukan.friends(), onVisitCat: (e) => visitCat(e), koji });
 function openMap() {
   const pos = mode === 'walk' ? { x: walker.x, z: walker.z, yaw: controls.yaw } : { x: 0, z: 0.5, yaw: 0 };
   const px = mapView.draw(pos);
@@ -346,6 +348,17 @@ function doAction(action = actions[0]) {
   if (action === 'ropeway' && rideDir) { startRide(rideDir); return; }
   if (action === 'deck' && actionShop) { walker.sit(actionShop.seat); diary.summit(); toast('展望台から、尾道水道を見わたす', 3000); return; }
   if (action === 'shop' && actionShop) { food.openShop(actionShop); return; }
+  if (action === 'pray' && actionShop) {
+    // 古寺めぐり：はじめてのお寺では御朱印をいただく。次のお寺の名も教えてもらう
+    const t = actionShop, first = koji.visit(t.name);
+    audio.chime && audio.chime();
+    diary.temple(t.name);
+    const next = KOJI.slice(t.idx + 1).concat(KOJI.slice(0, t.idx)).find((q) => !koji.has(q.name));
+    if (first) toast(`${t.name}　御朱印をいただいた（${koji.count} / ${koji.total}）${next ? `　次は${next.name}へ` : ''}`, 4600);
+    else toast(`${t.name}で、静かに手を合わせる`, 2600);
+    if (first && koji.count === koji.total) setTimeout(() => toast('古寺めぐり、満願。尾道のお寺を、すべてめぐった', 5600), 4800);
+    return;
+  }
   if (action === 'home') goHome();
   else if (action === 'sit') { walker.sit(walker.nearBench()); diary.sat(); toast('ベンチに腰をおろす', 2500); }
   else if (action === 'stand') walker.stand();
@@ -736,7 +749,7 @@ function frame(fixedDt) {
       else if (walker.crouching) actions.push('rise');
       else if (!ride) {
         if (rideDir) actions.push('ropeway');
-        if (actionShop) actions.push(actionShop.type === 'deck' ? 'deck' : 'shop');
+        if (actionShop) actions.push(actionShop.type === 'deck' ? 'deck' : actionShop.type === 'temple' ? 'pray' : 'shop');
         if (walker.nearDoor()) actions.push('home');
         if (walker.nearBench()) actions.push('sit');
         if (nearStray()) actions.push('crouch');
@@ -752,6 +765,7 @@ function frame(fixedDt) {
     const label = (a) => a === 'skipride' ? (ride.dir > 0 ? 'すぐに山頂駅へ' : 'すぐに山麓駅へ')
       : a === 'ropeway' ? (rideDir === 'up' ? 'ロープウェイに乗る（山頂へ）' : 'ロープウェイに乗る（山麓へ）')
       : a === 'deck' ? '展望台にのぼる'
+      : a === 'pray' ? (koji.has(actionShop.name) ? `${actionShop.name}で手を合わせる` : `${actionShop.name}にお参りする`)
       : a === 'stand' && walker.seat && walker.seat.kind === 'deck' ? '展望台をおりる'
       : a === 'shop'
       ? { bakery: `${actionShop.name}に入る`, ramen: `${actionShop.name}で食べる`, vending: '自販機で買う', kamaboko: `${actionShop.name}に寄る`, sweets: `${actionShop.name}に寄る`, juice: 'みかんジュースを選ぶ', cafe: `${actionShop.name}でひとやすみ` }[actionShop.type]
