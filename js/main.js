@@ -653,7 +653,7 @@ function frame(fixedDt) {
       diary.metCat(e.name);
     }
     // しゃがんで静かに待っていると、猫のほうから気にかけてくれる
-    if (near && walker.crouching && c.root.position.distanceTo(camera.position) < 3) c.crouchedNear(dt, controls.idleSeconds);
+    if (near && walker.crouching && c.root.position.distanceTo(camera.position) < 3) c.crouchedNear(dt, controls.idleSeconds, walker);
   });
 
   // 電車が近づくと踏切が鳴る。聞いている場所からいちばん近い踏切の音だけ鳴らす

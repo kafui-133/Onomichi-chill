@@ -122,6 +122,36 @@ const POSES = {
     br: { p: [-0.05, 0.04, -0.06], r: [1.5, 0, 0], s: [0.3, 0.3, 0.3] },
     tail: { p: [-0.06, 0.035, -0.11], r: [0.0, -1.2, 0] },
   },
+  // 横になって寝転ぶ（左を下に、お腹をこちらへ）
+  side: {
+    body: { p: [0, 0.085, 0], r: [0, 0, 1.25], s: [0.1, 0.09, 0.2] },
+    head: { p: [0.0, 0.075, 0.2], r: [0.1, 0.15, 1.2] },
+    fl: { p: [0.04, 0.06, 0.12], r: [0.35, 0, 1.4], s: [1, 0.95, 1] },
+    fr: { p: [0.05, 0.1, 0.1], r: [0.7, 0, 1.3], s: [1, 0.9, 1] },
+    bl: { p: [0.04, 0.06, -0.12], r: [-0.25, 0, 1.4], s: [1.3, 0.85, 1.3] },
+    br: { p: [0.05, 0.1, -0.1], r: [-0.5, 0, 1.3], s: [1.3, 0.8, 1.3] },
+    tail: { p: [0, 0.05, -0.19], r: [0.05, 0.25, 0] },
+  },
+  // おなかを見せてごろん（信頼のしるし）
+  belly: {
+    body: { p: [0, 0.095, 0], r: [0, 0, 2.85], s: [0.105, 0.09, 0.2] },
+    head: { p: [0.02, 0.08, 0.2], r: [-0.25, 0.3, 2.2] },
+    fl: { p: [0.02, 0.15, 0.12], r: [0.5, 0, 2.75], s: [1, 0.75, 1] },
+    fr: { p: [-0.04, 0.15, 0.12], r: [0.8, 0, 2.95], s: [1, 0.7, 1] },
+    bl: { p: [0.02, 0.14, -0.12], r: [-0.4, 0, 2.8], s: [1.2, 0.75, 1.2] },
+    br: { p: [-0.04, 0.14, -0.12], r: [-0.7, 0, 3.0], s: [1.2, 0.7, 1.2] },
+    tail: { p: [0, 0.05, -0.19], r: [0.0, 0.4, 0] },
+  },
+  // のび（前足をぐーっと前に、お尻を上げる）
+  stretch: {
+    body: { p: [0, 0.15, -0.02], r: [0.38, 0, 0], s: [0.095, 0.085, 0.21] },
+    head: { p: [0, 0.16, 0.25], r: [-0.25, 0, 0] },
+    fl: { p: [0.045, 0.1, 0.13], r: [-1.25, 0, 0], s: [1, 1.05, 1] },
+    fr: { p: [-0.045, 0.1, 0.13], r: [-1.25, 0, 0], s: [1, 1.05, 1] },
+    bl: { p: [0.055, 0.21, -0.12], r: [0.05, 0, 0], s: [1, 1.1, 1] },
+    br: { p: [-0.055, 0.21, -0.12], r: [0.05, 0, 0], s: [1, 1.1, 1] },
+    tail: { p: [0, 0.26, -0.19], r: [1.25, 0, 0] },
+  },
 };
 
 // シッポの各節の曲がり（ポーズ別）
@@ -130,7 +160,12 @@ const TAIL_CURVES = {
   sit: [[0, 0.35], [0, 0.4], [0, 0.4], [0, 0.35], [0.05, 0.3], [0.15, 0.2]],
   loaf: [[0, 0.15], [0, 0.2], [0, 0.25], [0, 0.3], [0, 0.3], [0.1, 0.3]],
   curl: [[0, -0.45], [0, -0.45], [0, -0.45], [0, -0.45], [0, -0.4], [0, -0.35]],
+  side: [[0, 0.1], [0, 0.12], [0, 0.15], [0, 0.18], [0, 0.2], [0, 0.2]],
+  belly: [[0, 0.2], [0, 0.2], [0, 0.15], [0, 0.1], [0, 0.1], [0, 0.1]],
+  stretch: [[0.1, 0], [0.05, 0], [0, 0], [-0.15, 0], [-0.25, 0], [-0.35, 0]],
 };
+// 寝転んでいるポーズ（シッポで床をペシペシたたく）
+const LYING = new Set(['loaf', 'side', 'belly', 'curl']);
 
 // ---------- かたち（すべての猫で共有） ----------
 let GEO = null;
@@ -246,6 +281,88 @@ export class Cat {
     this.bunt = 0;
     this.idleThought = 8;
     this.pendingLevel = null;
+    // ひとりあそび：近づいてくる・寝転ぶ・ごろんとおなかを見せる・のびをする
+    this.act = null;
+    this.actTimer = 12 + Math.random() * 15;
+    this.home = null;          // 近づいてきたあと、戻る場所
+  }
+
+  // ---------- ひとりあそび ----------
+  /** 何をするか決める。player: 町の猫のときの、こちらの位置 */
+  _chooseAct(camera, player) {
+    const lv = this.level;
+    const r = Math.random();
+    if (this.fixed) {
+      // 町の猫：そばでしゃがんでいると、懐いた猫は寄ってきて、寝転んだり、おなかを見せたりする
+      if (!player || lv < 2) return null;
+      const d = Math.hypot(player.x - this.root.position.x, player.z - this.root.position.z);
+      if (d > 0.8 && d < 3.2 && r < 0.6) return { kind: 'approach', to: player };
+      if (lv >= 3 && d < 1.4) return r < 0.5 ? { kind: 'side', dur: 7 + Math.random() * 6 } : { kind: 'belly', dur: 5 + Math.random() * 4 };
+      return lv >= 3 && r < 0.8 ? { kind: 'stretch', dur: 2.4 } : null;
+    }
+    // 家の猫
+    if (lv === 1) return null;
+    if (lv === 4) return r < 0.25 ? { kind: 'stretch', dur: 2.6 } : null;   // ときどき起きてのび、また眠る
+    if (r < (lv === 2 ? 0.55 : 0.35)) {
+      const c = camera.position;
+      const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+      const to = new THREE.Vector3(clamp(c.x + fwd.x * 0.75, -1.2, 1.5), 0, clamp(c.z + fwd.z * 0.75, -1.0, 0.45));
+      return { kind: 'approach', to };
+    }
+    if (lv >= 3) return r < 0.6 ? { kind: 'side', dur: 10 + Math.random() * 10 } : r < 0.85 ? { kind: 'belly', dur: 6 + Math.random() * 4 } : { kind: 'stretch', dur: 2.6 };
+    return { kind: 'stretch', dur: 2.4 };
+  }
+
+  _startAct(act) {
+    this.act = { ...act, t: 0 };
+    if (act.kind === 'approach') {
+      if (!this.home) this.home = this.root.position.clone();
+      const p = this.root.position, to = act.to;
+      // 相手の手前（40〜50cm）で止まる
+      const dx = to.x - p.x, dz = to.z - p.z, d = Math.hypot(dx, dz) || 1;
+      const stop = this.fixed ? 0.5 : 0.08;
+      const k = Math.max(0, d - stop) / d;
+      this.path = [{ pos: new THREE.Vector3(p.x + dx * k, this.fixed ? p.y : 0, p.z + dz * k), mode: 'walk' }];
+      this.act.dur = 6 + Math.random() * 6;   // 着いてから、そばにいる時間
+      if (Math.random() < 0.6) this.emit('meow', this.level);
+    }
+    if (act.kind === 'belly' || act.kind === 'side') this.purr = Math.max(this.purr, 0.5);
+  }
+
+  /** あそびの最中のポーズ（null なら定位置のポーズ） */
+  _actPose(dt, camera) {
+    const a = this.act;
+    if (!a) return null;
+    if (a.kind === 'approach') {
+      if (this.moving) return null;   // 歩いているあいだは stand
+      a.t += dt;
+      this.glance = Math.max(this.glance, 0.5);
+      if (a.t < 1.2) this.bunt = Math.min(1, this.bunt + dt);   // 着いたら、すりすり
+      if (a.t > a.dur) this._endAct();
+      return this.level >= 3 && a.t > 3 ? 'loaf' : 'sit';
+    }
+    a.t += dt;
+    if (a.t > a.dur) { this._endAct(); return null; }
+    return a.kind;
+  }
+
+  _endAct() {
+    const a = this.act;
+    this.act = null;
+    this.actTimer = (this.fixed ? 6 : 25) + Math.random() * (this.fixed ? 8 : 30);
+    // 寄ってきた猫は、しばらくしたら元の場所へ（町の猫は、こちらが離れたら戻る）
+    if (a?.kind === 'approach' && this.home && !this.fixed) {
+      this.path = [{ pos: this.home.clone(), mode: 'walk' }];
+      this.home = null;
+    }
+  }
+
+  /** 町の猫：こちらが離れたら、元の場所へもどる */
+  _returnHome() {
+    if (!this.home || this.moving) return;
+    this.act = null;
+    this.path = [{ pos: this.home.clone(), mode: 'walk' }];
+    this.home = null;
   }
 
   on(name, fn) { (this.listeners[name] ||= []).push(fn); }
@@ -479,12 +596,16 @@ export class Cat {
       this.glance = Math.max(this.glance, 0.5);
       if (this.level >= 3) this.purr = Math.min(1, this.purr + dt * 0.8);
       if (this.level >= 2) this.bunt = Math.min(1, this.bunt + dt);
+      // 長くなでていると、ごろんとおなかを見せる
+      if (this.level >= 3 && this.holdTime > 2.5 && !this.act && !this.moving && this.level < 4) this._startAct({ kind: 'belly', dur: 5 + Math.random() * 3 });
     }
   }
   release() { this.holdTime = 0; }
 
   /** 町で、すぐそばにしゃがんでいるとき（idle: 操作していない秒数） */
-  crouchedNear(dt, idle) {
+  crouchedNear(dt, idle, player) {
+    this.player = player;
+    this.playerSeen = 0;
     this.glance = Math.max(this.glance, 0.4);          // こちらを見る
     this.addAffection(dt * (idle > 3 ? 0.18 : 0.08));  // 目線を合わせて待つと、少しずつ懐く
     if (idle > 3) {
@@ -507,9 +628,23 @@ export class Cat {
     this.slowBlink = Math.max(0, this.slowBlink - dt);
     this.bunt = Math.max(0, this.bunt - dt * 0.6);
 
+    // ひとりあそび
+    if (this.fixed) {
+      this.playerSeen = (this.playerSeen ?? 99) + dt;
+      if (this.playerSeen > 2.5) { this.player = null; if (this.home) this._returnHome(); }
+    }
+    this.actTimer -= dt;
+    if (!this.act && !this.path.length && this.actTimer <= 0 && this.holdTime === 0) {
+      const act = this._chooseAct(camera, this.player);
+      if (act) this._startAct(act);
+      else this.actTimer = (this.fixed ? 3 : 15) + Math.random() * 10;
+    }
+
     // 移動
     this.moving = this.path.length > 0;
     let poseName = this._spot().pose;
+    const actPose = this._actPose(dt, camera);
+    if (actPose) poseName = actPose;
     if (this.moving) {
       poseName = 'stand';
       this._followPath(dt);
@@ -517,7 +652,8 @@ export class Cat {
       // 定位置での向き
       const spot = this._spot();
       let targetHeading = this.heading;
-      if (spot.face === 'fixed') targetHeading = this.fixed.heading;
+      if (this.act?.kind === 'approach' || this.home) targetHeading = Math.atan2(camera.position.x - this.root.position.x, camera.position.z - this.root.position.z);
+      else if (spot.face === 'fixed') targetHeading = this.fixed.heading;
       else if (spot.face === 'sea') targetHeading = Math.PI + 0.25;
       else if (spot.face === 'camera') targetHeading = Math.atan2(camera.position.x - this.root.position.x, camera.position.z - this.root.position.z);
       else targetHeading = -2.3;
@@ -617,6 +753,11 @@ export class Cat {
       this.head.position.y += Math.abs(Math.cos(this.walkPhase)) * 0.006;
     }
 
+    // おなかを見せているときは、前足をくいくい
+    if (this.poseName === 'belly') {
+      this.legs.fl.rotation.x += Math.sin(elapsed * 3.1) * 0.25;
+      this.legs.fr.rotation.x += Math.sin(elapsed * 2.7 + 1) * 0.25;
+    }
     // 視線：Lv1 は基本的に遠くを見る。振り向き(glance)のときだけカメラを見る
     const wantsCamera = this.level === 4 ? 0 : (this.level === 1 ? (this.glance > 0 ? 1 : 0) : (this.moving ? 0.2 : 0.85));
     this.lookWeight = damp(this.lookWeight, wantsCamera, this.level === 1 ? 6 : 2.5, dt);
@@ -666,6 +807,20 @@ export class Cat {
       this.tailSegs[4].rotation.x += flick * 0.6;
       this.tailSegs[5].rotation.x += flick * 0.8;
       if (this.earsBack > 0) this.tailSegs.forEach((seg, i) => { seg.rotation.y += Math.sin(elapsed * 14) * 0.1 * (i / 5); });
+    } else if (LYING.has(this.poseName) && this.poseName !== 'curl' && this.level >= 2) {
+      // 寝転んで、シッポで床をペシペシ（ためて、ぱしっ）
+      this.slapTimer -= dt;
+      if (this.slapTimer <= 0) {
+        this.slap = 1;
+        this.slapTimer = 0.6 + Math.random() * 1.4;
+        this.emit('slap', this.root.position);
+      }
+      this.slap = Math.max(0, this.slap - dt * 4);
+      const swing = Math.sin(this.slap * Math.PI);
+      this.tailSegs.forEach((seg, i) => {
+        seg.rotation.y += swing * (0.16 + i * 0.07);
+        seg.rotation.x += swing * 0.14 * (i > 1 ? 1 : 0.3);
+      });
     } else if (this.level === 2) {
       this.tailSegs.forEach((seg, i) => { seg.rotation.y += Math.sin(elapsed * 1.5 - i * 0.6) * 0.1; });
     } else if (this.level === 3) {
