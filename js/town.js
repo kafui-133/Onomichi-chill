@@ -82,6 +82,9 @@ const PRECINCTS = [
   // 三重塔の下の墓地（家を建てずにあけておく）
   (() => { const p = POIS.find((q) => q.n === '天寧寺三重塔'); if (!p) return null; const y = downhillYaw(p.x, p.z, 8); return { x: p.x + Math.sin(y) * 26, z: p.z + Math.cos(y) * 26, r: 17 }; })(),
 ].filter(Boolean);
+// 尾道駅前（駅のロータリーから海ぎわの広場まで）：平地はひらけていて、建物は OpenStreetMap にあるものだけ。埋める家は置かない
+const STATION_FRONT = (() => { const p = POIS.find((q) => q.n === 'JR尾道駅'); return p && { x: p.x - 5, z: p.z - 60, r: 120 }; })();
+const inStationFront = (x, z) => !!STATION_FRONT && Math.hypot(x - STATION_FRONT.x, z - STATION_FRONT.z) < STATION_FRONT.r && terrainY(x, z) - SEA_Y < 8;
 const inPrecinct = (x, z, m = 0) => PRECINCTS.some((p) => Math.hypot(p.x - x, p.z - z) < p.r + m);
 
 // 線路のまわり（4mのマスごとに線路の点をおぼえておく）。埋める家や木が線路の上に建たないように
@@ -109,7 +112,8 @@ function nearRail(x, z, m) {
 
 // 本通り商店街の、食べられるお店（店名は架空）。f は通りの中での位置（0〜1）、side は通りのどちら側か
 const SPECIAL_SHOPS = {
-  '本町センター街': [{ f: 0.5, side: 1, type: 'ramen', name: '尾道ラーメン 汐' }, { f: 0.3, side: -1, type: 'kamaboko', name: 'かまぼこ 潮見' }],
+  '本町センター街': [{ f: 0.5, side: 1, type: 'ramen', name: '尾道ラーメン 汐' }, { f: 0.3, side: -1, type: 'kamaboko', name: 'かまぼこ 潮見' },
+    { f: 0.4, side: 1, type: 'sweets', menu: 'sweets', name: 'おやつのウミネコ' }],
   '中商店街': [{ f: 0.42, side: -1, type: 'bakery', name: 'パン 潮風' }, { f: 0.15, side: 1, type: 'ramen', name: '中華そば 坂の上' }],
   '一番街': [{ f: 0.55, side: 1, type: 'bakery', name: 'パン屋 あさなぎ' }, { f: 0.3, side: -1, type: 'cafe', name: '尾道マロン珈琲' }],
 };
@@ -799,7 +803,7 @@ export class Town {
         if (above < 1.5 || above > 105) continue;                // 海と、千光寺山の上のほうの森
         if (Math.hypot(hx, hz) < 14) continue;                    // 空き家のまわり
         if (this.occupied.has(Math.floor(hx / 4) * 100003 + Math.floor(hz / 4))) continue;
-        if (inPrecinct(hx, hz, 4)) continue;
+        if (inPrecinct(hx, hz, 4) || inStationFront(hx, hz)) continue;
         const w = 4.5 + r() * 3.5, d = 4.5 + r() * 3;
         if (nearRail(hx, hz, Math.max(w, d) / 2 + 3.5)) continue;   // 線路と、その両わきの架線柱・石垣の場所
         if (nearAnyRoad(hx, hz, Math.max(w, d) / 2 + 0.8)) continue;
@@ -1150,8 +1154,9 @@ export class Town {
     const ramen = sp.type === 'ramen';
     const kama = sp.type === 'kamaboko';
     const cafe = sp.type === 'cafe';
+    const sweets = sp.type === 'sweets';
     const sign = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 0.9), new THREE.MeshLambertMaterial({
-      map: labelTexture(sp.name, { w: 640, h: 160, size: 84, bg: ramen ? '#7a1e18' : kama ? '#f6f2ea' : cafe ? '#2a1c14' : '#f4ead2', fg: ramen ? '#fbeedc' : kama ? '#1e3a5e' : cafe ? '#e8d2a8' : '#5a3a1a' }),
+      map: labelTexture(sp.name, { w: 640, h: 160, size: 84, bg: ramen ? '#7a1e18' : kama ? '#f6f2ea' : cafe ? '#2a1c14' : sweets ? '#2e3a44' : '#f4ead2', fg: ramen ? '#fbeedc' : kama ? '#1e3a5e' : cafe ? '#e8d2a8' : sweets ? '#f4e6c8' : '#5a3a1a' }),
       emissive: 0xffffff, emissiveIntensity: 0.2,
     }));
     sign.position.set(0, 3.35, 0.02);
@@ -1182,6 +1187,30 @@ export class Town {
       this.specialSignMats.push(win.material);
       g.add(win);
       const awn = new THREE.Mesh(new THREE.BoxGeometry(5.4, 0.06, 1.0), lam(0x3a2a20, { side: THREE.DoubleSide }));
+      awn.position.set(0, 2.7, 0.5);
+      awn.rotation.x = 0.35;
+      g.add(awn);
+    } else if (sweets) {
+      // 白いショーケースに、小さな瓶のプリン（茶色のふた、赤い帯）。紺のひさし
+      const caseBox = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.9, 0.6), lam(0xf4efe6));
+      caseBox.position.set(-0.8, 0.45, 0.35);
+      g.add(caseBox);
+      const jarMat = new THREE.MeshLambertMaterial({ color: 0xf2d58a }), lid = lam(0x6a3f22), band = lam(0xc8302a);
+      for (let k = 0; k < 8; k++) {
+        const x = -1.85 + (k % 4) * 0.7, z = 0.25 + Math.floor(k / 4) * 0.22;
+        const jar = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.15, 10), jarMat);
+        jar.position.set(x, 0.98, z);
+        const l = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.03, 10), lid);
+        l.position.set(x, 1.07, z);
+        const b = new THREE.Mesh(new THREE.CylinderGeometry(0.072, 0.072, 0.03, 10), band);
+        b.position.set(x, 0.96, z);
+        g.add(jar, l, b);
+      }
+      const win = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1.9), new THREE.MeshLambertMaterial({ color: 0x9ab0b8, emissive: 0xffc888, emissiveIntensity: 0.3 }));
+      win.position.set(1.5, 1.15, 0.13);
+      this.specialSignMats.push(win.material);
+      g.add(win);
+      const awn = new THREE.Mesh(new THREE.BoxGeometry(5.4, 0.06, 1.0), lam(0x2e3a44, { side: THREE.DoubleSide }));
       awn.position.set(0, 2.7, 0.5);
       awn.rotation.x = 0.35;
       g.add(awn);
@@ -1220,7 +1249,7 @@ export class Town {
     this.group.add(g);
     // 立ち寄る場所：店の前の通りの上
     const sx = p.x + nx * (hw - 0.9), sz = p.z + nz * (hw - 0.9);
-    this.interactables.push({ type: sp.type, name: sp.name, x: sx, z: sz, yaw: Math.atan2(-nx, -nz), radius: 2.4 });
+    this.interactables.push({ type: sp.type, menu: sp.menu, name: sp.name, x: sx, z: sz, yaw: Math.atan2(-nx, -nz), radius: 2.4 });
     void yaw;
   }
 

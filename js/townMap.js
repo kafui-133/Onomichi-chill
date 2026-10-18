@@ -704,9 +704,6 @@ export const STREET_SHOPS = (() => {
   // 坂の途中の小さなパン屋（猫の細道の、中ほど）
   const neko = ROADS.find((r) => r.name === '猫の細道');
   if (neko) add({ type: 'bakery', menu: 'hillBakery', name: 'そのてパン', style: 'hillBakery' }, pointAlong(neko.pts, 0.45), { stone: true, maxR: 30 });
-  // 駅前の、おやつの店（尾道プリン）
-  const station = poi('JR尾道駅');
-  if (station) add({ type: 'sweets', menu: 'sweets', name: 'おやつのウミネコ', style: 'sweets' }, { x: station.x - 30, z: station.z - 25 }, { stone: false, maxR: 60 });
   return out;
 })();
 
@@ -828,6 +825,7 @@ export const PLACES = [
   placeOnRoad('尾道ラーメン 汐', '本町センター街', 0.52),
   placeOnRoad('パン 潮風', '中商店街', 0.44),
   placeOnRoad('かまぼこ 潮見', '本町センター街', 0.3),
+  placeOnRoad('おやつのウミネコ', '本町センター街', 0.4),
   placeOnRoad('尾道マロン珈琲', '一番街', 0.3),
   ...STREET_SHOPS.map((sh) => ({ id: sh.name, name: sh.name, x: sh.standX, z: sh.standZ, yaw: Math.atan2(sh.nx, sh.nz) })),
   placeOnRoad('中商店街', '中商店街', 0.5),
