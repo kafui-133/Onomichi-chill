@@ -809,6 +809,7 @@ export class Town {
         if (Math.hypot(hx, hz) < 14) continue;                    // 空き家のまわり
         if (this.occupied.has(Math.floor(hx / 4) * 100003 + Math.floor(hz / 4))) continue;
         if (inPrecinct(hx, hz, 4) || inStationFront(hx, hz)) continue;
+        if (onOnomichiSide(hx, hz) && distToCoast(hx, hz) < 16) continue;   // 海沿いの道（岸壁ぞい）は、地図にある建物だけ
         const w = 4.5 + r() * 3.5, d = 4.5 + r() * 3;
         if (nearRail(hx, hz, Math.max(w, d) / 2 + 3.5)) continue;   // 線路と、その両わきの架線柱・石垣の場所
         if (nearAnyRoad(hx, hz, Math.max(w, d) / 2 + 0.8)) continue;

@@ -389,6 +389,23 @@ export function distToCoast(x, z) {
   return best;
 }
 
+/**
+ * 海岸線のどちら側か（細い突堤・桟橋は標高のマス目より細く、マス目では海になってしまうので、線で見る）。
+ * 地図の海岸線は、進む向きの左側が陸。陸側なら正の、海側なら負の、岸からの距離を返す。近くに海岸線がなければ null
+ */
+export function landByCoast(x, z) {
+  const cx = Math.floor(x / COAST_CELL), cz = Math.floor(z / COAST_CELL);
+  let best = null, bd = 6;
+  for (let i = cx - 1; i <= cx + 1; i++) for (let j = cz - 1; j <= cz + 1; j++) {
+    const list = coastGrid.get(i * 100003 + j);
+    if (list) for (const p of list) { const d = Math.hypot(x - p.x, z - p.z); if (d < bd) { bd = d; best = p; } }
+  }
+  if (!best) return null;
+  const cross = Math.cos(best.angle) * (z - best.z) - Math.sin(best.angle) * (x - best.x);
+  return cross * LAND_SIDE;   // 陸側なら正（岸からの距離）、海側なら負
+}
+const LAND_SIDE = -1;
+
 /** 尾道水道の中心線（東西方向に、水面のいちばん広い区間の真ん中をたどる） */
 export const STRAIT = (() => {
   const out = [];
@@ -686,8 +703,12 @@ const FREE_REACH = 14;  // 道からこの距離まで
 export function walkable(x, z) {
   const n = nearestRoad(x, z);
   if (n.inside <= 0) return true;
-  if (n.road.covered || n.inside > FREE_REACH) return false;
-  if (terrainY(x, z) - SEA_Y > FREE_HEIGHT || demAt(x, z) < SEA_Y + 0.8) return false;
+  if (n.road.covered) return false;
+  // 道から離れていても、岸壁ぞい（突堤・桟橋の先まで）は歩ける
+  if (n.inside > FREE_REACH && distToCoast(x, z) > 12) return false;
+  if (terrainY(x, z) - SEA_Y > FREE_HEIGHT) return false;
+  // 海の上は歩けない。ただし細い突堤・桟橋（海岸線の陸側）は先まで歩ける
+  if (demAt(x, z) < SEA_Y + 0.8 && !(landByCoast(x, z) > 0.35)) return false;
   return !inBuilding(x, z) && !inSolid(x, z);
 }
 
