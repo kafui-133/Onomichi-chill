@@ -2381,6 +2381,136 @@ export class Town {
       g.rotation.y = fit.yaw;
       this._addSolids(fit, MODEL_RECTS.ushitora);
     });
+    if (fit) this._shrineGrounds(fit);
+  }
+
+  /**
+   * 艮神社の境内：玉砂利の地面、石の玉垣、手水舎、絵馬掛け、そして境内をおおう楠の大木（いちばん太い木には注連縄）。
+   * 楠は、上を通るロープウェイのゴンドラにかからない高さまで
+   */
+  _shrineGrounds(fit) {
+    const r = this.r;
+    const c = Math.cos(fit.yaw), sn = Math.sin(fit.yaw);
+    const W = (lx, lz) => ({ x: fit.x + lx * c + lz * sn, z: fit.z - lx * sn + lz * c });
+    // ロープウェイの、その場所でのいちばん低いゴンドラの下端
+    const cableY = (x, z) => {
+      let low = Infinity;
+      if (!this.cablePoint) return low;
+      for (let i = 0; i <= 160; i++) for (const sd of [-1, 1]) {
+        const p = this.cablePoint(i / 160, sd);
+        if (Math.hypot(p.x - x, p.z - z) < 10) low = Math.min(low, p.y - 6);
+      }
+      return low;
+    };
+    // 玉砂利（境内の地面）：拝殿のまわり、半径13mほど
+    const tb = new TriBatch();
+    const cell = 1.5;
+    for (let lx = -13; lx < 13; lx += cell) for (let lz = -12; lz < 13; lz += cell) {
+      if (Math.hypot(lx, lz * 0.9) > 13) continue;
+      const q = W(lx + cell / 2, lz + cell / 2);
+      if (inBuilding(q.x, q.z)) continue;
+      const v = 0.7 + r() * 0.06;
+      const col = new THREE.Color(v, v * 0.98, v * 0.93);
+      const P = (ax, az) => { const w = W(ax, az); return [w.x, groundY(w.x, w.z) + 0.04, w.z]; };
+      tb.quad(P(lx, lz), P(lx, lz + cell), P(lx + cell, lz + cell), P(lx + cell, lz), col);
+    }
+    const gravel = new THREE.Mesh(tb.build(), lam(0xffffff, { vertexColors: true, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -0.6, polygonOffsetUnits: -1 }));
+    gravel.receiveShadow = true;
+    this.group.add(gravel);
+    // 石の玉垣：境内のふち（参道の正面と、道が通るところは空ける）
+    const fence = [];
+    for (let a = 0; a < Math.PI * 2; a += 0.09) {
+      const lx = Math.sin(a) * 13.4, lz = Math.cos(a) * 12.4;
+      if (lz > 9 && Math.abs(lx) < 3.5) continue;   // 正面の入口
+      const q = W(lx, lz);
+      if (nearAnyRoad(q.x, q.z, 0.4) || inBuilding(q.x, q.z)) continue;
+      const y = groundY(q.x, q.z);
+      fence.push({ x: q.x, y: y + 0.45, z: q.z, sx: 0.22, sy: 0.9, sz: 0.22, color: '#a49e92' });
+      const q2 = W(Math.sin(a + 0.045) * 13.4, Math.cos(a + 0.045) * 12.4), q3 = W(Math.sin(a + 0.09) * 13.4, Math.cos(a + 0.09) * 12.4);
+      const ry = -Math.atan2(q3.z - q.z, q3.x - q.x);
+      fence.push({ x: q2.x, y: y + 0.75, z: q2.z, sx: 1.25, sy: 0.12, sz: 0.14, ry, color: '#9a9488' });
+      fence.push({ x: q2.x, y: y + 0.35, z: q2.z, sx: 1.25, sy: 0.1, sz: 0.12, ry, color: '#9a9488' });
+    }
+    if (fence.length) this.group.add(instancedChunks(fence, lam(0xffffff)));
+    // 手水舎（参道の右）と、絵馬掛け（左）
+    const parts = [];
+    const sq = W(5.5, 6.5), sy = groundY(sq.x, sq.z);
+    for (const [px, pz] of [[-1, -0.8], [1, -0.8], [-1, 0.8], [1, 0.8]]) { const q = W(5.5 + px, 6.5 + pz); parts.push({ x: q.x, y: sy + 1.1, z: q.z, sx: 0.16, sy: 2.2, sz: 0.16, color: '#5a3e2c' }); }
+    parts.push({ x: sq.x, y: sy + 2.35, z: sq.z, sx: 3, sy: 0.25, sz: 2.4, ry: fit.yaw, color: '#3c4148' });
+    parts.push({ x: sq.x, y: sy + 0.45, z: sq.z, sx: 1.5, sy: 0.7, sz: 0.8, ry: fit.yaw, color: '#8f8a80' });   // 水盤
+    parts.push({ x: sq.x, y: sy + 0.81, z: sq.z, sx: 1.3, sy: 0.04, sz: 0.6, ry: fit.yaw, color: '#4a6a7a' }); // 水
+    addSolid(sq.x, sq.z, 2.4, 2.2, -fit.yaw);
+    const em = W(-5.5, 5), ey = groundY(em.x, em.z);
+    for (const px of [-1.2, 1.2]) { const q = W(-5.5 + px, 5); parts.push({ x: q.x, y: ey + 0.8, z: q.z, sx: 0.12, sy: 1.6, sz: 0.12, color: '#5a3e2c' }); }
+    parts.push({ x: em.x, y: ey + 1.65, z: em.z, sx: 2.8, sy: 0.12, sz: 0.5, ry: fit.yaw, color: '#3c4148' });
+    for (let k = 0; k < 14; k++) {
+      const u = -1.05 + (k % 7) * 0.35, v = k < 7 ? 1.35 : 1.0;
+      const q = W(-5.5 + u, 5.02);
+      parts.push({ x: q.x, y: ey + v, z: q.z, sx: 0.28, sy: 0.2, sz: 0.03, ry: fit.yaw, color: ['#d8c098', '#c8a878', '#e0caa0'][k % 3] });
+    }
+    parts.push({ x: em.x, y: ey + 1.2, z: em.z, sx: 2.4, sy: 0.05, sz: 0.05, ry: fit.yaw, color: '#5a3e2c' });
+    addSolid(em.x, em.z, 2.8, 0.6, -fit.yaw);
+    this.group.add(instancedChunks(parts, lam(0xffffff)));
+    // 楠の大木：境内のまわりに3本（模型の1本とあわせて4本）。太い幹から枝が四方へひろがり、境内に影を落とす
+    const bark = lam(0x4a3f34), crowns = [];
+    const spots = [[-9.5, -3], [-7, -12], [9.5, -11]];
+    spots.forEach(([lx, lz], ti) => {
+      const q = W(lx, lz);
+      if (nearAnyRoad(q.x, q.z, 1.5) || inBuilding(q.x, q.z)) return;
+      const y = groundY(q.x, q.z);
+      const big = ti === 0;
+      const R = big ? 1.5 : 1.0 + r() * 0.3;
+      const limit = cableY(q.x, q.z);
+      const top = Math.min(y + (big ? 22 : 17 + r() * 4), limit);
+      if (top - y < 9) return;
+      const trunkH = (top - y) * 0.32;
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.75, R, trunkH, 9), bark);
+      trunk.position.set(q.x, y + trunkH / 2, q.z);
+      trunk.castShadow = true;
+      this.group.add(trunk);
+      // 根の張り出し
+      for (let k = 0; k < 5; k++) {
+        const a = k * 1.26 + r() * 0.4;
+        const root = new THREE.Mesh(new THREE.ConeGeometry(R * 0.45, 2.2, 5), bark);
+        root.position.set(q.x + Math.cos(a) * R * 0.9, y + 0.35, q.z + Math.sin(a) * R * 0.9);
+        root.rotation.set(Math.sin(a) * 1.2, 0, -Math.cos(a) * 1.2);
+        this.group.add(root);
+      }
+      // 太い枝（4本、斜め上へ）と、その先の葉のかたまり
+      const spread = big ? 10 : 7.5;
+      for (let k = 0; k < 4; k++) {
+        const a = k * Math.PI / 2 + r() * 0.8;
+        const len = spread * (0.75 + r() * 0.3);
+        const from = new THREE.Vector3(q.x, y + trunkH - 0.4, q.z);
+        const to = new THREE.Vector3(q.x + Math.cos(a) * len * 0.8, y + trunkH + (top - y - trunkH) * 0.55, q.z + Math.sin(a) * len * 0.8);
+        const d = to.clone().sub(from);
+        const limb = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.28, R * 0.5, d.length(), 6), bark);
+        limb.position.copy(from).addScaledVector(d, 0.5);
+        limb.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
+        limb.castShadow = true;
+        this.group.add(limb);
+        for (let j = 0; j < 4; j++) {
+          crowns.push({ x: to.x + (r() - 0.5) * 6, y: Math.min(top - 2.5, to.y + 1 + r() * 3.5), z: to.z + (r() - 0.5) * 6, sx: 6 + r() * 3, sy: 3.5 + r() * 2, sz: 6 + r() * 3, ry: r() * 6, color: ['#2f4a28', '#3b5a2f', '#28401f', '#35522c'][Math.floor(r() * 4)] });
+        }
+      }
+      crowns.push({ x: q.x, y: top - 2.5, z: q.z, sx: 9, sy: 4.5, sz: 9, ry: r() * 6, color: '#2f4a28' });
+      addSolid(q.x, q.z, R * 2.2, R * 2.2, 0);
+      // いちばん太い木には、注連縄と紙垂
+      if (big) {
+        const rope = new THREE.Mesh(new THREE.TorusGeometry(R * 0.93, 0.13, 6, 18), lam(0xcdb98a));
+        rope.rotation.x = Math.PI / 2;
+        rope.position.set(q.x, y + 2.2, q.z);
+        this.group.add(rope);
+        for (let k = 0; k < 6; k++) {
+          const a = k * Math.PI / 3;
+          const shide = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.42), lam(0xf4f1ea, { side: THREE.DoubleSide }));
+          shide.position.set(q.x + Math.cos(a) * R * 0.98, y + 1.9, q.z + Math.sin(a) * R * 0.98);
+          shide.rotation.y = -a + Math.PI / 2;
+          this.group.add(shide);
+        }
+      }
+    });
+    if (crowns.length) this.group.add(instancedChunks(crowns, lam(0xffffff, { flatShading: true }), { geo: new THREE.IcosahedronGeometry(0.5, 1) }));
   }
 
   // ---------- 渡船のりば・ベンチ ----------
