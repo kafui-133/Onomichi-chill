@@ -847,8 +847,10 @@ export class Town {
         const x = cx + (r() - 0.5) * spread, z = cz + (r() - 0.5) * spread;
         const ground = terrainY(x, z);
         const above = ground - SEA_Y;
-        if (above < 5 || !okAt(x, z, 2.2)) continue;
+        if (above < 5) continue;
         const s = above > 45 ? 2.6 + r() * 3.6 : 1.6 + r() * 2.8;
+        // 葉の広がり（半径およそ s）が、道や石段にかからないように
+        if (!okAt(x, z, s * 1.05 + 0.8)) continue;
         if (ground + s * 1.6 > viewCap(x, z)) continue;
         if (r() < 0.22) {
           // 松：細い幹に、平たい葉の段
@@ -866,8 +868,8 @@ export class Town {
         const ground = terrainY(tx, tz);
         const above = ground - SEA_Y;
         if (above < 40 || r() > Math.min(0.9, (above - 40) / 25)) continue;
-        if (!okAt(tx, tz, 1.6)) continue;
         const sz = 3 + r() * 3.8;
+        if (!okAt(tx, tz, sz * 1.05 + 0.8)) continue;
         if (ground + sz * 1.4 > viewCap(tx, tz)) continue;
         if (r() < 0.15) pines.push({ x: tx, y: ground + sz * 1.1, z: tz, sx: sz * 0.75, sy: sz * 0.45, sz: sz * 0.75, color: new THREE.Color().setHSL(0.3, 0.32, 0.12 + r() * 0.05) });
         else broad.push({ x: tx, y: ground + sz * 0.55, z: tz, sx: sz, sy: sz * (0.75 + r() * 0.4), sz, color: new THREE.Color().setHSL(0.25 + r() * 0.08, 0.32 + r() * 0.15, 0.13 + r() * 0.09) });
@@ -881,11 +883,11 @@ export class Town {
       for (const p of samplePath(road.pts, 2.2)) {
         if (r() > 0.42) continue;
         const side = r() < 0.5 ? -1 : 1;
-        const o = road.width / 2 + 0.45 + r() * 0.6;
+        const s = 0.45 + r() * 0.7;
+        const o = road.width / 2 + s * 1.2 + 0.25 + r() * 0.5;
         const x = p.x - Math.sin(p.angle) * side * o, z = p.z + Math.cos(p.angle) * side * o;
         const ground = terrainY(x, z);
-        if (ground - SEA_Y < 3 || !okAt(x, z, 0.25)) continue;
-        const s = 0.45 + r() * 0.7;
+        if (ground - SEA_Y < 3 || !okAt(x, z, s * 1.2 + 0.15)) continue;
         if (ground + s > viewCap(x, z)) continue;
         shrubs.push({ x, y: ground + s * 0.45, z, sx: s * 1.2, sy: s, sz: s * 1.2, color: leaf() });
       }
