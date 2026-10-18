@@ -196,3 +196,119 @@ export function instancedChunks(list, mat, opts = {}, tile = 160) {
   for (const items of bins.values()) group.add(instancedBoxes(items, mat, opts));
   return group;
 }
+
+// 商店街の店の中（ガラス戸ごしに見える奥）：棚と品物、帳場、吊りの電灯。8種類（4列×2段、各256×192）
+// 0 八百屋 1 雑貨 2 本屋 3 洋品店 4 お茶・乾物 5 帆布 6 駄菓子 7 金物
+export const SHOP_INTERIOR_KINDS = 8;
+export function buildShopInteriorAtlas() {
+  const cols = 4, rows = 2, cw = 256, ch = 192;
+  let seed = 7;
+  const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const pick = (a) => a[Math.floor(rnd() * a.length)];
+  const tex = canvasTexture(cols * cw, rows * ch, (g) => {
+    for (let i = 0; i < cols * rows; i++) {
+      const x0 = (i % cols) * cw, y0 = Math.floor(i / cols) * ch;
+      g.save();
+      g.beginPath(); g.rect(x0, y0, cw, ch); g.clip();
+      // 奥の壁（あたたかい電灯の色）と床
+      const wall = ['#d9c39a', '#cdb894', '#e0cfae', '#c9b08a', '#d4c4a4', '#cbb796', '#e2c99c', '#bfb5a2'][i];
+      const grd = g.createLinearGradient(0, y0, 0, y0 + ch);
+      grd.addColorStop(0, wall); grd.addColorStop(0.75, '#8a7458'); grd.addColorStop(1, '#5a4a3a');
+      g.fillStyle = grd; g.fillRect(x0, y0, cw, ch);
+      g.fillStyle = '#4a3c30'; g.fillRect(x0, y0 + ch * 0.86, cw, ch * 0.14);
+      // 吊りの電灯
+      for (const lx of [0.3, 0.72]) {
+        g.fillStyle = '#fff4d8'; g.beginPath(); g.ellipse(x0 + cw * lx, y0 + 14, 16, 5, 0, 0, Math.PI * 2); g.fill();
+        g.fillStyle = 'rgba(255,240,200,0.18)'; g.beginPath(); g.arc(x0 + cw * lx, y0 + 18, 46, 0, Math.PI * 2); g.fill();
+      }
+      const shelf = (y, colors, w, h, gap = 2) => {
+        g.fillStyle = '#6a5038'; g.fillRect(x0 + 8, y + h, cw - 16, 5);
+        for (let x = x0 + 12; x < x0 + cw - 12 - w; x += w + gap) { g.fillStyle = pick(colors); g.fillRect(x, y + (rnd() * 3), w, h - (rnd() * 3)); }
+      };
+      if (i === 0) {
+        // 八百屋：ひな壇にざる、色とりどりの野菜と果物
+        for (let r = 0; r < 3; r++) {
+          const y = y0 + 70 + r * 36;
+          g.fillStyle = '#7a5a36'; g.fillRect(x0 + 6, y + 18, cw - 12, 14);
+          for (let x = x0 + 18; x < x0 + cw - 18; x += 30) {
+            g.fillStyle = '#c8a46a'; g.beginPath(); g.ellipse(x, y + 18, 14, 6, 0, 0, Math.PI * 2); g.fill();
+            const c = pick(['#e0662a', '#3a8a3a', '#c8302a', '#f0b020', '#6a3a7a', '#88b040', '#f08a1c']);
+            g.fillStyle = c;
+            for (let k = 0; k < 4; k++) { g.beginPath(); g.arc(x - 7 + k * 5, y + 12 - (k % 2) * 4, 5, 0, Math.PI * 2); g.fill(); }
+          }
+        }
+      } else if (i === 2) {
+        // 本屋：背表紙がならぶ本棚
+        for (let r = 0; r < 4; r++) {
+          const y = y0 + 34 + r * 34;
+          g.fillStyle = '#5a4030'; g.fillRect(x0 + 8, y + 28, cw - 16, 4);
+          for (let x = x0 + 10; x < x0 + cw - 12;) {
+            const w = 4 + Math.floor(rnd() * 5);
+            g.fillStyle = pick(['#a83a2a', '#2a4a7a', '#e8e0c8', '#3a6a4a', '#c8a050', '#6a4a7a', '#d8d0b8', '#1e2a3a']);
+            g.fillRect(x, y + 4 + rnd() * 6, w, 24 - rnd() * 6);
+            x += w + 1;
+          }
+        }
+        g.fillStyle = '#6a4a30'; g.fillRect(x0 + 60, y0 + 140, 140, 30);
+      } else if (i === 3) {
+        // 洋品店：ハンガーにかかった服
+        for (const ry of [40, 104]) {
+          g.fillStyle = '#5a5a5a'; g.fillRect(x0 + 10, y0 + ry, cw - 20, 3);
+          for (let x = x0 + 18; x < x0 + cw - 20; x += 15) {
+            g.fillStyle = pick(['#c84a5a', '#3a5a8a', '#e8e4d8', '#6a8a5a', '#d8a050', '#4a4a5a', '#b8a0c8']);
+            g.beginPath(); g.moveTo(x, y0 + ry + 4); g.lineTo(x + 13, y0 + ry + 4); g.lineTo(x + 15, y0 + ry + 52); g.lineTo(x - 2, y0 + ry + 52); g.closePath(); g.fill();
+          }
+        }
+      } else if (i === 5) {
+        // 帆布：つり下がったかばん（生成り・紺・からし・オリーブ）
+        for (const ry of [36, 100]) {
+          for (let x = x0 + 16; x < x0 + cw - 30; x += 36) {
+            const c = pick(['#e8dcc0', '#2e3a5a', '#c89a3a', '#6a6a3a', '#a83a2a', '#d8ccb0']);
+            g.strokeStyle = '#4a3a2a'; g.lineWidth = 2;
+            g.beginPath(); g.arc(x + 14, y0 + ry + 8, 9, Math.PI, 0); g.stroke();
+            g.fillStyle = c; g.fillRect(x, y0 + ry + 8, 28, 40);
+            g.fillStyle = 'rgba(0,0,0,0.12)'; g.fillRect(x, y0 + ry + 40, 28, 8);
+          }
+        }
+      } else if (i === 6) {
+        // 駄菓子：ガラスの瓶と、色とりどりの小袋
+        for (let x = x0 + 14; x < x0 + cw - 30; x += 34) {
+          g.fillStyle = 'rgba(220,235,240,0.6)'; g.fillRect(x, y0 + 110, 26, 34);
+          g.fillStyle = pick(['#e04a6a', '#f0c020', '#5ab0e0', '#70c050', '#f08a30']);
+          g.fillRect(x + 3, y0 + 122, 20, 20);
+          g.fillStyle = '#d0302a'; g.fillRect(x + 2, y0 + 106, 22, 5);
+        }
+        shelf(y0 + 40, ['#e04a6a', '#f0c020', '#5ab0e0', '#70c050', '#f08a30', '#ffffff'], 12, 22);
+        shelf(y0 + 72, ['#e04a6a', '#f0c020', '#5ab0e0', '#70c050', '#f08a30', '#ffffff'], 12, 22);
+      } else if (i === 7) {
+        // 金物：つり下がった鍋・やかん・道具
+        for (const ry of [30, 92]) {
+          g.fillStyle = '#4a4a4a'; g.fillRect(x0 + 10, y0 + ry, cw - 20, 3);
+          for (let x = x0 + 22; x < x0 + cw - 20; x += 30) {
+            g.fillStyle = pick(['#a8acb0', '#8a8e92', '#c8ccd0', '#6a6e72', '#b07a4a']);
+            if (rnd() < 0.5) { g.beginPath(); g.arc(x, y0 + ry + 26, 12, 0, Math.PI * 2); g.fill(); }
+            else g.fillRect(x - 4, y0 + ry + 4, 8, 40);
+          }
+        }
+        g.fillStyle = '#7a6a5a'; g.fillRect(x0 + 10, y0 + 150, cw - 20, 18);
+      } else {
+        // 雑貨・お茶と乾物：棚にびっしりの箱・缶・袋
+        const pal = i === 4 ? ['#2e5a3a', '#6a8a4a', '#c8b07a', '#3a3a30', '#b84a2a', '#e8dcc0'] : ['#c84a3a', '#e8c050', '#4a7ab0', '#e8e0d0', '#7aa04a', '#a07ac0', '#f09060'];
+        for (let r = 0; r < 4; r++) shelf(y0 + 30 + r * 32, pal, i === 4 ? 16 : 11, 24, i === 4 ? 4 : 2);
+      }
+      // 帳場（手前の低い台）と、店の人の影
+      g.fillStyle = 'rgba(70,52,38,0.85)'; g.fillRect(x0 + cw * 0.62, y0 + ch * 0.66, cw * 0.32, ch * 0.2);
+      if (i % 3 === 1) { g.fillStyle = 'rgba(40,34,30,0.55)'; g.beginPath(); g.arc(x0 + cw * 0.78, y0 + ch * 0.5, 10, 0, Math.PI * 2); g.fill(); g.fillRect(x0 + cw * 0.78 - 13, y0 + ch * 0.55, 26, 24); }
+      g.restore();
+    }
+  });
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  return {
+    tex,
+    uv: (k) => {
+      const c = k % (cols * rows);
+      const u0 = (c % cols) / cols, v1 = 1 - Math.floor(c / cols) / rows;
+      return [u0 + 0.003, v1 - 1 / rows + 0.005, u0 + 1 / cols - 0.003, v1 - 0.005];
+    },
+  };
+}
