@@ -252,16 +252,83 @@ export class World {
     jibCrane(232, fz(232) - 2, 0.9, 0.85, 48);
     jibCrane(300, fz(300) - 8, 2.6, 1.0, 40);
     crawler(262, fz(262) - 18, 1.9);
-    // ドックの船体と船橋
-    const hull = new THREE.Mesh(new THREE.BoxGeometry(110, 12, 22), this.mat(0x2f4a66));
-    hull.position.set(200, SEA_LEVEL + 5, fz(200) + 8);
-    this.group.add(hull);
-    const bridgeDeck = new THREE.Mesh(new THREE.BoxGeometry(18, 14, 16), pale);
-    bridgeDeck.position.set(240, SEA_LEVEL + 17, fz(240) + 8);
-    this.group.add(bridgeDeck);
-    const funnel = new THREE.Mesh(new THREE.BoxGeometry(5, 8, 5), this.mat(0xd8b040));
-    funnel.position.set(246, SEA_LEVEL + 28, fz(246) + 8);
-    this.group.add(funnel);
+    // 写真の造船所：うす緑の大きな門型のトラスクレーン（青い台車つき）と、白い引込みクレーン
+    {
+      const teal = this.mat(0x9fd8c4), blue = this.mat(0x3a6ab8), white = this.mat(0xe8e8e2);
+      const g = new THREE.Group();
+      const L = 90, H = 26, W = 16;
+      for (const x of [-L / 2 + 8, -L / 6, L / 6, L / 2 - 8]) {
+        for (const z of [-W / 2, W / 2]) {
+          // 脚：下が広がるトラスの柱（4本の細い角材で）
+          strut(g, teal, new THREE.Vector3(x - 3, 0, z), new THREE.Vector3(x, H, z), 0.9);
+          strut(g, teal, new THREE.Vector3(x + 3, 0, z), new THREE.Vector3(x, H, z), 0.9);
+        }
+      }
+      for (const z of [-W / 2, W / 2]) {
+        box(g, teal, L, 1.6, 1.2, 0, H, z);
+        lattice(g, teal, new THREE.Vector3(-L / 2, H + 0.8, z), new THREE.Vector3(L / 2, H + 0.8, z), 3, 0x9fd8c4);
+      }
+      for (const x of [-L / 2, 0, L / 2]) box(g, teal, 1.2, 1.4, W, x, H, 0);
+      box(g, blue, 8, 3, W + 1, 12, H + 2.5, 0);       // 台車
+      box(g, white, 4, 2.5, 3, 18, H + 2.4, W / 2 + 1); // 運転室
+      g.position.set(205, SEA_LEVEL + 1.5, fz(205) - 30);
+      g.rotation.y = 0.05;
+      this.group.add(g);
+      this._litCrane(g, [teal]);
+    }
+    // ドック：灰色の岸壁の中に、建造中の大きな船（写真の向島のドックのように）
+    const dz = fz(200) + 8;
+    const wallM = this.mat(0x8c8a84);
+    for (const sz of [-15, 15]) {
+      const wall = new THREE.Mesh(new THREE.BoxGeometry(130, 7, 4), wallM);
+      wall.position.set(200, SEA_LEVEL + 2, dz + sz);
+      this.group.add(wall);
+    }
+    // 船体：下は赤茶の船底、上は灰色。船尾に白い船橋と、帯の入った煙突
+    const hullLow = new THREE.Mesh(new THREE.BoxGeometry(112, 5, 22), this.mat(0x7a3a30));
+    hullLow.position.set(200, SEA_LEVEL + 3, dz);
+    const hullUp = new THREE.Mesh(new THREE.BoxGeometry(112, 8, 22.2), this.mat(0x6a706e));
+    hullUp.position.set(200, SEA_LEVEL + 9.5, dz);
+    const bow = new THREE.Mesh(new THREE.CylinderGeometry(11.1, 11.1, 13, 12, 1, false, 0, Math.PI), this.mat(0x6a706e));
+    bow.rotation.y = -Math.PI / 2;
+    bow.scale.set(1, 1, 0.9);
+    bow.position.set(144, SEA_LEVEL + 7.5, dz);
+    this.group.add(hullLow, hullUp, bow);
+    const white = this.mat(0xeeeeea), winM = this.mat(0x2a3440);
+    const house = new THREE.Mesh(new THREE.BoxGeometry(14, 12, 20), white);
+    house.position.set(245, SEA_LEVEL + 19.5, dz);
+    const bridgeTop = new THREE.Mesh(new THREE.BoxGeometry(9, 4, 24), white);
+    bridgeTop.position.set(242, SEA_LEVEL + 27.5, dz);
+    this.group.add(house, bridgeTop);
+    for (let k = 0; k < 3; k++) {
+      const w = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.2, 18), winM);
+      w.position.set(237.9, SEA_LEVEL + 16 + k * 3.4, dz);
+      this.group.add(w);
+    }
+    const bw = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.4, 22), winM);
+    bw.position.set(237.4, SEA_LEVEL + 28, dz);
+    this.group.add(bw);
+    const funnel = new THREE.Mesh(new THREE.BoxGeometry(5, 9, 6), white);
+    funnel.position.set(250, SEA_LEVEL + 30, dz);
+    const band = new THREE.Mesh(new THREE.BoxGeometry(5.1, 1.6, 6.1), this.mat(0x2f5aa8));
+    band.position.set(250, SEA_LEVEL + 32, dz);
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(5.1, 1.2, 6.1), this.mat(0x1e1e20));
+    cap.position.set(250, SEA_LEVEL + 34.6, dz);
+    this.group.add(funnel, band, cap);
+    // 甲板のあかり（夜）
+    const lamps = [];
+    for (let x = 150; x < 240; x += 9) lamps.push({ x, y: SEA_LEVEL + 14.5, z: dz - 11.2, s: 0.9 }, { x, y: SEA_LEVEL + 14.5, z: dz + 11.2, s: 0.9 });
+    for (let k = 0; k < 6; k++) lamps.push({ x: 237.7, y: SEA_LEVEL + 16.5 + (k % 3) * 3.4, z: dz - 6 + Math.floor(k / 3) * 12, s: 1.1 });
+    this._windowLights(lamps, 0xffe0b0, 1.1);
+    // タグボート
+    const tug = new THREE.Group();
+    const th = new THREE.Mesh(new THREE.BoxGeometry(14, 2.4, 5.5), this.mat(0x2e3a48));
+    th.position.y = 1.2;
+    const tw = new THREE.Mesh(new THREE.BoxGeometry(5, 3, 4), white);
+    tw.position.set(-1, 3.6, 0);
+    tug.add(th, tw);
+    tug.position.set(190, SEA_LEVEL, dz + 32);
+    this.group.add(tug);
   }
 
   /** 尾道大橋（斜張橋）のシルエット */

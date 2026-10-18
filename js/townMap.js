@@ -160,15 +160,22 @@ const DOOR_PATH = (() => {
   return { k: 'steps', w: 1.8, p: [sx, sz, sx - 2.5, sz, mx, mz, best.x, best.z], n: '空き家への石段' };
 })();
 
-const ALL_ROADS = [...DATA.roads, DOOR_PATH].map((r, id) => {
+const ALL_ROADS_RAW = [...DATA.roads, DOOR_PATH].map((r, id) => {
   const pts = [];
   for (let k = 0; k < r.p.length; k += 2) pts.push([r.p[k], r.p[k + 1]]);
   return {
     id, name: r.n || '', label: r.n || KIND_LABEL[r.k] || '道', kind: r.k, width: r.w, pts,
-    surface: SURFACE[r.k] || 'asphalt', covered: !!r.c || ARCADE_NAMES.includes(r.n),
+    // 商店街のアーケードは名前のある4つの通りだけ。ほかの「屋根つき」（桟橋の通路、駅の階段など）は roofed
+    surface: SURFACE[r.k] || 'asphalt', covered: ARCADE_NAMES.includes(r.n), roofed: !!r.c,
     layered: !!r.l,
   };
 });
+
+// 駅前の大きな歩道橋（2階の高さのデッキ）：地図で「上の階」にある長い歩行者道。地面の道からは外し、別に作る
+const polyLen = (pts) => pts.reduce((s, p, i) => (i ? s + Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1]) : 0), 0);
+export const DECKS = ALL_ROADS_RAW.filter((r) => r.layered && ['pedestrian', 'footway'].includes(r.kind) && polyLen(r.pts) > 60);
+const nearDeck = (r) => r.layered && DECKS.some((d) => r.pts.every(([x, z]) => d.pts.some(([dx, dz]) => Math.hypot(dx - x, dz - z) < 14)));
+const ALL_ROADS = ALL_ROADS_RAW.filter((r) => !DECKS.includes(r) && !nearDeck(r));
 
 // 空き家から歩いて行ける道だけを残す（同じ座標の点を共有する道どうしはつながっている）
 function connectedFrom(roads, start) {
@@ -511,7 +518,9 @@ export const ROPEWAY = (() => {
 // ---------- 建物の中かどうか（グリッドで引く） ----------
 const BCELL = 40;
 const bgrid = new Map();
-const BUILDINGS = DATA.buildings.map((b) => { const a = []; for (let k = 0; k < b.p.length; k += 2) a.push([b.p[k], b.p[k + 1]]); return a; });
+// 屋根だけの建物（駅の西の屋根つき歩道、桟橋の上屋など）：壁はなく、下を歩ける
+export const ROOFS = DATA.buildings.filter((b) => b.k === 'roof').map((b) => { const a = []; for (let k = 0; k < b.p.length; k += 2) a.push([b.p[k], b.p[k + 1]]); return a; });
+const BUILDINGS = DATA.buildings.filter((b) => b.k !== 'roof').map((b) => { const a = []; for (let k = 0; k < b.p.length; k += 2) a.push([b.p[k], b.p[k + 1]]); return a; });
 BUILDINGS.forEach((poly) => {
   const xs = poly.map((p) => p[0]), zs = poly.map((p) => p[1]);
   for (let i = Math.floor(Math.min(...xs) / BCELL); i <= Math.floor(Math.max(...xs) / BCELL); i++) {
@@ -613,6 +622,38 @@ export function surfaceY(x, z) {
   return y;
 }
 
+// ---------- 2階の高さの通路（駅前の歩道橋・駅のテラス） ----------
+// 地面とは別の階。帯（中心・長さ・幅・向き）ごとに高さを持ち、階段の帯は端から端へ高さが変わる。
+const UPPER_CELL = 8;
+const uppers = new Map();
+/** 上の階の帯：中心 (x, z)、長さ len（向き a）、幅 wid。高さは -len/2 の端で y0、+len/2 の端で y1 */
+export function addUpper(x, z, len, wid, a, y0, y1 = y0) {
+  const t = { x, z, hl: len / 2, hw: wid / 2, c: Math.cos(a), s: Math.sin(a), y0, y1 };
+  const R = Math.hypot(t.hl, t.hw);
+  for (let i = Math.floor((x - R) / UPPER_CELL); i <= Math.floor((x + R) / UPPER_CELL); i++) {
+    for (let j = Math.floor((z - R) / UPPER_CELL); j <= Math.floor((z + R) / UPPER_CELL); j++) {
+      const k = i * 100003 + j;
+      if (!uppers.has(k)) uppers.set(k, []);
+      uppers.get(k).push(t);
+    }
+  }
+}
+/** その場所の上の階の高さ（near の高さにいちばん近いもの）。なければ null */
+export function upperAt(x, z, near = Infinity) {
+  const list = uppers.get(Math.floor(x / UPPER_CELL) * 100003 + Math.floor(z / UPPER_CELL));
+  if (!list) return null;
+  let best = null;
+  for (const t of list) {
+    const dx = x - t.x, dz = z - t.z;
+    const u = dx * t.c + dz * t.s;
+    if (Math.abs(u) > t.hl || Math.abs(-dx * t.s + dz * t.c) > t.hw) continue;
+    const y = t.y0 + (t.y1 - t.y0) * (u + t.hl) / (2 * t.hl);
+    const d = Math.abs(y - near);
+    if (!best || d < best.d) best = { y, d, stair: t.y0 !== t.y1 };
+  }
+  return best;
+}
+
 // ---------- 道の外でも歩けるところ ----------
 // 海沿い・町なかの平地は、道の帯の外（広場、駅前、歩道、岸壁ぞい）も歩ける。
 // ただし建物の中、海、アーケードの店の裏へは入れない。
@@ -704,9 +745,6 @@ export const STREET_SHOPS = (() => {
   // 坂の途中の小さなパン屋（猫の細道の、中ほど）
   const neko = ROADS.find((r) => r.name === '猫の細道');
   if (neko) add({ type: 'bakery', menu: 'hillBakery', name: 'そのてパン', style: 'hillBakery' }, pointAlong(neko.pts, 0.45), { stone: true, maxR: 30 });
-  // 駅前の、おやつの店（尾道プリン）
-  const station = poi('JR尾道駅');
-  if (station) add({ type: 'sweets', menu: 'sweets', name: 'おやつのウミネコ', style: 'sweets' }, { x: station.x - 30, z: station.z - 25 }, { stone: false, maxR: 60 });
   return out;
 })();
 
@@ -828,6 +866,7 @@ export const PLACES = [
   placeOnRoad('尾道ラーメン 汐', '本町センター街', 0.52),
   placeOnRoad('パン 潮風', '中商店街', 0.44),
   placeOnRoad('かまぼこ 潮見', '本町センター街', 0.3),
+  placeOnRoad('おやつのウミネコ', '本町センター街', 0.4),
   placeOnRoad('尾道マロン珈琲', '一番街', 0.3),
   ...STREET_SHOPS.map((sh) => ({ id: sh.name, name: sh.name, x: sh.standX, z: sh.standZ, yaw: Math.atan2(sh.nx, sh.nz) })),
   placeOnRoad('中商店街', '中商店街', 0.5),
