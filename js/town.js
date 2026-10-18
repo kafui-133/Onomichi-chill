@@ -789,7 +789,7 @@ export class Town {
         const above = ground - SEA_Y;
         // 向島側は海沿いの平地だけ、まばらに
         if (!onOnomichiSide(hx, hz) && (above > 14 || r() < 0.5)) continue;
-        if (above < 1.5 || above > 122) continue;                // 海と、千光寺山の上のほうの森
+        if (above < 1.5 || above > 105) continue;                // 海と、千光寺山の上のほうの森
         if (Math.hypot(hx, hz) < 14) continue;                    // 空き家のまわり
         if (this.occupied.has(Math.floor(hx / 4) * 100003 + Math.floor(hz / 4))) continue;
         if (inPrecinct(hx, hz, 4)) continue;
@@ -798,8 +798,8 @@ export class Town {
         if (nearAnyRoad(hx, hz, Math.max(w, d) / 2 + 0.8)) continue;
         if (BENCHES.some((bb) => Math.hypot(bb.x - hx, bb.z - hz) < Math.max(w, d) / 2 + 3)) continue;
         if (STREET_SHOPS.some((sh) => Math.hypot(sh.x - hx, sh.z - hz) < Math.max(w, d) / 2 + 4)) continue;
-        // 町なか（平地）も、坂の斜面も、家がひしめくように（坂の上のほうだけ、ところどころ）
-        if (above > 70 && r() < 0.3) continue;
+        // 町なか（平地）と坂の下のほうは、家がひしめくように。上へ行くほど森に変わっていく（写真の千光寺山のように）
+        if (above > 42 && r() < Math.min(0.92, (above - 42) / 40)) continue;
         const h = above < 8 ? 6 + r() * 5 : 3 + r() * 3;
         if (ground + h + 2.2 > viewCap(hx, hz)) continue; // 窓からの眺めをふさがない
         list.push({ x: hx, z: hz, y: ground - 3, w, h: h + 3, d, rot: (r() - 0.5) * 0.3 + Math.round(r() * 2) * Math.PI / 2, roofH: 1.3 + r() * 0.8,
@@ -834,18 +834,21 @@ export class Town {
     };
     const leaf = () => new THREE.Color().setHSL(0.24 + r() * 0.09, 0.3 + r() * 0.18, 0.15 + r() * 0.11);
     // 木立：斜面にかたまりで。上のほう（千光寺山）は深い森に
-    const clusters = Math.round(1700 * amount);
+    const clusters = Math.round(2600 * amount);
     for (let i = 0; i < clusters; i++) {
       const cx = BOUNDS.x0 + r() * (BOUNDS.x1 - BOUNDS.x0), cz = BOUNDS.z0 + r() * (BOUNDS.z1 - BOUNDS.z0);
       const above0 = terrainY(cx, cz) - SEA_Y;
       if (above0 < 6) continue;
-      const n = above0 > 70 ? 6 + Math.floor(r() * 6) : 2 + Math.floor(r() * 4);
+      // 上のほうは、すき間なく茂る森
+      const forest = above0 > 45;
+      const n = forest ? 10 + Math.floor(r() * 8) : 2 + Math.floor(r() * 4);
+      const spread = forest ? 20 : 14;
       for (let k = 0; k < n; k++) {
-        const x = cx + (r() - 0.5) * 14, z = cz + (r() - 0.5) * 14;
+        const x = cx + (r() - 0.5) * spread, z = cz + (r() - 0.5) * spread;
         const ground = terrainY(x, z);
         const above = ground - SEA_Y;
         if (above < 5 || !okAt(x, z, 2.2)) continue;
-        const s = 1.6 + r() * (above > 80 ? 4.2 : 2.8);
+        const s = above > 45 ? 2.6 + r() * 3.6 : 1.6 + r() * 2.8;
         if (ground + s * 1.6 > viewCap(x, z)) continue;
         if (r() < 0.22) {
           // 松：細い幹に、平たい葉の段
@@ -853,6 +856,21 @@ export class Town {
         } else {
           broad.push({ x, y: ground + s * 0.6, z, sx: s, sy: s * (0.8 + r() * 0.5), sz: s, color: leaf() });
         }
+      }
+    }
+    // 千光寺山などの上のほう（海から40m以上）：すき間の少ない森で斜面をおおう
+    const step = 6.5 / Math.sqrt(amount);
+    for (let x = BOUNDS.x0; x < BOUNDS.x1; x += step) {
+      for (let z = BOUNDS.z0; z < BOUNDS.z1; z += step) {
+        const tx = x + (r() - 0.5) * step, tz = z + (r() - 0.5) * step;
+        const ground = terrainY(tx, tz);
+        const above = ground - SEA_Y;
+        if (above < 40 || r() > Math.min(0.9, (above - 40) / 25)) continue;
+        if (!okAt(tx, tz, 1.6)) continue;
+        const sz = 3 + r() * 3.8;
+        if (ground + sz * 1.4 > viewCap(tx, tz)) continue;
+        if (r() < 0.15) pines.push({ x: tx, y: ground + sz * 1.1, z: tz, sx: sz * 0.75, sy: sz * 0.45, sz: sz * 0.75, color: new THREE.Color().setHSL(0.3, 0.32, 0.12 + r() * 0.05) });
+        else broad.push({ x: tx, y: ground + sz * 0.55, z: tz, sx: sz, sy: sz * (0.75 + r() * 0.4), sz, color: new THREE.Color().setHSL(0.25 + r() * 0.08, 0.32 + r() * 0.15, 0.13 + r() * 0.09) });
       }
     }
     // 石段や坂道のわきの植え込み・草むら（細い道を歩いている感じに）
