@@ -51,10 +51,15 @@ export class World {
       roofs.setColorAt(i, c.set(h.roof));
       // 夜に灯る窓（点くかどうかは、日と時間で決める）
       if (this.r() < 0.9) {
-        const floors = Math.max(1, Math.round(h.h / 3.2));
+        // 家は地面より3m低いところから建てている（坂で浮かないように）ので、窓はその上から
+        const floors = Math.max(1, Math.round((h.h - 3) / 3.2));
         for (let f = 0; f < floors; f++) {
           if (this.r() < 0.25) continue;
-          windows.push({ x: h.x + (this.r() - 0.5) * h.w * 0.6, y: h.y + 1.4 + f * 3.1, z: h.z + h.d / 2 + 0.05, s: 0.7 + this.r() * 0.6 });
+          // 家の表と裏（回転に合わせて）の窓
+          const side = this.r() < 0.5 ? 1 : -1;
+          const lx = (this.r() - 0.5) * h.w * 0.6, lz = side * (h.d / 2 + 0.05);
+          const cr = Math.cos(h.rot), sr = Math.sin(h.rot);
+          windows.push({ x: h.x + lx * cr + lz * sr, y: h.y + 4.4 + f * 3.1, z: h.z - lx * sr + lz * cr, sx: 0.8 + this.r() * 0.6, sy: 0.65, ry: h.rot + (side < 0 ? Math.PI : 0) });
         }
       }
     });
@@ -289,12 +294,43 @@ export class World {
     });
     const cg = new THREE.BufferGeometry();
     cg.setAttribute('position', new THREE.Float32BufferAttribute(cablePts, 3));
-    g.add(new THREE.LineSegments(cg, new THREE.LineBasicMaterial({ color: 0xe8e8e2, transparent: true, opacity: 0.7 })));
+    this.bridgeCable = new THREE.LineBasicMaterial({ color: 0xe8e8e2, transparent: true, opacity: 0.7 });
+    g.add(new THREE.LineSegments(cg, this.bridgeCable));
+    // 夜は塔とケーブルが、うすい緑がかった白にライトアップされる
+    this.bridgeMat = mat;
+    // となりに並ぶ、もう一本の橋（赤みのある門型の塔）
+    const x2 = x + 70, deck2Y = SEA_LEVEL + 30;
+    const red = this.mat(0xc8735c);
+    const deck2 = new THREE.Mesh(new THREE.BoxGeometry(12, 2.6, len), this.mat(0xcfccc4));
+    deck2.position.set(x2, deck2Y, (z0 + z1) / 2);
+    g.add(deck2);
+    for (const tz of towers) {
+      for (const sx of [-5.5, 5.5]) {
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(2.4, 46, 2.4), red);
+        leg.position.set(x2 + sx, deck2Y + 8, tz);
+        g.add(leg);
+      }
+      const beam = new THREE.Mesh(new THREE.BoxGeometry(13.4, 2.4, 2.4), red);
+      beam.position.set(x2, deck2Y + 30, tz);
+      g.add(beam);
+      const pier = new THREE.Mesh(new THREE.BoxGeometry(14, 30, 6), this.mat(0xb8b4aa));
+      pier.position.set(x2, SEA_LEVEL + 14, tz);
+      g.add(pier);
+    }
     this.group.add(g);
-    // 橋の街灯
-    const lamps = [];
-    for (let z = z1; z < z0; z += 14) lamps.push({ x: x + 8, y: deckY + 3, z, s: 1.2 });
-    this._windowLights(lamps, 0xffa04a, 1.6);
+    // 橋の街灯：欄干にそって、オレンジの灯りの粒（両方の橋）
+    const pts = [];
+    for (let z = z1; z < z0; z += 9) {
+      pts.push(x - 7.5, deckY + 3.2, z, x + 7.5, deckY + 3.2, z);
+      pts.push(x2 - 6.5, deck2Y + 2.8, z + 4.5, x2 + 6.5, deck2Y + 2.8, z + 4.5);
+    }
+    const lg = new THREE.BufferGeometry();
+    lg.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    this.bridgeLamps = new THREE.PointsMaterial({ map: glowTexture(), color: 0xffa040, size: 11, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+    this.group.add(new THREE.Points(lg, this.bridgeLamps));
+    // 水面への映りこみに使う
+    this.reflectSources = [];
+    for (let z = z1 + 40; z < z0 - 40; z += 18) this.reflectSources.push({ x: x + 7.5, z, color: 0xffa040 }, { x: x2 + 6.5, z: z + 9, color: 0xffa040 });
   }
 
   /** クレーンの骨組み（mats の素材）を、このクレーン専用の、光る素材に差しかえる */
@@ -394,6 +430,14 @@ export class World {
     if (slot !== this._lastSchedule) { this._lastSchedule = slot; this._updateSchedule(time); }
     for (const S of this.scheduled) S.mat.opacity = Math.min(0.95, night * 1.3);
     this._updateCranes(time, elapsed);
+    // 尾道大橋の夜
+    if (this.bridgeLamps) {
+      this.bridgeLamps.opacity = Math.min(1, night * 1.4);
+      this.bridgeCable.color.setRGB(0.91, 0.91, 0.89).lerp(new THREE.Color(0xb6f2c8), night);
+      this.bridgeCable.opacity = 0.7 + night * 0.25;
+      this.bridgeMat.emissive.setHex(0x9fe0b8);
+      this.bridgeMat.emissiveIntensity = night * 0.35;
+    }
     this.blinkers.forEach((b) => {
       b.mat.opacity = night * (0.5 + 0.5 * Math.sin(elapsed * 1.6 + b.phase)) * 0.9;
     });
