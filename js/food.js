@@ -69,6 +69,7 @@ export class Food {
         ? '坂の途中の、小さなパン屋。窓から猫の細道が見える。選んだパンは紙袋に入れて持ち物へ。'
         : '焼きたての匂い。選んだパンは紙袋に入れて持ち物へ。歩きながらでも、ベンチでも。',
       kamaboko: '瀬戸内の魚のすり身。揚げたてを紙に包んでもらって、食べ歩きにも。',
+      juice: '瀬戸内の島ごとの、しぼりたてのみかんジュース。品種で甘さと酸っぱさがちがいます。飲みくらべてみる？',
       sweets: '小さな瓶に入った、尾道のプリン。食べるときに、レモンソースをかけるか選べます。',
     }[shop.type] || '';
     const list = $('shop-list');
@@ -96,7 +97,7 @@ export class Food {
     const list = $('bag-list');
     list.innerHTML = '';
     this.bag.items.forEach((id, i) => {
-      const verb = ITEMS[id].kind === 'drink' ? '飲む' : '食べる';
+      const verb = ['drink', 'juice'].includes(ITEMS[id].kind) ? '飲む' : '食べる';
       list.appendChild(this._goodsButton(id, () => {
         $('bag-view').classList.add('hidden');
         this.consume(i);
@@ -156,14 +157,14 @@ export class Food {
     $('eat-text').textContent = item.kind === 'ramen' || item.kind === 'waffle' ? `${item.name}。${item.desc}` : item.kind === 'purin' ? `${item.name}${opts.lemon ? '（レモンソースがけ）' : ''}` : item.name;
     box.classList.add('show');
     const steps = item.bites;
-    const interval = item.kind === 'ramen' || item.kind === 'waffle' ? 1600 : item.kind === 'drink' ? 1500 : 1300;
+    const interval = item.kind === 'ramen' || item.kind === 'waffle' ? 1600 : item.kind === 'drink' || item.kind === 'juice' ? 1500 : 1300;
     let k = 0;
     if (item.kind === 'drink') this.audio.canOpen();
     this.eating = { id };
     const tick = () => {
       k++;
       if (item.kind === 'ramen') this.audio.slurp();
-      else if (item.kind === 'drink') this.audio.sip();
+      else if (item.kind === 'drink' || item.kind === 'juice') this.audio.sip();
       else this.audio.bite(id === 'currypan' || id === 'melonpan' || id === 'gyoroke' ? 1.3 : item.kind === 'purin' ? 0.35 : 0.8);
       drawItem(canvas, id, k / steps, opts);
       if (k < steps) {
@@ -190,7 +191,7 @@ export class Food {
       this.eating.timer = setTimeout(() => { ready = true; }, 500);
       this.eating.tap = () => { if (ready && k < steps) tick(); };
     } else {
-      this.eating.timer = setTimeout(tick, item.kind === 'drink' ? 900 : 700);
+      this.eating.timer = setTimeout(tick, item.kind === 'drink' || item.kind === 'juice' ? 900 : 700);
     }
   }
 }

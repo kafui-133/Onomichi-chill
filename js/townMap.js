@@ -622,6 +622,38 @@ export function surfaceY(x, z) {
   return y;
 }
 
+// ---------- 2階の高さの通路（駅前の歩道橋・駅のテラス） ----------
+// 地面とは別の階。帯（中心・長さ・幅・向き）ごとに高さを持ち、階段の帯は端から端へ高さが変わる。
+const UPPER_CELL = 8;
+const uppers = new Map();
+/** 上の階の帯：中心 (x, z)、長さ len（向き a）、幅 wid。高さは -len/2 の端で y0、+len/2 の端で y1 */
+export function addUpper(x, z, len, wid, a, y0, y1 = y0) {
+  const t = { x, z, hl: len / 2, hw: wid / 2, c: Math.cos(a), s: Math.sin(a), y0, y1 };
+  const R = Math.hypot(t.hl, t.hw);
+  for (let i = Math.floor((x - R) / UPPER_CELL); i <= Math.floor((x + R) / UPPER_CELL); i++) {
+    for (let j = Math.floor((z - R) / UPPER_CELL); j <= Math.floor((z + R) / UPPER_CELL); j++) {
+      const k = i * 100003 + j;
+      if (!uppers.has(k)) uppers.set(k, []);
+      uppers.get(k).push(t);
+    }
+  }
+}
+/** その場所の上の階の高さ（near の高さにいちばん近いもの）。なければ null */
+export function upperAt(x, z, near = Infinity) {
+  const list = uppers.get(Math.floor(x / UPPER_CELL) * 100003 + Math.floor(z / UPPER_CELL));
+  if (!list) return null;
+  let best = null;
+  for (const t of list) {
+    const dx = x - t.x, dz = z - t.z;
+    const u = dx * t.c + dz * t.s;
+    if (Math.abs(u) > t.hl || Math.abs(-dx * t.s + dz * t.c) > t.hw) continue;
+    const y = t.y0 + (t.y1 - t.y0) * (u + t.hl) / (2 * t.hl);
+    const d = Math.abs(y - near);
+    if (!best || d < best.d) best = { y, d, stair: t.y0 !== t.y1 };
+  }
+  return best;
+}
+
 // ---------- 道の外でも歩けるところ ----------
 // 海沿い・町なかの平地は、道の帯の外（広場、駅前、歩道、岸壁ぞい）も歩ける。
 // ただし建物の中、海、アーケードの店の裏へは入れない。

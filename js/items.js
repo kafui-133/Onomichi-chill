@@ -27,6 +27,13 @@ export const ITEMS = {
   ocha: { name: '緑茶', kind: 'drink', desc: 'すっきり、ほんのり渋い', bites: 4, after: 'すうっと、のどがうるおう', color: '#3f7a3a', band: '#e8f0d0' },
   ramune: { name: 'ラムネ', kind: 'drink', desc: 'しゅわしゅわ、ビー玉入り', bites: 4, after: 'しゅわっ。からん、とビー玉が鳴る', color: '#7ac8e8', band: '#ffffff' },
   milktea: { name: 'ミルクティー', kind: 'drink', desc: 'やさしい甘さ', bites: 4, after: 'まろやかで、ほっとする甘さ', color: '#b88a5a', band: '#f6ead8', hot: true },
+  // 駅前のみかんジュースのスタンド（品種ごとに、甘さと酸っぱさがちがう）
+  juiceSetoka: { name: 'せとかのジュース', kind: 'juice', desc: 'あまさ ●●●●● ／ すっぱさ ●○○○○　とろりと濃い', bites: 4, after: 'とろりと甘い。柑橘の大トロ、と言われるだけある', color: '#ee8a18' },
+  juiceAoshima: { name: '青島みかんのジュース', kind: 'juice', desc: 'あまさ ●●●●○ ／ すっぱさ ●●○○○　コクのある甘さ', bites: 4, after: '濃くて、あとから甘さがのこる', color: '#f2a01e' },
+  juiceWase: { name: '早生みかんのジュース', kind: 'juice', desc: 'あまさ ●●●○○ ／ すっぱさ ●●●○○　さっぱり', bites: 4, after: '甘さと酸っぱさが半分ずつ。すっきり飲める', color: '#f4b438' },
+  juiceIyokan: { name: '伊予柑のジュース', kind: 'juice', desc: 'あまさ ●●●○○ ／ すっぱさ ●●●●○　香りが高い', bites: 4, after: 'ぱっと華やかな香り。少しきゅっとくる', color: '#e8741a' },
+  juiceAmanatsu: { name: '甘夏のジュース', kind: 'juice', desc: 'あまさ ●●○○○ ／ すっぱさ ●●●●○　ほろ苦い', bites: 4, after: 'きりっと酸っぱくて、ほんのりほろ苦い', color: '#f0c040' },
+  juiceHassaku: { name: 'はっさくのジュース（因島）', kind: 'juice', desc: 'あまさ ●○○○○ ／ すっぱさ ●●●●●　大人の味', bites: 4, after: 'すっぱい！ でも、あとの苦みがくせになる', color: '#f4d060' },
   // ラーメン（お店で食べる）
   ramen: { name: '尾道ラーメン', kind: 'ramen', desc: '鶏ガラと魚介の醤油スープ、豚の背脂、平打ちの細麺', bites: 8, after: 'ごちそうさまでした。背脂の甘みが、あとをひく' },
 };
@@ -38,6 +45,7 @@ export const MENUS = {
   hillBakery: ['nikukyu', 'sakamichi', 'anpan', 'hassaku'],
   kamaboko: ['itakama', 'tenpura', 'chikuwa', 'gyoroke'],
   sweets: ['purin'],
+  juice: ['juiceSetoka', 'juiceAoshima', 'juiceWase', 'juiceIyokan', 'juiceAmanatsu', 'juiceHassaku'],
   cafe: ['waffle'],
 };
 
@@ -333,6 +341,33 @@ function waffle(g, s, eaten) {
   }
 }
 
+/** 透明なカップに入ったジュース（ストローつき）。飲んだぶんだけ減っていく */
+function juiceCup(g, item, s, progress) {
+  const top = s * 0.2, bot = s * 0.86, wt = s * 0.3, wb = s * 0.22, c = s / 2;
+  const at = (y) => wb + (wt - wb) * (bot - y) / (bot - top);
+  // 中身
+  const level = top + s * 0.06 + (bot - top - s * 0.06) * Math.min(1, progress);
+  if (progress < 1) {
+    g.fillStyle = item.color;
+    g.beginPath();
+    g.moveTo(c - at(level), level); g.lineTo(c + at(level), level); g.lineTo(c + wb, bot); g.lineTo(c - wb, bot); g.closePath(); g.fill();
+    g.fillStyle = 'rgba(255,255,255,0.25)';
+    g.fillRect(c - at(level) + s * 0.03, level + s * 0.02, s * 0.04, bot - level - s * 0.04);
+  }
+  // ストロー
+  g.strokeStyle = '#e8501e'; g.lineWidth = s * 0.03;
+  g.beginPath(); g.moveTo(c + s * 0.04, bot - s * 0.08); g.lineTo(c + s * 0.12, top - s * 0.12); g.lineTo(c + s * 0.22, top - s * 0.16); g.stroke();
+  // カップ
+  g.strokeStyle = 'rgba(255,255,255,0.8)'; g.lineWidth = s * 0.012;
+  g.beginPath(); g.moveTo(c - wt, top); g.lineTo(c - wb, bot); g.lineTo(c + wb, bot); g.lineTo(c + wt, top); g.stroke();
+  g.beginPath(); g.ellipse(c, top, wt, s * 0.025, 0, 0, Math.PI * 2); g.stroke();
+  // みかんのラベル
+  g.fillStyle = '#f08a1c';
+  g.beginPath(); g.arc(c, (top + bot) / 2 + s * 0.08, s * 0.06, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#3a7a2a';
+  g.beginPath(); g.ellipse(c + s * 0.03, (top + bot) / 2 + s * 0.015, s * 0.03, s * 0.015, -0.5, 0, Math.PI * 2); g.fill();
+}
+
 /** 品物を描く。progress: 0（手つかず）〜1（食べ終わり） */
 export function drawItem(canvas, id, progress = 0, opts = {}) {
   const s = canvas.width;
@@ -341,6 +376,7 @@ export function drawItem(canvas, id, progress = 0, opts = {}) {
   const item = ITEMS[id];
   if (item.kind === 'ramen') { ramenBowl(g, s, progress); return; }
   if (item.kind === 'drink') { can(g, item, s, Math.round(progress * item.bites)); return; }
+  if (item.kind === 'juice') { juiceCup(g, item, s, progress); return; }
   if (item.kind === 'purin') { purinJar(g, s, progress, opts.lemon); return; }
   if (item.kind === 'waffle') { waffle(g, s, progress); return; }
   if (item.kind === 'snack') snack(g, id, s);

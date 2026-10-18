@@ -8,7 +8,7 @@ import { lam, buildSignAtlas, buildRetroSignAtlas, labelTexture, QuadBatch, inst
 import {
   DATA, SEA_Y, BOUNDS, terrainY, groundY, surfaceY, addTread, addSolid, inSolid, walkable, ROADS, OTHER_ROADS, ARCADE_ROADS, nearAnyRoad, samplePath, roadLength, pointAlong,
   STREET_SHOPS, demAt, ALLEYS, COAST, distToCoast, straitAt, RAILS, CROSSINGS, TRAIN_TRACKS, ROPEWAY, SUMMIT, BENCHES, FERRY_ROUTES, POIS, onOnomichiSide, nearestRoad, inBuilding,
-  ROOFS, DECKS,
+  ROOFS, DECKS, addUpper,
 } from './townMap.js';
 
 const SURFACE_LIFT = { asphalt: 0.05, tile: 0.07, stone: 0.09 };
@@ -2121,6 +2121,8 @@ export class Town {
     const mx = cx + ((Math.max(...us) + Math.min(...us)) / 2) * Math.cos(ang) - ((Math.max(...vs) + Math.min(...vs)) / 2) * Math.sin(ang);
     const mz = cz + ((Math.max(...us) + Math.min(...us)) / 2) * Math.sin(ang) + ((Math.max(...vs) + Math.min(...vs)) / 2) * Math.cos(ang);
     const yMin = Math.min(...poly.map(([x, z]) => groundY(x, z)));
+    // 歩道橋・テラス・駅前の店の位置合わせに使う（モデルと同じ大きさのはかり方）
+    this.stationFrame = { mx, mz, ang, len, dep, yMin, sx: Math.min(1.15, Math.max(0.8, len / 50)), sz: Math.min(1.15, Math.max(0.8, dep / 22)) };
     this._swapModel('station', this.stationSimple, (g, model) => {
       // モデルは 50m × 約22m。輪郭に合わせて少しだけ伸び縮みさせる
       model.scale.set(Math.min(1.15, Math.max(0.8, len / 50)), 1, Math.min(1.15, Math.max(0.8, dep / 22)));
@@ -2438,21 +2440,49 @@ export class Town {
     if (posts.length) this.group.add(instancedChunks(posts, lam(0xffffff)));
   }
 
-  /** 駅前の大きな歩道橋（2階の高さのデッキ）。駅からロータリーと国道をまたいで、海ぎわへ降りる */
+  /** 駅の2階のテラス（海側）の、帯の位置と高さ。モデルの寸法（間口48m・奥行20m・テラス奥行3.2m・床4.32m）から */
+  _stationTerrace() {
+    const F = this.stationFrame;
+    if (!F) return null;
+    const C = this.stationCenter || { x: F.mx, z: F.mz - 60 };
+    const e = { x: Math.cos(F.ang), z: Math.sin(F.ang) };          // 駅の長い辺の向き（+x＝西寄り）
+    let f = { x: -Math.sin(F.ang), z: Math.cos(F.ang) };           // 海側（駅前広場のほう）
+    if ((C.x - F.mx) * f.x + (C.z - F.mz) * f.z < 0) f = { x: -f.x, z: -f.z };
+    const y = F.yMin + 4.32;
+    const mid = 8.4 * F.sz;
+    return { e, f, y, x: F.mx + f.x * mid, z: F.mz + f.z * mid, len: 46.4 * F.sx, wid: 2.7 * F.sz, front: F.dep / 2 };
+  }
+
+  /** 駅前の大きな歩道橋（2階の高さのデッキ）。駅の2階テラスから、ロータリーと国道をまたいで、海ぎわへ降りる。歩ける */
   _deck() {
+    const T = this._stationTerrace();
+    if (T) {
+      // 駅の2階テラス：尾道水道を見わたす展望台
+      addUpper(T.x, T.z, T.len, T.wid, Math.atan2(T.e.z, T.e.x), T.y);
+    }
     for (const d of DECKS) {
       const pts = d.pts.slice();
-      // 駅のほうを終点に
-      const st = this.stationCenter || { x: 520, z: -600 };
-      const dist = (p) => Math.hypot(p[0] - 521, p[1] + 547);
-      if (dist(pts[0]) < dist(pts[pts.length - 1])) pts.reverse();
-      void st;
-      const stEnd = pts[pts.length - 1];
-      const Y = groundY(stEnd[0], stEnd[1]) + 6.2;
+      const dist = (p) => Math.hypot(p[0] - (T ? T.x : 521), p[1] - (T ? T.z : -547));
+      if (dist(pts[0]) < dist(pts[pts.length - 1])) pts.reverse();   // 駅のほうを終点に
+      const W = Math.max(4.5, d.width), hw = W / 2;
+      const Y = T ? T.y : groundY(pts[pts.length - 1][0], pts[pts.length - 1][1]) + 4.3;
       // 海側のいちばん端の短い区間は、海ぎわへ降りる階段にする
       const [s0, s1] = [pts[0], pts[1]];
       const deckPts = pts.slice(1);
-      const W = Math.max(4.5, d.width), hw = W / 2;
+      // 駅の端：テラスの端までのばしてつなぐ
+      if (T) {
+        const E = deckPts[deckPts.length - 1];
+        const p = (E[0] - T.x) * T.e.x + (E[1] - T.z) * T.e.z;
+        const sg = Math.sign(p) || 1;
+        const q = Math.abs(p) > T.len / 2 ? sg * (T.len / 2 - 1) : p;
+        deckPts.push([T.x + T.e.x * q, T.z + T.e.z * q]);
+      }
+      for (let i = 0; i < deckPts.length - 1; i++) {
+        const [ax, az] = deckPts[i], [bx, bz] = deckPts[i + 1];
+        const L = Math.hypot(bx - ax, bz - az);
+        if (L < 0.05) continue;
+        addUpper((ax + bx) / 2, (az + bz) / 2, L + hw, W - 0.6, Math.atan2(bz - az, bx - ax), Y);
+      }
       const tb = new TriBatch();
       const topC = new THREE.Color('#b9b2a4'), underC = new THREE.Color('#cfccc4'), sideC = new THREE.Color('#eceae4');
       const s = samplePath(deckPts, 1.2);
@@ -2466,10 +2496,12 @@ export class Town {
         tb.quad(R(a, na, Y - 0.9), R(a, na, Y + 0.1), R(b, nb, Y + 0.1), R(b, nb, Y - 0.9), sideC);
       }
       const parts = [], glass = [];
-      // 手すり（白い腰壁と、上の細い手すり）
+      // 手すり（すりガラスの腰壁と、上の白い手すり）。階段の降り口は空けておく
+      const stairDir = Math.atan2(s0[1] - s1[1], s0[0] - s1[0]);
       for (const p of samplePath(deckPts, 2)) {
         for (const sd of [-1, 1]) {
           const x = p.x - Math.sin(p.angle) * (hw - 0.1) * sd, z = p.z + Math.cos(p.angle) * (hw - 0.1) * sd;
+          if (Math.hypot(x - s1[0], z - s1[1]) < 2.2 && Math.cos(Math.atan2(z - s1[1], x - s1[0]) - stairDir) > 0.3) continue;
           glass.push({ x, y: Y + 0.55, z, sx: 2.05, sy: 0.9, sz: 0.06, ry: -p.angle, color: '#c8d4d6' });
           parts.push({ x, y: Y + 1.08, z, sx: 2.05, sy: 0.08, sz: 0.12, ry: -p.angle, color: '#e8e6e0' });
         }
@@ -2488,20 +2520,25 @@ export class Town {
         parts.push({ x: spot.x, y: (gy + Y - 0.9) / 2, z: spot.z, sx: 0.9, sy: Y - 0.9 - gy, sz: 0.9, color: '#d6d2c8' });
         addSolid(spot.x, spot.z, 1.1, 1.1, 0);
       }
-      // 海ぎわへ降りる階段
+      // 海ぎわへ降りる階段（歩ける）
       {
-        const ang = Math.atan2(s0[1] - s1[1], s0[0] - s1[0]);
+        const ang = stairDir;
         const tx = Math.cos(ang), tz = Math.sin(ang), nx = -tz, nz = tx;
-        const gy = groundY(s0[0], s0[1]);
-        const rise = Y - gy, n = Math.ceil(rise / 0.18), run = 0.3;
+        const rise0 = Y - groundY(s0[0], s0[1]);
+        const n = Math.ceil(rise0 / 0.18), run = 0.3, len = n * run;
+        const bx = s1[0] + tx * (hw - 0.3), bz = s1[1] + tz * (hw - 0.3);   // デッキの端から降りはじめる
+        const gy = groundY(bx + tx * len, bz + tz * len);
+        const rise = Y - gy;
         for (let k = 0; k < n; k++) {
-          const u = k * run + run / 2, x = s1[0] + tx * u, z = s1[1] + tz * u;
+          const u = k * run + run / 2, x = bx + tx * u, z = bz + tz * u;
           const yTop = Y - (k + 1) * (rise / n);
           parts.push({ x, y: (yTop + Math.max(gy, yTop - 0.6)) / 2, z, sx: run + 0.02, sy: Math.max(0.2, Math.min(0.6, yTop - gy + 0.01)), sz: 3, ry: -ang, color: '#bdb7aa' });
         }
-        const len = n * run, ym = (Y + gy) / 2, pitch = Math.atan2(rise, len);
+        addUpper(bx + tx * len / 2, bz + tz * len / 2, len, 2.6, ang, Y, gy + 0.05);
+        addUpper(bx - tx * 0.4, bz - tz * 0.4, 1.2, 3, ang, Y);   // デッキとのつなぎ目
+        const pitch = Math.atan2(rise, len), ym = (Y + gy) / 2;
         for (const sd of [-1, 1]) {
-          const x = s1[0] + tx * len / 2 + nx * 1.55 * sd, z = s1[1] + tz * len / 2 + nz * 1.55 * sd;
+          const x = bx + tx * len / 2 + nx * 1.55 * sd, z = bz + tz * len / 2 + nz * 1.55 * sd;
           parts.push({ x, y: ym + 0.6, z, sx: len / Math.cos(pitch), sy: 1.0, sz: 0.1, ry: -ang, rz: pitch, color: '#e4e2dc' });
         }
       }
@@ -2513,6 +2550,56 @@ export class Town {
       // 夜の足もとの灯り
       for (const p of samplePath(deckPts, 12)) this.lampPositions.push([p.x, Y + 1.2, p.z]);
     }
+    this._juiceStand();
+  }
+
+  /** 駅に向かって右（東）の端の、みかんジュースのスタンド */
+  _juiceStand() {
+    const F = this.stationFrame, T = this._stationTerrace();
+    if (!F || !T) return;
+    // 東＝ -x。駅の長い辺の向き e のうち、-x を向くほうの端
+    const east = T.e.x < 0 ? 1 : -1;
+    const out = T.front + 2.2;
+    let x = F.mx + T.f.x * out + T.e.x * east * (F.len / 2 - 6), z = F.mz + T.f.z * out + T.e.z * east * (F.len / 2 - 6);
+    // 建物・道にかからないところまで、海側へ少しずらす
+    for (let k = 0; k < 8 && (inBuilding(x, z) || nearAnyRoad(x, z, 1.6) && nearAnyRoad(x, z, 1.6).surface === 'asphalt' && !['footway', 'pedestrian'].includes(nearAnyRoad(x, z, 1.6).kind)); k++) { x += T.f.x; z += T.f.z; }
+    const gy = groundY(x, z);
+    const face = Math.atan2(T.f.x, T.f.z);   // 正面（+z）が海側を向く
+    const g = new THREE.Group();
+    g.position.set(x, gy, z);
+    g.rotation.y = face;
+    const orange = lam(0xe8822a), cream = lam(0xf6eedc), wood = lam(0x9a6a40), dark = lam(0x3a3430);
+    const add = (geo, mat, px, py, pz) => { const m = new THREE.Mesh(geo, mat); m.position.set(px, py, pz); m.castShadow = true; g.add(m); return m; };
+    add(new THREE.BoxGeometry(3.4, 2.5, 2.2), cream, 0, 1.25, -0.2);            // 小屋
+    add(new THREE.BoxGeometry(3.6, 0.16, 2.8), dark, 0, 2.6, 0);                 // 屋根
+    add(new THREE.BoxGeometry(3.4, 1.0, 0.5), wood, 0, 0.5, 1.05);               // カウンター
+    add(new THREE.BoxGeometry(3.5, 0.06, 0.62), cream, 0, 1.03, 1.05);
+    const awn = add(new THREE.BoxGeometry(3.6, 0.05, 0.9), orange, 0, 2.15, 1.3);
+    awn.rotation.x = 0.32;
+    // カウンターに並ぶ、色のちがうみかんジュースの瓶（黄色っぽいものから、濃い橙まで）
+    const tones = [0xf4c430, 0xf2a01e, 0xee8a18, 0xe8741a, 0xf0b040, 0xd9661a];
+    tones.forEach((c, i) => {
+      const b = add(new THREE.CylinderGeometry(0.07, 0.08, 0.3, 10), new THREE.MeshLambertMaterial({ color: c, emissive: c, emissiveIntensity: 0.12 }), -1.3 + i * 0.32, 1.21, 1.08);
+      add(new THREE.CylinderGeometry(0.03, 0.03, 0.05, 8), cream, b.position.x, 1.39, 1.08);
+    });
+    // みかんを盛ったかご
+    const mk = lam(0xf08a1c);
+    for (let k = 0; k < 7; k++) add(new THREE.SphereGeometry(0.075, 8, 6), mk, 0.75 + (k % 4) * 0.13 + (k > 3 ? 0.06 : 0), 1.12 + (k > 3 ? 0.1 : 0), 1.0 + (k % 2) * 0.08);
+    add(new THREE.CylinderGeometry(0.32, 0.26, 0.12, 12), wood, 0.95, 1.1, 1.04);
+    // 看板
+    const tex = labelTexture('みかんジュース', { w: 640, h: 160, size: 84, bg: '#e8822a', fg: '#fff8e8' });
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(3.0, 0.75), new THREE.MeshLambertMaterial({ map: tex, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.2 }));
+    sign.position.set(0, 2.35, 1.0);
+    this.specialSignMats.push(sign.material);
+    g.add(sign);
+    const menu = labelTexture('あまい ← → すっぱい', { w: 512, h: 128, size: 52, bg: '#2e2a26', fg: '#f6eedc' });
+    const board = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.4), new THREE.MeshLambertMaterial({ map: menu }));
+    board.position.set(0, 1.75, 0.91);
+    g.add(board);
+    this.group.add(g);
+    addSolid(x, z, 3.6, 2.8, -face);
+    this.lampPositions.push([x + T.f.x * 1.4, gy + 2.3, z + T.f.z * 1.4]);
+    this.interactables.push({ type: 'juice', menu: 'juice', name: 'みかんジュースのスタンド', x: x + T.f.x * 2.6, z: z + T.f.z * 2.6, yaw: Math.atan2(T.f.x, T.f.z), radius: 2.4 });
   }
 
   _stationFront() {

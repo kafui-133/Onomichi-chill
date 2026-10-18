@@ -1,6 +1,6 @@
 // 町歩き：道の上だけを歩ける一人称の移動。
 //   W / ↑ 前へ　S / ↓ うしろへ　A・D 横へ　← → 向きを変える　（画面の「歩く」ボタン長押しでも前へ）
-import { clampToRoads, walkable, surfaceY, surfaceAt, HOUSE_DOOR, BENCHES } from './townMap.js';
+import { clampToRoads, walkable, surfaceY, surfaceAt, upperAt, HOUSE_DOOR, BENCHES } from './townMap.js';
 import { damp } from './util.js';
 
 const EYE = 1.55;
@@ -25,6 +25,7 @@ export class Walker {
     this.bobPhase = 0;
     this.moving = 0;
     this.onStep = null;
+    this.upper = null;   // 歩道橋・駅のテラスなど、上の階にいるときの足もとの高さ
 
     window.addEventListener('keydown', (e) => {
       if (e.target.closest?.('input, textarea')) return; // 日記を書いているあいだは操作しない
@@ -42,6 +43,7 @@ export class Walker {
     this.z = p.z;
     this.vx = this.vz = 0;
     this.seat = null;
+    this.upper = null;
     this.crouching = false;
     this.enabled = true;
     this.controls.keyLook = false;
@@ -80,6 +82,7 @@ export class Walker {
     this.x = p.x;
     this.z = p.z;
     this.seat = null;
+    this.upper = null;
   }
 
   nearDoor() {
@@ -92,12 +95,27 @@ export class Walker {
 
   _place(dt) {
     const bob = Math.sin(this.bobPhase) * 0.035 * this.moving;
-    const y = surfaceY(this.x, this.z) + (this.crouching ? EYE_CROUCH : EYE) + bob;
+    const y = (this.upper ?? surfaceY(this.x, this.z)) + (this.crouching ? EYE_CROUCH : EYE) + bob;
     const base = this.controls.basePos;
     // 石段の上り下りで視点がガクガクしないように、高さだけなめらかにする
     base.y = dt > 0 ? damp(base.y, y, 12, dt) : y;
     base.x = this.x;
     base.z = this.z;
+  }
+
+  /** (x, z) へ進めるか。進めるなら、そこでの上の階の高さ（地面なら null）を返す */
+  _step(x, z) {
+    if (this.upper != null) {
+      const u = upperAt(x, z, this.upper);
+      if (u && Math.abs(u.y - this.upper) < 0.6) return { upper: u.y };
+      // 階段を降りきったところから、地面へ
+      if (this.upper - surfaceY(x, z) < 0.3 && walkable(x, z)) return { upper: null };
+      return null;   // 手すりの外へは出ない
+    }
+    const g = surfaceY(x, z);
+    const u = upperAt(x, z, g);
+    if (u && u.stair) return Math.abs(u.y - g) < 0.3 ? { upper: u.y } : null;   // 階段の下の段から上の階へ。階段の横・下はくぐれない
+    return walkable(x, z) ? { upper: null } : null;
   }
 
   update(dt) {
@@ -131,10 +149,14 @@ export class Walker {
     const prevX = this.x, prevZ = this.z;
     // 進めるならそのまま、ぶつかるなら壁ぞいに滑らせる、どちらも無理なら道の端に寄せる
     const nx = this.x + this.vx * dt, nz = this.z + this.vz * dt;
-    if (walkable(nx, nz)) { this.x = nx; this.z = nz; }
-    else if (walkable(nx, this.z)) this.x = nx;
-    else if (walkable(this.x, nz)) this.z = nz;
-    else {
+    const go = (x, z) => {
+      const st = this._step(x, z);
+      if (!st) return false;
+      this.x = x; this.z = z; this.upper = st.upper;
+      return true;
+    };
+    if (go(nx, nz) || go(nx, this.z) || go(this.x, nz)) { /* 進めた */ }
+    else if (this.upper == null) {
       const p = clampToRoads(nx, nz);
       if (Math.hypot(p.x - this.x, p.z - this.z) < 0.6) { this.x = p.x; this.z = p.z; }
     }

@@ -299,7 +299,7 @@ allCats.forEach((c) => {
     if (c !== cat && lv >= 4) setTimeout(() => toast(`図鑑：${e.name}（${e.where}）がすっかり懐いた。地図から会いにいける`, 5000), 3200);
   });
 });
-const nearShop = () => (mode === 'walk' && !walker.seat ? town.interactables.find((s) => Math.hypot(s.x - walker.x, s.z - walker.z) < s.radius) : null);
+const nearShop = () => (mode === 'walk' && !walker.seat && walker.upper == null ? town.interactables.find((s) => Math.hypot(s.x - walker.x, s.z - walker.z) < s.radius) : null);
 
 // ---------- 千光寺山ロープウェイに乗る（片道およそ3分） ----------
 const RIDE_SECONDS = 180;
@@ -754,7 +754,7 @@ function frame(fixedDt) {
       : a === 'deck' ? '展望台にのぼる'
       : a === 'stand' && walker.seat && walker.seat.kind === 'deck' ? '展望台をおりる'
       : a === 'shop'
-      ? { bakery: `${actionShop.name}に入る`, ramen: `${actionShop.name}で食べる`, vending: '自販機で買う', kamaboko: `${actionShop.name}に寄る`, sweets: `${actionShop.name}に寄る`, cafe: `${actionShop.name}でひとやすみ` }[actionShop.type]
+      ? { bakery: `${actionShop.name}に入る`, ramen: `${actionShop.name}で食べる`, vending: '自販機で買う', kamaboko: `${actionShop.name}に寄る`, sweets: `${actionShop.name}に寄る`, juice: 'みかんジュースを選ぶ', cafe: `${actionShop.name}でひとやすみ` }[actionShop.type]
       : a === 'talk' ? (people.talking ? (people.talking.i < people.talking.lines.length - 1 ? 'つづきを聞く' : 'またね') : `${nearPerson().label}に話しかける`)
       : { home: '家に入る', sit: 'ベンチに座る', stand: '立ちあがる', crouch: 'しゃがむ', rise: '立ちあがる' }[a] || '';
     renderActs(actions.slice(0, 3).map((a) => ({ id: a, label: label(a) })));
