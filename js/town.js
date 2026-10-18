@@ -8,7 +8,7 @@ import { lam, buildSignAtlas, buildRetroSignAtlas, buildShopInteriorAtlas, SHOP_
 import {
   DATA, SEA_Y, BOUNDS, terrainY, groundY, surfaceY, addTread, addSolid, inSolid, walkable, ROADS, OTHER_ROADS, ARCADE_ROADS, nearAnyRoad, samplePath, roadLength, pointAlong,
   STREET_SHOPS, demAt, ALLEYS, COAST, distToCoast, straitAt, RAILS, CROSSINGS, TRAIN_TRACKS, ROPEWAY, SUMMIT, BENCHES, FERRY_ROUTES, POIS, onOnomichiSide, nearestRoad, inBuilding,
-  ROOFS, DECKS, addUpper,
+  ROOFS, DECKS, addUpper, SANDO,
 } from './townMap.js';
 
 const SURFACE_LIFT = { asphalt: 0.05, tile: 0.07, stone: 0.09 };
@@ -231,6 +231,7 @@ export class Town {
     this._steps();
     this._buildings();
     this._infill();
+    this._sando();
     this._trees();
     this._house();
     this._arcade();
@@ -835,6 +836,123 @@ export class Town {
     const win = [];
     for (const items of bins.values()) win.push(...this.world._houses(items));
     this.world.scheduledWindows(win);
+  }
+
+  /**
+   * 千光寺の参道（山の上のほう）：石灯籠の列、花崗岩の大きな岩、赤いのぼり、お地蔵さん、
+   * 道の上にかぶさる木々。千光寺山は岩の山で、参道のわきにも大きな岩がごろごろしている
+   */
+  _sando() {
+    if (SANDO.length < 2) return;
+    const r = this.r;
+    const stone = [], roofs = [], fire = [], rocks = [], poles = [], cloth = [], jizo = [], heads = [], trunks = [], crowns = [];
+    const month = new Date().getMonth() + 1;
+    const autumn = month === 10 || month === 11;
+    const free = (x, z, m = 0.6) => !nearAnyRoad(x, z, m) && !inBuilding(x, z) && !inSolid(x, z) && !inPrecinct(x, z, -4);
+    const pts = samplePath(SANDO, 2);
+    let total = 0, lastLantern = -99, lastRock = -99, lastTree = -99, lastBanner = -99, jizoCount = 0;
+    const templeEnd = 90;   // 千光寺から下へ90mまでは、のぼりを立てる
+    for (let i = 0; i < pts.length; i++, total += 2) {
+      const p = pts[i];
+      const above = terrainY(p.x, p.z) - SEA_Y;
+      if (above < 28) break;   // 山の上のほうだけ（町なかに入ったら終わり）
+      const n = nearestRoad(p.x, p.z);
+      const hw = n ? n.seg.half : 1;
+      const nx = -Math.sin(p.angle), nz = Math.cos(p.angle);
+      // 石灯籠：両側に、約14m ごと
+      if (total - lastLantern > 14) {
+        for (const sd of [-1, 1]) {
+          const x = p.x + nx * sd * (hw + 0.9), z = p.z + nz * sd * (hw + 0.9);
+          if (!free(x, z, 0.3)) continue;
+          lastLantern = total;
+          const y = groundY(x, z);
+          stone.push({ x, y: y + 0.2, z, sx: 0.8, sy: 0.4, sz: 0.8, color: '#a8a296' });     // 基礎
+          stone.push({ x, y: y + 0.85, z, sx: 0.28, sy: 0.9, sz: 0.28, color: '#aaa498' });  // 竿
+          stone.push({ x, y: y + 1.36, z, sx: 0.62, sy: 0.14, sz: 0.62, color: '#a49e92' }); // 中台
+          fire.push({ x, y: y + 1.62, z, sx: 0.42, sy: 0.38, sz: 0.42 });                    // 火袋
+          roofs.push({ x, y: y + 1.98, z, sx: 0.95, sy: 0.32, sz: 0.95, ry: -p.angle, color: '#8e897e' }); // 笠
+          stone.push({ x, y: y + 2.22, z, sx: 0.14, sy: 0.18, sz: 0.14, color: '#8e897e' });  // 宝珠
+          this.lampPositions.push([x, y + 1.62, z]);
+          addSolid(x, z, 0.9, 0.9, -p.angle);
+        }
+      }
+      // 花崗岩の岩（道のわきに、ところどころ大きいもの）
+      if (total - lastRock > 5 && r() < 0.6) {
+        const sd = r() < 0.5 ? -1 : 1;
+        const size = 1 + r() * (r() < 0.25 ? 4 : 1.8);
+        const off = hw + 1.2 + size * 0.6 + r() * 2;
+        const x = p.x + nx * sd * off, z = p.z + nz * sd * off;
+        if (free(x, z, size * 0.5)) {
+          lastRock = total;
+          const y = groundY(x, z);
+          const mossy = r() < 0.35;
+          rocks.push({ x, y: y + size * 0.25, z, sx: size * (0.9 + r() * 0.5), sy: size * (0.55 + r() * 0.4), sz: size * (0.8 + r() * 0.5), ry: r() * 6, rx: (r() - 0.5) * 0.4, color: mossy ? '#7c8162' : ['#a29d92', '#958f83', '#aaa69c'][Math.floor(r() * 3)] });
+          addSolid(x, z, size, size, 0);
+        }
+      }
+      // 道にかぶさる木（松・楠・もみじ）
+      if (total - lastTree > 7) {
+        for (const sd of [-1, 1]) {
+          if (r() < 0.35) continue;
+          const off = hw + 3 + r() * 3;
+          const x = p.x + nx * sd * off, z = p.z + nz * sd * off;
+          if (!free(x, z, 1.5)) continue;
+          lastTree = total;
+          const y = groundY(x, z);
+          const h = 5 + r() * 4;
+          const lean = -sd * 0.12;   // 道のほうへ少しかたむける
+          trunks.push({ x, y: y + h / 2, z, sx: 0.32, sy: h, sz: 0.32, rx: lean * nz, rz: -lean * nx, color: '#4e3e30' });
+          const maple = autumn && r() < 0.45;
+          const cx = x - nx * sd * 1.4, cz = z - nz * sd * 1.4;
+          for (let k = 0; k < 3; k++) {
+            const c = maple ? ['#c84a2a', '#d8702a', '#b8382a'][k % 3] : ['#3e5a34', '#4a6a3a', '#36502e'][k % 3];
+            crowns.push({ x: cx + (r() - 0.5) * 2.4, y: y + h - 0.6 + k * 0.7, z: cz + (r() - 0.5) * 2.4, sx: 2.8 + r() * 1.4, sy: 1.6 + r() * 0.8, sz: 2.8 + r() * 1.4, ry: r() * 6, color: c });
+          }
+          addSolid(x, z, 0.8, 0.8, 0);
+        }
+      }
+      // 赤いのぼり（千光寺の近く）
+      if (total < templeEnd && total - lastBanner > 5) {
+        const x = p.x + nx * (hw + 0.5), z = p.z + nz * (hw + 0.5);
+        if (free(x, z, 0.2)) {
+          lastBanner = total;
+          const y = groundY(x, z);
+          poles.push({ x, y: y + 1.6, z, sx: 0.05, sy: 3.2, sz: 0.05, color: '#d8d4c8' });
+          const tx = Math.cos(p.angle) * 0.3, tz = Math.sin(p.angle) * 0.3;
+          cloth.push({ x: x + tx, y: y + 1.85, z: z + tz, sx: 0.55, sy: 2.2, sz: 0.02, ry: -p.angle, color: '#c8302a' });
+          cloth.push({ x: x + tx, y: y + 2.86, z: z + tz, sx: 0.56, sy: 0.18, sz: 0.025, ry: -p.angle, color: '#f2ece0' });
+        }
+      }
+      // お地蔵さん（赤い前かけ）を、道のわきに3か所ほど
+      if (jizoCount < 3 && i % 23 === 11) {
+        const x = p.x - nx * (hw + 0.7), z = p.z - nz * (hw + 0.7);
+        if (free(x, z, 0.2)) {
+          jizoCount++;
+          const y = groundY(x, z);
+          const face = Math.atan2(nx, nz);
+          stone.push({ x, y: y + 0.12, z, sx: 0.6, sy: 0.24, sz: 0.5, ry: face, color: '#9c968a' });
+          stone.push({ x, y: y + 0.55, z, sx: 0.34, sy: 0.62, sz: 0.28, ry: face, color: '#b2ac9f' });
+          heads.push({ x, y: y + 0.98, z, sx: 0.26, sy: 0.28, sz: 0.26, color: '#b2ac9f' });
+          cloth.push({ x: x + nx * 0.13, y: y + 0.66, z: z + nz * 0.13, sx: 0.34, sy: 0.3, sz: 0.05, ry: face, color: '#c8302a' });
+          addSolid(x, z, 0.7, 0.6, 0);
+        }
+      }
+    }
+    if (stone.length) this.group.add(instancedChunks(stone, lam(0xffffff)));
+    if (roofs.length) this.group.add(instancedChunks(roofs, lam(0xffffff), { geo: new THREE.CylinderGeometry(0.2, 0.75, 1, 4, 1, false, Math.PI / 4) }));
+    if (fire.length) {
+      // 火袋：昼は石の色、夜はほんのり灯る
+      this.sandoFireMat = new THREE.MeshLambertMaterial({ color: 0xb8b2a4, emissive: 0xffa040, emissiveIntensity: 0 });
+      this.group.add(instancedChunks(fire, this.sandoFireMat, { cast: false }));
+    }
+    if (rocks.length) this.group.add(instancedChunks(rocks, lam(0xffffff, { flatShading: true }), { geo: new THREE.DodecahedronGeometry(0.6, 0) }));
+    if (poles.length) this.group.add(instancedChunks(poles, lam(0xffffff), { receive: false }));
+    if (cloth.length) this.group.add(instancedChunks(cloth, lam(0xffffff, { side: THREE.DoubleSide }), { receive: false }));
+    if (heads.length) this.group.add(instancedChunks(heads, lam(0xffffff), { geo: new THREE.SphereGeometry(0.5, 10, 8) }));
+    if (trunks.length) {
+      this.group.add(instancedChunks(trunks, lam(0xffffff), { geo: new THREE.CylinderGeometry(0.4, 0.55, 1, 6) }));
+      this.group.add(instancedChunks(crowns, lam(0xffffff, { flatShading: true }), { geo: new THREE.IcosahedronGeometry(0.6, 1) }));
+    }
   }
 
   _trees() {
@@ -3040,6 +3158,7 @@ export class Town {
     }
     if (this.globeMat) this.globeMat.emissiveIntensity = night * 1.3;
     if (this.lanternHeadMat) this.lanternHeadMat.emissiveIntensity = night * 1.2;
+    if (this.sandoFireMat) this.sandoFireMat.emissiveIntensity = night * 1.1;
     this.lanternMat.emissiveIntensity = night * 1.1;
     this.specialSignMats.forEach((m) => { m.emissiveIntensity = 0.2 + night * 0.7; });
     this.vendingMats.forEach((m) => { m.emissiveIntensity = 0.25 + night * 0.85; });
