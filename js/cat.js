@@ -52,6 +52,7 @@ const EYE_COLORS = {
   kuro: [0xc9a23a, 0xd4ae3c, 0xb88a2c, 0x9fae44],
   shiro: [0x6a9cc8, 0x7aaed6, 0xb8a040, 0x9fb04a],
 };
+const ITOME = new Set(['bench', 'ishidan']);
 function eyeTraits(coat, id) {
   const r = seededRandom('eye-' + id + coat.label);
   const key = coat.label === '黒' ? 'kuro' : coat.label === '白' ? 'shiro' : 'default';
@@ -59,13 +60,16 @@ function eyeTraits(coat, id) {
   const irisL = pal[Math.floor(r() * pal.length)];
   // 白猫は、ときどきオッドアイ
   const odd = key === 'shiro' && r() < 0.5;
+  // 糸目の猫：ふだんは目がほとんど閉じていて、細い線のように見える
+  const itome = ITOME.has(id) || r() < 0.15;
   return {
+    itome,
     irisL, irisR: odd ? (irisL === 0x6a9cc8 || irisL === 0x7aaed6 ? 0xc4a84a : 0x6a9cc8) : irisL,
     size: 0.98 + r() * 0.2,         // 目の大きさ
-    wide: 1 + r() * 0.12,           // 横長（アーモンド形）
-    pupil: 0.45 + r() * 0.4,        // 瞳の太さ（太いほど、まるくて甘えた顔）
+    wide: 1 + r() * 0.08,           // 横長（アーモンド形）
+    pupil: 0.72 + r() * 0.2,        // 瞳の太さ（まるく大きいほど、甘えた顔）
     rest: 0.16 + r() * 0.22,        // ふだんのまぶたの下がり具合
-    droop: (r() - 0.3) * 0.45,      // 目じりの角度（+ でたれ目、- でつり目）
+    droop: (r() - 0.15) * 0.4,      // 目じりの角度（+ でたれ目、- でつり目）
     slant: (r() - 0.5) * 0.16,
   };
 }
@@ -111,13 +115,13 @@ function furTexture(coat, seed) {
 // prettier-ignore
 const POSES = {
   stand: {
-    body: { p: [0, 0.2, 0], r: [0, 0, 0], s: [0.1, 0.095, 0.2] },
-    head: { p: [0, 0.29, 0.2], r: [0, 0, 0] },
-    fl: { p: [0.05, 0.19, 0.12], r: [0, 0, 0], s: [1, 1, 1] },
-    fr: { p: [-0.05, 0.19, 0.12], r: [0, 0, 0], s: [1, 1, 1] },
-    bl: { p: [0.055, 0.185, -0.13], r: [0, 0, 0], s: [1, 1, 1], j: [-0.7, 1.6, -0.85] },
-    br: { p: [-0.055, 0.185, -0.13], r: [0, 0, 0], s: [1, 1, 1], j: [-0.7, 1.6, -0.85] },
-    tail: { p: [0, 0.24, -0.19], r: [0.9, 0, 0] },
+    body: { p: [0, 0.2, 0], r: [0.04, 0, 0], s: [0.105, 0.1, 0.185] },
+    head: { p: [0, 0.285, 0.185], r: [0, 0, 0] },
+    fl: { p: [0.048, 0.19, 0.11], r: [0, 0, 0], s: [1, 1, 1] },
+    fr: { p: [-0.048, 0.19, 0.11], r: [0, 0, 0], s: [1, 1, 1] },
+    bl: { p: [0.056, 0.2, -0.1], r: [0, 0, 0], s: [1, 1, 1], j: [-0.6, 1.35, -0.7] },
+    br: { p: [-0.056, 0.2, -0.1], r: [0, 0, 0], s: [1, 1, 1], j: [-0.6, 1.35, -0.7] },
+    tail: { p: [0, 0.235, -0.17], r: [1.2, 0, 0] },
   },
   sit: {
     body: { p: [0, 0.16, -0.03], r: [-0.72, 0, 0], s: [0.105, 0.1, 0.165] },
@@ -180,7 +184,7 @@ const POSES = {
 
 // シッポの各節の曲がり（ポーズ別）
 const TAIL_CURVES = {
-  stand: [[0.15, 0], [0.15, 0], [0.1, 0], [-0.1, 0], [-0.2, 0], [-0.3, 0]],
+  stand: [[-0.25, 0], [-0.2, 0], [-0.1, 0], [-0.15, 0], [-0.3, 0.05], [-0.45, 0.1]],
   sit: [[0, 0.35], [0, 0.4], [0, 0.4], [0, 0.35], [0.05, 0.3], [0.15, 0.2]],
   loaf: [[0, 0.15], [0, 0.2], [0, 0.25], [0, 0.3], [0, 0.3], [0.1, 0.3]],
   curl: [[0, -0.45], [0, -0.45], [0, -0.45], [0, -0.45], [0, -0.4], [0, -0.35]],
@@ -232,7 +236,7 @@ function catGeometries() {
     if (v.z > 0) v.z *= 0.5;                                // 前はくぼみ
     v.y += h / 2;
   });
-  const leg = deform(new THREE.CylinderGeometry(0.026, 0.018, 0.19, 10, 4), (v) => {
+  const leg = deform(new THREE.CylinderGeometry(0.028, 0.019, 0.19, 12, 4), (v) => {
     const t = (0.095 - v.y) / 0.19;                          // 0 = つけね, 1 = 足先
     const thigh = 1 + 0.25 * (1 - smooth(0, 0.45, t));
     v.x *= thigh; v.z *= thigh;
@@ -257,13 +261,15 @@ function catGeometries() {
     return g;
   });
   // 先は丸く
+  const tailJoint = Array.from({ length: 6 }, (_, i) => new THREE.SphereGeometry(0.0175 - i * 0.0011, 10, 6));
   const tipCap = new THREE.SphereGeometry(0.0155 - 5 * 0.0011, 10, 6);
   tipCap.translate(0, 0, -segLen);
   GEO = {
-    body, skull, tail, tipCap, leg, thigh, shin, meta,
+    body, skull, tail, tailJoint, tipCap, leg, thigh, shin, meta,
     pad: new THREE.SphereGeometry(0.019, 14, 10),
     nose: deform(new THREE.ConeGeometry(0.0085, 0.009, 3), (v) => { v.z *= 0.6; }).rotateZ(Math.PI).rotateY(Math.PI),
     eye: new THREE.SphereGeometry(0.0135, 14, 10),
+    itome: new THREE.TorusGeometry(0.0125, 0.0014, 6, 18, Math.PI * 0.7).rotateZ(Math.PI * 0.15),
     lid: new THREE.SphereGeometry(0.0148, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2),
     pupil: new THREE.SphereGeometry(0.0085, 16, 12),
     glint: new THREE.SphereGeometry(0.0023, 6, 4),
@@ -491,26 +497,36 @@ export class Cat {
     for (const sx of [-1, 1]) {
       // 目：色のついた虹彩に、瞳と、小さな光。ふちどりと、上まぶた
       const eye = new THREE.Group();
-      eye.position.set(sx * 0.029, 0.009, 0.054);
+      eye.position.set(sx * 0.03, 0.005, 0.053);
       eye.rotation.set(0.08, sx * 0.32, sx * T.slant);
-      eye.scale.set(T.size * T.wide, T.size, T.size * 0.6);
+      eye.scale.set(T.size * T.wide, T.size, T.size * 0.5);
       const iris = new THREE.Mesh(G.eye, new THREE.MeshStandardMaterial({ color: sx < 0 ? T.irisL : T.irisR, roughness: 0.25 }));
       const liner = new THREE.Mesh(G.eye, linerMat);
       liner.scale.setScalar(1.07);
       liner.position.z = -0.0012;
       const pupil = new THREE.Mesh(G.pupil, dark);
       pupil.position.z = 0.0107;
-      pupil.scale.set(T.pupil, 0.95, 0.42);
+      pupil.scale.set(T.pupil, 0.92, 0.42);
       const glint = new THREE.Mesh(G.glint, shine);
-      glint.position.set(sx * -0.004, 0.0055, 0.0118);
+      glint.position.set(sx * -0.0035, 0.0045, 0.0118);
+      glint.scale.setScalar(1.25);
       const glint2 = new THREE.Mesh(G.glint, shine);
       glint2.position.set(sx * 0.0035, -0.004, 0.012);
       glint2.scale.setScalar(0.55);
-      const lid = new THREE.Mesh(G.lid, lidMat);
-      lid.rotation.z = -sx * T.droop;
-      eye.add(liner, iris, pupil, glint, glint2, lid);
+      if (T.itome) {
+        // 糸目：目のかわりに、ゆるい弧の細い線
+        const arc = new THREE.Mesh(G.itome, linerMat);
+        arc.position.set(0, -0.0075, 0.0128);
+        arc.scale.set(1, 0.55, 1);
+        arc.rotation.z = -sx * T.droop * 0.5;
+        eye.add(arc);
+      } else {
+        const lid = new THREE.Mesh(G.lid, lidMat);
+        lid.rotation.z = -sx * T.droop;
+        eye.add(liner, iris, pupil, glint, glint2, lid);
+        this.lids.push(lid);
+      }
       this.eyes.push(eye);
-      this.lids.push(lid);
       const ear = new THREE.Mesh(G.ear, furPlain);
       ear.position.set(sx * 0.042, 0.052, -0.012);
       ear.rotation.set(-0.15, sx * 0.3, sx * -0.3);
@@ -522,6 +538,7 @@ export class Cat {
       ear.add(inner);
     }
     this.head.add(skull, ...pads, chin, nose, ...this.eyes);
+    this.head.scale.setScalar(1.1);   // 頭は少し大きめに（そのほうが猫らしく、かわいい）
     this.root.add(this.head);
 
     // 脚（ピボットは上端）
@@ -567,6 +584,8 @@ export class Cat {
       m.castShadow = true;
       seg.add(m);
       if (i === 5) seg.add(new THREE.Mesh(G.tipCap, m.material));
+      // 節のつなぎめを丸く
+      if (i > 0) seg.add(new THREE.Mesh(G.tailJoint[i], m.material));
       if (i > 0) seg.position.z = -segLen;
       parent.add(seg);
       this.tailSegs.push(seg);
@@ -879,7 +898,8 @@ export class Cat {
     if (this.poseName === 'curl') eyeOpen = 0.08;
     // ふだんは少しまぶたが下りている（猫ごとの重さ）。懐くほど、とろんとする
     const T = this.eyeTraits;
-    const rest = clamp(T.rest + (this.level - 2) * 0.05 - (this.earsBack > 0 ? 0.15 : 0), 0.08, 0.55);
+    const rest = T.itome ? 0.86 - (this.earsBack > 0 ? 0.25 : 0)
+      : clamp(T.rest + (this.level - 2) * 0.05 - (this.earsBack > 0 ? 0.15 : 0), 0.08, 0.55);
     const closed = 1 - eyeOpen * (1 - rest);
     this.lidClose = damp(this.lidClose ?? closed, closed, 25, dt);
     // まぶたの縁の高さ（目の中心から上を +1）から、まぶたの回転へ
