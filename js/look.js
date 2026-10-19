@@ -146,13 +146,14 @@ export class Look {
     if (!this.enabled) return;
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
     const isWebGL2 = renderer.capabilities.isWebGL2;
-    const makeTarget = () => {
-      const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: isWebGL2 ? q.msaa : 0 });
-      rt.depthTexture = new THREE.DepthTexture(size.x, size.y);
+    const makeTarget = (w = size.x, h = size.y) => {
+      const rt = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, samples: isWebGL2 ? q.msaa : 0 });
+      rt.depthTexture = new THREE.DepthTexture(w, h);
       // 奥行きは32bitの浮動小数で（スマホの24bit・16bitでは、平らな地面に縞の輪郭線が出る）
       rt.depthTexture.type = isWebGL2 ? THREE.FloatType : THREE.UnsignedIntType;
       return rt;
     };
+    this.makeTarget = makeTarget;
     this.composer = new EffectComposer(renderer, makeTarget());
     this.composer.renderTarget2.dispose();
     this.composer.renderTarget2 = makeTarget();
@@ -164,6 +165,8 @@ export class Look {
       this.composer.addPass(this.bloom);
     }
     this.composer.addPass(new OutputPass());
+    this._rtW = this.composer.renderTarget1.width;
+    this._rtH = this.composer.renderTarget1.height;
     this.setSize(window.innerWidth, window.innerHeight);
   }
 
@@ -183,6 +186,19 @@ export class Look {
     if (!this.enabled) return;
     this.composer.setPixelRatio(this.renderer.getPixelRatio());
     this.composer.setSize(w, h);
+    // 大きさが変わったら、描く先（奥行きのテクスチャつき）を作りなおす。
+    // 作りなおさずに大きさだけ変えると、スマホで奥行きの大きさがずれて、画面が真っ暗になる
+    const c = this.composer;
+    const bs = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+    if (c.renderTarget1.width !== this._rtW || c.renderTarget1.height !== this._rtH) {
+      for (const rt of [c.renderTarget1, c.renderTarget2]) { rt.depthTexture?.dispose(); rt.dispose(); }
+      c.renderTarget1 = this.makeTarget(bs.x, bs.y);
+      c.renderTarget2 = this.makeTarget(bs.x, bs.y);
+      c.writeBuffer = c.renderTarget1;
+      c.readBuffer = c.renderTarget2;
+      this._rtW = c.renderTarget1.width;
+      this._rtH = c.renderTarget1.height;
+    }
     const s = this.renderer.getDrawingBufferSize(new THREE.Vector2());
     this.ink.setSize(s.x, s.y);
   }

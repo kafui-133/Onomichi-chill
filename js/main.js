@@ -844,7 +844,7 @@ function frame(fixedDt) {
 function loop() { frame(); }
 if (CAPTURE) {
   $('title').style.display = 'none';
-  Object.assign(window, { THREE, scene, camera, time, cat, audio, boats, controls, renderer, town, walker, strays, people, PLACES, food, diary, enterTown, enterRoom, goHome, getCandles: () => candles, startRide, ROADS, pointAlong, getRide: () => ride });
+  Object.assign(window, { THREE, scene, camera, time, cat, audio, boats, controls, renderer, town, walker, strays, people, PLACES, food, diary, enterTown, enterRoom, goHome, getCandles: () => candles, startRide, ROADS, pointAlong, getRide: () => ride, view });
   window.captureStep = (dt) => frame(dt);
   window.captureReady = true;
 } else {
