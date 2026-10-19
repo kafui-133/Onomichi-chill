@@ -185,10 +185,10 @@ const POSES = {
     tail: { p: [0, 0.225, -0.17], r: [-0.2, 0, 0] },
   },
   sit: {
-    body: { p: [0, 0.16, -0.03], r: [-0.72, 0, 0], s: [0.105, 0.1, 0.165] },
-    head: { p: [0, 0.335, 0.08], r: [0, 0, 0] },
-    fl: { p: [0.035, 0.185, 0.065], r: [-0.08, 0, 0], s: [1, 0.97, 1] },
-    fr: { p: [-0.035, 0.185, 0.065], r: [-0.08, 0, 0], s: [1, 0.97, 1] },
+    body: { p: [0, 0.155, -0.02], r: [-0.95, 0, 0], s: [0.108, 0.105, 0.16] },
+    head: { p: [0, 0.33, 0.06], r: [0, 0, 0] },
+    fl: { p: [0.032, 0.18, 0.05], r: [-0.12, 0, 0], s: [1.12, 0.93, 1.12] },
+    fr: { p: [-0.032, 0.18, 0.05], r: [-0.12, 0, 0], s: [1.12, 0.93, 1.12] },
     bl: { p: [0.062, 0.06, -0.075], r: [0, 0.12, 0], s: [1, 1, 1], j: [-1.35, 2.7, -2.65] },
     br: { p: [-0.062, 0.06, -0.075], r: [0, -0.12, 0], s: [1, 1, 1], j: [-1.35, 2.7, -2.65] },
     tail: { p: [0, 0.03, -0.15], r: [0.02, 0.9, 0] },
@@ -215,20 +215,20 @@ const POSES = {
   side: {
     body: { p: [0, 0.085, 0], r: [0, 0, 1.25], s: [0.1, 0.09, 0.2] },
     head: { p: [0.0, 0.075, 0.2], r: [0.1, 0.15, 1.2] },
-    fl: { p: [0.04, 0.06, 0.12], r: [0.35, 0, 1.4], s: [1, 0.95, 1] },
-    fr: { p: [0.05, 0.1, 0.1], r: [0.7, 0, 1.3], s: [1, 0.9, 1] },
-    bl: { p: [0.04, 0.06, -0.12], r: [-0.1, 0, 1.4], s: [1, 1, 1], j: [-0.6, 1.1, -0.35] },
-    br: { p: [0.05, 0.1, -0.1], r: [-0.3, 0, 1.3], s: [1, 1, 1], j: [-0.8, 1.3, -0.4] },
+    fl: { p: [0.04, 0.06, 0.12], r: [-0.7, 0, 1.4], s: [1, 1, 1], e: [0.5, 0.4, 0] },
+    fr: { p: [0.05, 0.1, 0.1], r: [-0.2, 0, 1.25], s: [1, 1, 1], e: [1.5, 0.6, 0] },
+    bl: { p: [0.04, 0.06, -0.12], r: [0.1, 0, 1.4], s: [1, 1, 1], j: [-0.9, 1.2, -0.4] },
+    br: { p: [0.05, 0.1, -0.1], r: [-0.1, 0, 1.25], s: [1, 1, 1], j: [-1.3, 1.9, -0.6] },
     tail: { p: [0, 0.05, -0.19], r: [0.05, 0.25, 0] },
   },
   // おなかを見せてごろん（信頼のしるし）
   belly: {
     body: { p: [0, 0.095, 0], r: [0, 0, 2.85], s: [0.105, 0.09, 0.2] },
     head: { p: [0.02, 0.08, 0.2], r: [-0.25, 0.3, 2.2] },
-    fl: { p: [0.02, 0.15, 0.12], r: [0.5, 0, 2.75], s: [1, 0.75, 1] },
-    fr: { p: [-0.04, 0.15, 0.12], r: [0.8, 0, 2.95], s: [1, 0.7, 1] },
-    bl: { p: [0.02, 0.14, -0.12], r: [-0.2, 0, 2.8], s: [1, 1, 1], j: [-0.9, 1.6, -0.5] },
-    br: { p: [-0.04, 0.14, -0.12], r: [-0.4, 0, 3.0], s: [1, 1, 1], j: [-1.0, 1.7, -0.5] },
+    fl: { p: [0.04, 0.14, 0.12], r: [-0.7, 0, 2.3], s: [1, 1, 1], e: [2.0, 1.1, 0] },
+    fr: { p: [-0.06, 0.14, 0.12], r: [-0.5, 0, 3.5], s: [1, 1, 1], e: [2.1, 1.1, 0] },
+    bl: { p: [0.045, 0.12, -0.12], r: [-0.3, 0, 1.95], s: [1, 1, 1], j: [-1.6, 2.4, -0.8] },
+    br: { p: [-0.065, 0.12, -0.12], r: [-0.35, 0, 3.95], s: [1, 1, 1], j: [-1.5, 2.3, -0.8] },
     tail: { p: [0, 0.05, -0.19], r: [0.0, 0.4, 0] },
   },
   // のび（前足をぐーっと前に、お尻を上げる）
@@ -239,9 +239,12 @@ const POSES = {
     fr: { p: [-0.045, 0.1, 0.13], r: [-1.25, 0, 0], s: [1, 1.05, 1] },
     bl: { p: [0.055, 0.215, -0.13], r: [0, 0, 0], s: [1, 1, 1], j: [-0.4, 0.85, -0.7] },
     br: { p: [-0.055, 0.215, -0.13], r: [0, 0, 0], s: [1, 1, 1], j: [-0.4, 0.85, -0.7] },
-    tail: { p: [0, 0.26, -0.19], r: [1.25, 0, 0] },
+    tail: { p: [0, 0.25, -0.19], r: [0.6, 0, 0] },
   },
 };
+
+// 前足のひじ・手首（e: [ひじ, 手首, 0]）。書いていないポーズは、まっすぐ
+for (const pose of Object.values(POSES)) for (const k of ['fl', 'fr']) pose[k].e ||= [0, 0, 0];
 
 // シッポの各節の曲がり（ポーズ別）
 const TAIL_CURVES = {
@@ -251,13 +254,14 @@ const TAIL_CURVES = {
   curl: [[0, -0.45], [0, -0.45], [0, -0.45], [0, -0.45], [0, -0.4], [0, -0.35]],
   side: [[0, 0.1], [0, 0.12], [0, 0.15], [0, 0.18], [0, 0.2], [0, 0.2]],
   belly: [[0, 0.2], [0, 0.2], [0, 0.15], [0, 0.1], [0, 0.1], [0, 0.1]],
-  stretch: [[0.1, 0], [0.05, 0], [0, 0], [-0.15, 0], [-0.25, 0], [-0.35, 0]],
+  stretch: [[-0.1, 0], [-0.2, 0], [-0.25, 0], [-0.3, 0], [-0.25, 0.05], [-0.2, 0.1]],
 };
 // 寝転んでいるポーズ（シッポで床をペシペシたたく）
 const LYING = new Set(['loaf', 'side', 'belly', 'curl']);
 
 // ---------- かたち（すべての猫で共有） ----------
 let GEO = null;
+const FRONT = { arm: 0.09, fore: 0.1 };
 const HIND = { thigh: 0.08, shin: 0.075, meta: 0.058 };
 const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 function deform(geo, fn) {
@@ -297,12 +301,15 @@ function catGeometries() {
     if (v.z > 0) v.z *= 0.5;                                // 前はくぼみ
     v.y += h / 2;
   });
-  const leg = deform(new THREE.CylinderGeometry(0.028, 0.019, 0.19, 12, 4), (v) => {
-    const t = (0.095 - v.y) / 0.19;                          // 0 = つけね, 1 = 足先
-    const thigh = 1 + 0.25 * (1 - smooth(0, 0.45, t));
-    v.x *= thigh; v.z *= thigh;
-    v.y -= 0.095;
+  // 前足：上腕 → ひじ → 前腕 → 手首 → 足先（ピボットは上端）
+  const arm = deform(new THREE.CylinderGeometry(0.028, 0.022, FRONT.arm, 12, 3), (v) => {
+    const t = (FRONT.arm / 2 - v.y) / FRONT.arm;
+    const k = 1 + 0.25 * (1 - smooth(0, 0.9, t));
+    v.x *= k; v.z *= k;
+    v.y -= FRONT.arm / 2;
   });
+  const fore = new THREE.CylinderGeometry(0.0225, 0.019, FRONT.fore, 12, 2).translate(0, -FRONT.fore / 2, 0);
+  const elbow = new THREE.SphereGeometry(0.0225, 12, 8);
   // 後ろ足：太もも（横から見ると大きなしずく形）→すね→かかと（後ろ向きの関節）→足先。ピボットはそれぞれ上端
   const limb = (len, r0, r1, bulge = 0) => {
     const pts = [];
@@ -326,7 +333,7 @@ function catGeometries() {
   const tipCap = new THREE.SphereGeometry(0.0175 - 5 * 0.0011, 10, 6);
   tipCap.translate(0, 0, -segLen);
   GEO = {
-    body, skull, tail, tailJoint, tipCap, leg, thigh, shin, meta,
+    body, skull, tail, tailJoint, tipCap, arm, fore, elbow, thigh, shin, meta,
     pad: new THREE.SphereGeometry(0.019, 14, 10),
     nose: deform(new THREE.ConeGeometry(0.0085, 0.009, 3), (v) => { v.z *= 0.6; }).rotateZ(Math.PI).rotateY(Math.PI),
     eye: new THREE.SphereGeometry(0.0135, 14, 10),
@@ -604,19 +611,25 @@ export class Cat {
     this.root.add(this.head);
 
     // 脚（ピボットは上端）
-    const legGeo = G.leg, pawGeo = G.paw;
+    const pawGeo = G.paw;
     this.legs = {};
     this.hind = {};
+    this.fore = {};
     const pawMat = coat.belly || coat.label === '白' ? white : furPlain;
     for (const k of ['fl', 'fr', 'bl', 'br']) {
       const g = new THREE.Group();
       const paw = new THREE.Mesh(pawGeo, pawMat);
       paw.scale.set(1, 0.6, 1.3);
       if (k[0] === 'f') {
-        const leg = new THREE.Mesh(legGeo, coat.belly ? white : furPlain);
-        leg.castShadow = true;
-        paw.position.y = -0.19;
-        g.add(leg, paw);
+        const m = coat.belly ? white : furPlain;
+        const up = new THREE.Mesh(G.arm, m), elb = new THREE.Group(), lo = new THREE.Mesh(G.fore, m), wrist = new THREE.Group();
+        up.castShadow = lo.castShadow = true;
+        elb.position.y = -FRONT.arm;
+        wrist.position.y = -FRONT.fore;
+        elb.add(new THREE.Mesh(G.elbow, m), lo, wrist);
+        wrist.add(paw);
+        g.add(up, elb);
+        this.fore[k] = { elb, wrist };
       } else {
         // 後ろ足は関節つき：太もも → ひざ → すね → かかと → 足の甲 → 足先
         const lower = coat.whiteLegs && coat.belly ? white : furPlain;
@@ -815,7 +828,7 @@ export class Cat {
     const k = this.moving ? 8 : 3;
     for (const name in this.parts) {
       const c = this.cur[name], t = target[name];
-      for (const key of ['p', 'r', 's', 'j']) {
+      for (const key of ['p', 'r', 's', 'j', 'e']) {
         if (!t[key]) continue;
         for (let i = 0; i < 3; i++) c[key][i] = damp(c[key][i], t[key][i], k, dt);
       }
@@ -886,6 +899,7 @@ export class Cat {
     }
     this.tailSegs.forEach((seg, i) => { seg.rotation.set(this.tailCur[i][0], this.tailCur[i][1], 0); });
     for (const k in this.hind) this._bendHind(k, 0);
+    for (const k in this.fore) { const e = this.cur[k].e; this.fore[k].elb.rotation.x = e[0]; this.fore[k].wrist.rotation.x = e[1]; }
   }
 
   /** 後ろ足の関節を曲げる。flex: 歩くときの、ひざ・かかとの追加の曲がり */
