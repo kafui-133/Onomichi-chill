@@ -185,7 +185,7 @@ export function instancedBoxes(list, mat, { cast = true, receive = true, geo } =
  * 箱を 160m 四方のタイルごとの InstancedMesh に分けて並べる。
  * タイルごとに視野外を描かずに済むので、町全体に散らばるもの（石段・石垣・木・家）に使う。
  */
-export function instancedChunks(list, mat, opts = {}, tile = 160) {
+export function instancedChunks(list, mat, opts = {}, tile = opts.detail ? 100 : 320) {
   const group = new THREE.Group();
   const bins = new Map();
   for (const b of list) {
@@ -193,7 +193,19 @@ export function instancedChunks(list, mat, opts = {}, tile = 160) {
     if (!bins.has(k)) bins.set(k, []);
     bins.get(k).push(b);
   }
-  for (const items of bins.values()) group.add(instancedBoxes(items, mat, opts));
+  for (const items of bins.values()) {
+    const mesh = instancedBoxes(items, mat, opts);
+    // 小物（opts.detail = 見える距離 m）：まとまりの中心と半径を覚えておき、遠いときは描かない
+    if (opts.detail) {
+      let cx = 0, cz = 0;
+      for (const b of items) { cx += b.x; cz += b.z; }
+      cx /= items.length; cz /= items.length;
+      let rad = 0;
+      for (const b of items) rad = Math.max(rad, Math.hypot(b.x - cx, b.z - cz));
+      mesh.userData.detail = { x: cx, z: cz, r: rad, d: opts.detail };
+    }
+    group.add(mesh);
+  }
   return group;
 }
 

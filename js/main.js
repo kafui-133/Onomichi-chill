@@ -475,7 +475,7 @@ const showQuality = () => { $('vol-quality').textContent = `画質 ${quality.s.l
 showQuality();
 $('vol-quality').addEventListener('click', () => {
   quality.set(quality.next());
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality.s.pixelRatio));
+  renderer.setPixelRatio(basePixelRatio() * gov.scale);
   renderer.shadowMap.enabled = quality.s.shadows;
   sun.shadow.mapSize.set(quality.s.shadowSize, quality.s.shadowSize);
   sun.shadow.map?.dispose();
@@ -626,6 +626,41 @@ let labelTimer = 0;
 const CAPTURE = params.has('capture');
 let simTime = 0;
 
+// 透明度が0の物（昼の窓の灯り・街灯のにじみ・消えている踏切の灯など）は描かない。
+// 町と遠景の、透明な素材を使う物を一度だけ集めておき、毎フレーム見える・見えないを切りかえる
+let fadeList = null;
+function hideFaded() {
+  if (!fadeList) {
+    fadeList = [];
+    for (const root of [town.group, world.group]) root.traverse((o) => {
+      if (o.userData.detail || !(o.isMesh || o.isSprite || o.isPoints || o.isLine)) return;
+      const m = o.material;
+      if (m && !Array.isArray(m) && m.transparent) fadeList.push(o);
+    });
+  }
+  for (const o of fadeList) o.visible = o.material.opacity > 0.003;
+}
+
+// 自動の画質：FPS を見て、描く解像度を少しずつ上げ下げする（重いときは下げ、余裕があれば戻す）
+const gov = { acc: 0, frames: 0, scale: 1, cool: 4 };
+const basePixelRatio = () => Math.min(window.devicePixelRatio, quality.s.pixelRatio);
+function govern(dt) {
+  if (CAPTURE) return;
+  gov.acc += dt; gov.frames++; gov.cool -= dt;
+  if (gov.acc < 2) return;
+  const fps = gov.frames / gov.acc;
+  gov.acc = 0; gov.frames = 0;
+  if (gov.cool > 0 || document.hidden) return;
+  let s = gov.scale;
+  if (fps < 40) s = Math.max(0.5, s - 0.12);
+  else if (fps > 56) s = Math.min(1, s + 0.08);
+  if (s === gov.scale) return;
+  gov.scale = s;
+  renderer.setPixelRatio(basePixelRatio() * s);
+  view.setSize(window.innerWidth, window.innerHeight);
+  gov.cool = 3;
+}
+
 function frame(fixedDt) {
   const dt = typeof fixedDt === 'number' ? fixedDt : Math.min(clock.getDelta(), 0.1);
   simTime += dt;
@@ -646,6 +681,9 @@ function frame(fixedDt) {
 
   walker.update(dt);
   updateRide(dt);
+  if (mode === 'walk' || ride) town.cullDetails(camera.position);
+  hideFaded();
+  govern(dt);
   controls.update(dt, t);
   sky.update(time, camera, t);
   world.update(time, t);
