@@ -5,6 +5,7 @@ const COARSE = typeof window !== 'undefined' && window.matchMedia('(pointer: coa
 
 export const QUALITY_LEVELS = {
   high: { label: '高', pixelRatio: 2, shadowSize: 2048, shadows: true, candles: 1, people: 1, post: true, msaa: 4, outline: true, bloom: 1 },
+  // 「中」のアンチエイリアス（msaa）は切らない。スマホでは、msaa なしの浮動小数の奥行きバッファが使えず、画面が真っ暗になる
   medium: { label: '中', pixelRatio: 1.5, shadowSize: 1024, shadows: true, candles: 0.55, people: 0.6, post: true, msaa: 2, outline: true, bloom: 0.5 },
   low: { label: '低', pixelRatio: 1, shadowSize: 512, shadows: false, candles: 0.3, people: 0.35, post: false },
 };
