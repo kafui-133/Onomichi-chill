@@ -39,10 +39,10 @@ export const COATS = {
   chatora:   { label: '茶トラ',   base: '#d98e4a', stripe: '150,75,30',  plain: 0xd38a47, tip: 0x9a5528, belly: true },
   sabatora:  { label: 'サバトラ', base: '#9c9b97', stripe: '38,38,40',   plain: 0x8e8d89, tip: 0x34343a, belly: true },
   kijitora:  { label: 'キジトラ', base: '#8c7052', stripe: '45,32,20',   plain: 0x7d6449, tip: 0x3a2a1e, belly: false },
-  hachiware: { label: 'ハチワレ', base: '#2b2724', stripe: null,         plain: 0x2b2724, tip: 0x2b2724, belly: true, whiteLegs: true },
+  hachiware: { label: 'ハチワレ', base: '#2b2724', stripe: null,         plain: 0x2b2724, tip: 0x2b2724, belly: true, whiteLegs: true, blaze: 'wide' },
   mike:      { label: '三毛',     base: '#efe7da', stripe: null,         plain: 0xe9e0d2, tip: 0x2a2420, belly: true, patches: ['#d0843e', '#2e2925'] },
   shiro:     { label: '白',       base: '#eee8de', stripe: null,         plain: 0xece5da, tip: 0xe2dacd, belly: false },
-  chashiro:  { label: '茶白',     base: '#dc9550', stripe: '160,85,35',  plain: 0xd8924e, tip: 0xa25c2c, belly: true, whiteLegs: true },
+  chashiro:  { label: '茶白',     base: '#dc9550', stripe: '160,85,35',  plain: 0xd8924e, tip: 0xa25c2c, belly: true, whiteLegs: true, blaze: 'narrow' },
   kuro:      { label: '黒',       base: '#23201e', stripe: null,         plain: 0x23201e, tip: 0x1c1a18, belly: false, eye: 0xc9a23a },
 };
 
@@ -65,11 +65,11 @@ function eyeTraits(coat, id) {
   return {
     itome,
     irisL, irisR: odd ? (irisL === 0x6a9cc8 || irisL === 0x7aaed6 ? 0xc4a84a : 0x6a9cc8) : irisL,
-    size: 0.98 + r() * 0.2,         // 目の大きさ
-    wide: 1 + r() * 0.08,           // 横長（アーモンド形）
-    pupil: 0.72 + r() * 0.2,        // 瞳の太さ（まるく大きいほど、甘えた顔）
-    rest: 0.16 + r() * 0.22,        // ふだんのまぶたの下がり具合
-    droop: (r() - 0.15) * 0.4,      // 目じりの角度（+ でたれ目、- でつり目）
+    size: 0.92 + r() * 0.14,        // 目の大きさ
+    wide: 1.1 + r() * 0.15,         // 横長（アーモンド形）
+    pupil: 0.6 + r() * 0.25,        // 瞳の太さ（まるく大きいほど、甘えた顔）
+    rest: 0.18 + r() * 0.16,        // ふだんのまぶたの下がり具合
+    droop: 0.05 + r() * 0.3,        // 目じりの角度（大きいほど、たれ目でやさしい顔）
     slant: (r() - 0.5) * 0.16,
   };
 }
@@ -111,6 +111,67 @@ function furTexture(coat, seed) {
   });
 }
 
+// 顔の模様（頭の球の UV：u=0.25 が顔の正面、v=0 が頭のてっぺん。目は v≈0.47、鼻は v≈0.57）
+function headTexture(coat, seed) {
+  const r = seededRandom('face' + seed);
+  return canvasTexture(512, 256, (g, w, h) => {
+    const U = (u) => u * w, V = (v) => v * h;
+    g.fillStyle = coat.base;
+    g.fillRect(0, 0, w, h);
+    if (coat.stripe) {
+      // 頭の縞は、後頭部へ流れる
+      for (let i = 0; i < 26; i++) {
+        const x = (i / 26) * w + r() * 8;
+        if (Math.abs(x / w - 0.25) < 0.06) continue;
+        g.strokeStyle = `rgba(${coat.stripe},${0.4 + r() * 0.3})`;
+        g.lineWidth = 4 + r() * 5;
+        g.beginPath(); g.moveTo(x, 0); g.quadraticCurveTo(x + (r() - 0.5) * 14, V(0.25), x + (r() - 0.5) * 10, V(0.42)); g.stroke();
+      }
+      // ひたいの「M」
+      g.strokeStyle = `rgba(${coat.stripe},0.75)`;
+      g.lineWidth = 4;
+      for (const dx of [-0.03, -0.01, 0.01, 0.03]) {
+        g.beginPath(); g.moveTo(U(0.25 + dx), V(0.18)); g.lineTo(U(0.25 + dx * 0.7), V(0.38 - Math.abs(dx) * 1.5)); g.stroke();
+      }
+      // 目じりから頬へのすじ
+      g.lineWidth = 3;
+      for (const sx of [-1, 1]) {
+        g.beginPath(); g.moveTo(U(0.25 + sx * 0.075), V(0.5)); g.quadraticCurveTo(U(0.25 + sx * 0.11), V(0.53), U(0.25 + sx * 0.14), V(0.6)); g.stroke();
+      }
+    }
+    if (coat.patches) {
+      for (let i = 0; i < 4; i++) {
+        g.fillStyle = coat.patches[i % coat.patches.length];
+        const u = r() < 0.5 ? 0.25 + (0.08 + r() * 0.3) : 0.25 - (0.08 + r() * 0.3);
+        g.beginPath(); g.ellipse(U(u), V(0.1 + r() * 0.35), 20 + r() * 30, 14 + r() * 20, r() * 3, 0, Math.PI * 2); g.fill();
+      }
+    }
+    const white = 'rgba(244,236,224,1)';
+    if (coat.belly) {
+      // 口もとからあごの下は白
+      const grd = g.createRadialGradient(U(0.25), V(0.72), 4, U(0.25), V(0.72), U(0.1));
+      grd.addColorStop(0, white); grd.addColorStop(0.75, white); grd.addColorStop(1, 'rgba(244,236,224,0)');
+      g.fillStyle = grd;
+      g.beginPath(); g.ellipse(U(0.25), V(0.72), U(0.1), V(0.2), 0, 0, Math.PI * 2); g.fill();
+      const chin = g.createLinearGradient(0, V(0.76), 0, V(0.9));
+      chin.addColorStop(0, 'rgba(244,236,224,0)'); chin.addColorStop(1, white);
+      g.fillStyle = chin;
+      g.beginPath(); g.ellipse(U(0.25), V(1), U(0.17), V(0.24), 0, 0, Math.PI * 2); g.fill();
+    }
+    if (coat.blaze) {
+      // ハチワレ：鼻すじから眉間へ、白い「八」の字
+      const top = coat.blaze === 'wide' ? 0.3 : 0.4, half = coat.blaze === 'wide' ? 0.1 : 0.03;
+      g.fillStyle = white;
+      g.beginPath();
+      g.moveTo(U(0.25 - half - 0.08), V(0.95));
+      g.quadraticCurveTo(U(0.25 - 0.035), V(0.55), U(0.25 - 0.006), V(top));
+      g.lineTo(U(0.25 + 0.006), V(top));
+      g.quadraticCurveTo(U(0.25 + 0.035), V(0.55), U(0.25 + half + 0.08), V(0.95));
+      g.closePath(); g.fill();
+    }
+  });
+}
+
 // ポーズ：各パーツの位置・回転・拡大
 // prettier-ignore
 const POSES = {
@@ -121,7 +182,7 @@ const POSES = {
     fr: { p: [-0.048, 0.19, 0.11], r: [0, 0, 0], s: [1, 1, 1] },
     bl: { p: [0.056, 0.2, -0.1], r: [0, 0, 0], s: [1, 1, 1], j: [-0.6, 1.35, -0.7] },
     br: { p: [-0.056, 0.2, -0.1], r: [0, 0, 0], s: [1, 1, 1], j: [-0.6, 1.35, -0.7] },
-    tail: { p: [0, 0.235, -0.17], r: [1.2, 0, 0] },
+    tail: { p: [0, 0.225, -0.17], r: [-0.2, 0, 0] },
   },
   sit: {
     body: { p: [0, 0.16, -0.03], r: [-0.72, 0, 0], s: [0.105, 0.1, 0.165] },
@@ -184,7 +245,7 @@ const POSES = {
 
 // シッポの各節の曲がり（ポーズ別）
 const TAIL_CURVES = {
-  stand: [[-0.25, 0], [-0.2, 0], [-0.1, 0], [-0.15, 0], [-0.3, 0.05], [-0.45, 0.1]],
+  stand: [[-0.35, 0], [-0.1, 0], [0.12, 0], [0.25, 0.04], [0.3, 0.06], [0.3, 0.08]],
   sit: [[0, 0.35], [0, 0.4], [0, 0.4], [0, 0.35], [0.05, 0.3], [0.15, 0.2]],
   loaf: [[0, 0.15], [0, 0.2], [0, 0.25], [0, 0.3], [0, 0.3], [0.1, 0.3]],
   curl: [[0, -0.45], [0, -0.45], [0, -0.45], [0, -0.45], [0, -0.4], [0, -0.35]],
@@ -255,14 +316,14 @@ function catGeometries() {
   const meta = limb(HIND.meta, 0.0135, 0.0125);
   const segLen = 0.045;
   const tail = Array.from({ length: 6 }, (_, i) => {
-    const g = new THREE.CylinderGeometry(0.0155 - i * 0.0011, 0.0175 - i * 0.0011, segLen + 0.01, 10);
+    const g = new THREE.CylinderGeometry(0.0175 - i * 0.0011, 0.0195 - i * 0.0011, segLen + 0.01, 10);
     g.rotateX(Math.PI / 2);
     g.translate(0, 0, -segLen / 2);
     return g;
   });
   // 先は丸く
-  const tailJoint = Array.from({ length: 6 }, (_, i) => new THREE.SphereGeometry(0.0175 - i * 0.0011, 10, 6));
-  const tipCap = new THREE.SphereGeometry(0.0155 - 5 * 0.0011, 10, 6);
+  const tailJoint = Array.from({ length: 6 }, (_, i) => new THREE.SphereGeometry(0.0195 - i * 0.0011, 10, 6));
+  const tipCap = new THREE.SphereGeometry(0.0175 - 5 * 0.0011, 10, 6);
   tipCap.translate(0, 0, -segLen);
   GEO = {
     body, skull, tail, tailJoint, tipCap, leg, thigh, shin, meta,
@@ -273,8 +334,8 @@ function catGeometries() {
     lid: new THREE.SphereGeometry(0.0148, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2),
     pupil: new THREE.SphereGeometry(0.0085, 16, 12),
     glint: new THREE.SphereGeometry(0.0023, 6, 4),
-    ear: earShape(0.033, 0.058),
-    earInner: earShape(0.02, 0.04),
+    ear: earShape(0.038, 0.06),
+    earInner: earShape(0.024, 0.042),
     paw: new THREE.SphereGeometry(0.026, 10, 8),
   };
   return GEO;
@@ -473,17 +534,18 @@ export class Cat {
 
     // 頭：ほおの張った丸い頭に、ひげ袋（ω の形の口もと）、逆三角の鼻、大きめの目
     this.head = new THREE.Group();
-    const skull = new THREE.Mesh(G.skull, fur);
+    const face = new THREE.MeshStandardMaterial({ map: headTexture(coat, this.id), roughness: 0.95 });
+    const skull = new THREE.Mesh(G.skull, face);
     skull.castShadow = true;
     const pads = [-1, 1].map((sx) => {
       const pad = new THREE.Mesh(G.pad, muzzleMat);
-      pad.position.set(sx * 0.0155, -0.026, 0.05);
-      pad.scale.set(1.05, 0.85, 0.95);
+      pad.position.set(sx * 0.0135, -0.025, 0.051);
+      pad.scale.set(0.88, 0.72, 0.7);
       return pad;
     });
     const chin = new THREE.Mesh(G.pad, muzzleMat);
     chin.position.set(0, -0.041, 0.043);
-    chin.scale.set(0.8, 0.6, 0.8);
+    chin.scale.set(0.65, 0.5, 0.6);
     const nose = new THREE.Mesh(G.nose, pink);
     nose.position.set(0, -0.0125, 0.0685);
     nose.rotation.x = -0.35;
@@ -497,9 +559,9 @@ export class Cat {
     for (const sx of [-1, 1]) {
       // 目：色のついた虹彩に、瞳と、小さな光。ふちどりと、上まぶた
       const eye = new THREE.Group();
-      eye.position.set(sx * 0.03, 0.005, 0.053);
+      eye.position.set(sx * 0.03, 0.005, 0.05);
       eye.rotation.set(0.08, sx * 0.32, sx * T.slant);
-      eye.scale.set(T.size * T.wide, T.size, T.size * 0.5);
+      eye.scale.set(T.size * T.wide, T.size, T.size * 0.4);
       const iris = new THREE.Mesh(G.eye, new THREE.MeshStandardMaterial({ color: sx < 0 ? T.irisL : T.irisR, roughness: 0.25 }));
       const liner = new THREE.Mesh(G.eye, linerMat);
       liner.scale.setScalar(1.07);
