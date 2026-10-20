@@ -9,7 +9,7 @@ import { lam, buildSignAtlas, buildRetroSignAtlas, buildShopInteriorAtlas, SHOP_
 import {
   DATA, SEA_Y, BOUNDS, terrainY, groundY, surfaceY, addTread, addSolid, inSolid, walkable, ROADS, OTHER_ROADS, ARCADE_ROADS, nearAnyRoad, samplePath, roadLength, pointAlong,
   STREET_SHOPS, demAt, ALLEYS, COAST, distToCoast, straitAt, RAILS, CROSSINGS, TRAIN_TRACKS, ROPEWAY, SUMMIT, BENCHES, FERRY_ROUTES, POIS, onOnomichiSide, nearestRoad, inBuilding,
-  ROOFS, DECKS, addUpper, SANDO, KOJI, walkRoute, TAKEDA_PLAZA,
+  ROOFS, DECKS, addUpper, SANDO, KOJI, walkRoute, TAKEDA_PLAZA, FUJI_BEND,
 } from './townMap.js';
 
 const SURFACE_LIFT = { asphalt: 0.05, tile: 0.07, stone: 0.09 };
@@ -265,6 +265,7 @@ export class Town {
     this._sculptures();
     this._takedaPlaza();
     this._mihara();
+    this._fuji();
     this._train();
     this._mergeStatic();
   }
@@ -4675,6 +4676,103 @@ export class Town {
     post.position.set(sx, groundY(sx, sz) + 0.25, sz);
     this.group.add(post);
     this.lampPositions.push([cx + vx * 3.2, floor + 2.6, cz + vz * 3.2]);
+  }
+
+  /**
+   * 藤の回廊：小径のヘアピンの曲がりにそって、上から見ると弧をえがく藤棚のトンネル。
+   * 木の柱を両側に立て、上はゆるいアーチの梁。上に藤の葉が茂り、春（4〜5月）は紫の花房が垂れる
+   */
+  _fuji() {
+    const r = seededRandom('fuji');
+    const B = FUJI_BEND;
+    const road = ROADS.find((rd) => rd.pts.some(([x, z]) => x === B.x && z === B.z) && rd.kind === 'footway');
+    if (!road) return;
+    // 曲がりの前後およそ14m ずつを、回廊にする
+    const k0 = road.pts.findIndex(([x, z]) => x === B.x && z === B.z);
+    const along = (from, dir, len) => {
+      const out = [];
+      let i = from, rem = len, cur = road.pts[from];
+      out.push(cur);
+      while (rem > 0 && road.pts[i + dir]) {
+        const nx = road.pts[i + dir], d = Math.hypot(nx[0] - cur[0], nx[1] - cur[1]);
+        if (d >= rem) { const t = rem / d; out.push([cur[0] + (nx[0] - cur[0]) * t, cur[1] + (nx[1] - cur[1]) * t]); break; }
+        out.push(nx); rem -= d; cur = nx; i += dir;
+      }
+      return out;
+    };
+    const pts = [...along(k0, 1, 14).reverse(), ...along(k0, -1, 14).slice(1)];
+    const s = samplePath(pts, 2.2);
+    const month = new Date().getMonth() + 1;
+    const bloom = month === 4 || month === 5;
+    const wood = [], leaves = [], flowers = [];
+    const hw = road.width / 2 + 0.45, H = 2.35, rise = 0.55;
+    let prev = null;
+    for (const p of s) {
+      const nx = -Math.sin(p.angle), nz = Math.cos(p.angle);
+      const y = groundY(p.x, p.z);
+      // 柱（両側）
+      for (const sd of [-1, 1]) {
+        const x = p.x + nx * sd * hw, z = p.z + nz * sd * hw;
+        wood.push({ x, y: y + H / 2, z, sx: 0.14, sy: H, sz: 0.14, color: '#5a4430' });
+        addSolid(x, z, 0.25, 0.25, 0);
+      }
+      // ゆるいアーチの梁（5本の短い材をつないで）
+      const seg = 6;
+      for (let k = 0; k < seg; k++) {
+        const t0 = k / seg, t1 = (k + 1) / seg;
+        const u0 = -hw + 2 * hw * t0, u1 = -hw + 2 * hw * t1;
+        const h0 = H + Math.sin(t0 * Math.PI) * rise, h1 = H + Math.sin(t1 * Math.PI) * rise;
+        const len = Math.hypot(u1 - u0, h1 - h0);
+        const um = (u0 + u1) / 2, hm = (h0 + h1) / 2;
+        wood.push({ x: p.x + nx * um, y: y + hm, z: p.z + nz * um, sx: len + 0.04, sy: 0.1, sz: 0.1, ry: -p.angle - Math.PI / 2, rz: Math.atan2(h1 - h0, u1 - u0), color: '#5a4430' });   // 箱の x を道の横（n）へ
+      }
+      // 前の梁とのあいだに、縦の桁（両肩とてっぺん）
+      if (prev) {
+        for (const u of [-hw, 0, hw]) {
+          const ax = prev.x + prev.nx * u, az = prev.z + prev.nz * u, bx = p.x + nx * u, bz = p.z + nz * u;
+          const hy = (u === 0 ? H + rise : H) + 0.08;
+          wood.push({ x: (ax + bx) / 2, y: (prev.y + y) / 2 + hy, z: (az + bz) / 2, sx: Math.hypot(bx - ax, bz - az) + 0.05, sy: 0.08, sz: 0.08, ry: -Math.atan2(bz - az, bx - ax), color: '#4a3826' });
+        }
+      }
+      // 上に茂る藤の葉（アーチにそって、こんもりと）
+      for (let k = 0; k < 14; k++) {
+        const t = r(), u = -hw - 0.3 + (2 * hw + 0.6) * t;
+        const hh = H + Math.sin(Math.min(1, Math.max(0, (u + hw) / (2 * hw))) * Math.PI) * rise + 0.25;
+        const sz = 0.55 + r() * 0.45;
+        leaves.push({ x: p.x + nx * u + (r() - 0.5) * 1.6 * Math.cos(p.angle), y: y + hh, z: p.z + nz * u + (r() - 0.5) * 1.6 * Math.sin(p.angle), sx: sz * 1.4, sy: sz * 0.55, sz: sz * 1.4, ry: r() * 6,
+          color: ['#4a7232', '#55823a', '#5f8c42', month === 11 ? '#9a9a44' : '#43682e'][Math.floor(r() * 4)] });
+      }
+      // 垂れ下がる花房（春）。季節はずれは、ところどころに葉のつる
+      const n = bloom ? 12 : 4;
+      for (let k = 0; k < n; k++) {
+        const u = -hw + 0.2 + (2 * hw - 0.4) * r();
+        const hh = H + Math.sin(((u + hw) / (2 * hw)) * Math.PI) * rise;
+        const L = bloom ? 0.35 + r() * 0.5 : 0.18 + r() * 0.22;
+        const f = { x: p.x + nx * u + (r() - 0.5) * 2 * Math.cos(p.angle), y: y + hh - L / 2 - 0.02, z: p.z + nz * u + (r() - 0.5) * 2 * Math.sin(p.angle), sx: bloom ? 0.16 : 0.08, sy: L, sz: bloom ? 0.16 : 0.08,
+          color: bloom ? ['#9a78c8', '#b090d8', '#8a68b8', '#c8b0e8'][Math.floor(r() * 4)] : ['#5c8a40', '#6a9448'][Math.floor(r() * 2)] };
+        flowers.push(f);
+      }
+      prev = { x: p.x, z: p.z, y, nx, nz };
+    }
+    this.group.add(instancedChunks(wood, lam(0xffffff), { detail: 120 }));
+    this.group.add(instancedChunks(leaves, lam(0xffffff, { flatShading: true }), { detail: 120, geo: new THREE.IcosahedronGeometry(0.5, 0) }));
+    // 花房は、下へ細くなる円すい（さかさま）
+    this.group.add(instancedChunks(flowers, lam(0xffffff, { flatShading: true }), { detail: 90, receive: false, geo: new THREE.ConeGeometry(0.5, 1, 6).rotateX(Math.PI) }));
+    // 回廊の中ほどに、休めるベンチ（道の外側）
+    const mid = s[Math.floor(s.length / 2)];
+    if (mid) {
+      const nx = -Math.sin(mid.angle), nz = Math.cos(mid.angle);
+      for (const sd of [-1, 1]) {
+        const x = mid.x + nx * sd * (hw + 0.7), z = mid.z + nz * sd * (hw + 0.7);
+        if (nearAnyRoad(x, z, 0.2) || inSolid(x, z)) continue;
+        const y = groundY(x, z), ry = -mid.angle;
+        const bench = [{ x, y: y + 0.42, z, sx: 1.5, sy: 0.07, sz: 0.4, ry, color: '#8a6a48' }];
+        for (const t of [-0.55, 0.55]) bench.push({ x: x + Math.cos(mid.angle) * t, y: y + 0.2, z: z + Math.sin(mid.angle) * t, sx: 0.08, sy: 0.4, sz: 0.36, ry, color: '#3a3a3a' });
+        this.group.add(instancedChunks(bench, lam(0xffffff), { detail: 80 }));
+        addSolid(x, z, 1.6, 0.5, -ry);
+        break;
+      }
+    }
   }
 
   _lamps() {

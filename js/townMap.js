@@ -185,7 +185,25 @@ const PLAZA_PATH = (() => {
   return { k: 'steps', w: 1.8, p: [best.x, best.z, (best.x + ex) / 2, (best.z + ez) / 2, ex, ez], n: '' };
 })();
 
-const ALL_ROADS_RAW = [...DATA.roads, DOOR_PATH, PLAZA_PATH].map((r, id) => {
+// 藤の回廊（小径のヘアピンの曲がり）のわきから、山側の小径へ上る石段。両端は、地図の小径の点にそろえる
+const nearestVertex = (x, z) => {
+  let best = null;
+  for (const r of DATA.roads) {
+    if (!['footway', 'steps', 'path'].includes(r.k) || r.l) continue;
+    for (let k = 0; k < r.p.length; k += 2) {
+      const d = Math.hypot(r.p[k] - x, r.p[k + 1] - z);
+      if (!best || d < best.d) best = { d, x: r.p[k], z: r.p[k + 1] };
+    }
+  }
+  return best;
+};
+export const FUJI_BEND = (() => { const v = nearestVertex(62.3, -7.9); return { x: v.x, z: v.z }; })();
+const FUJI_STEPS = (() => {
+  const a = FUJI_BEND, b = nearestVertex(49.8, 31.9);
+  return { k: 'steps', w: 1.6, p: [a.x, a.z, a.x - 0.8, a.z + 6, 58.6, 6, 55.4, 16, b.x, b.z], n: '' };
+})();
+
+const ALL_ROADS_RAW = [...DATA.roads, DOOR_PATH, PLAZA_PATH, FUJI_STEPS].map((r, id) => {
   const pts = [];
   for (let k = 0; k < r.p.length; k += 2) pts.push([r.p[k], r.p[k + 1]]);
   return {
