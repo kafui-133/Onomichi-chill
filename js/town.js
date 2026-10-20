@@ -9,7 +9,7 @@ import { lam, buildSignAtlas, buildRetroSignAtlas, buildShopInteriorAtlas, SHOP_
 import {
   DATA, SEA_Y, BOUNDS, terrainY, groundY, surfaceY, addTread, addSolid, inSolid, walkable, ROADS, OTHER_ROADS, ARCADE_ROADS, nearAnyRoad, samplePath, roadLength, pointAlong,
   STREET_SHOPS, demAt, ALLEYS, COAST, distToCoast, straitAt, RAILS, CROSSINGS, TRAIN_TRACKS, ROPEWAY, SUMMIT, BENCHES, FERRY_ROUTES, POIS, onOnomichiSide, nearestRoad, inBuilding,
-  ROOFS, DECKS, addUpper, SANDO, KOJI, walkRoute,
+  ROOFS, DECKS, addUpper, SANDO, KOJI, walkRoute, TAKEDA_PLAZA,
 } from './townMap.js';
 
 const SURFACE_LIFT = { asphalt: 0.05, tile: 0.07, stone: 0.09 };
@@ -81,6 +81,8 @@ const PRECINCTS = [
   MODEL_FITS.ushitora && { ...MODEL_FITS.ushitora, r: 18 },
   ...[['天寧寺三重塔', 9]].map(([n, r]) => { const p = POIS.find((q) => q.n === n); return p && { x: p.x, z: p.z, r }; }),
   (() => { const p = POIS.find((q) => q.n === '尾道城'); return p && { x: p.x, z: p.z, r: 20 }; })(),
+  // 空き家の上の、竹田像の広場
+  { x: TAKEDA_PLAZA.x, z: TAKEDA_PLAZA.z, r: TAKEDA_PLAZA.r + 1 },
   // 山頂の展望デッキのまわり（眺めをふさがない）
   SUMMIT.deck && { x: SUMMIT.deck.x, z: SUMMIT.deck.z, r: 22 },
   // 三重塔の下の墓地（家を建てずにあけておく）
@@ -260,6 +262,7 @@ export class Town {
     this._seaside();
     this._streetDetails();
     this._sculptures();
+    this._takedaPlaza();
     this._train();
     this._mergeStatic();
   }
@@ -526,6 +529,33 @@ export class Town {
           g.fillRect(x * 64 + 2, y * 64 + 2, 60, 60);
         }
         speckle(g, w, h, 900, 0.06, r);
+      } else if (kind === 'wall') {
+        // 石垣：横に長い割り石を積んだ面（1枚 = 横1.5m × 高さ1m）。色は頂点の色で変える
+        g.fillStyle = '#5e5a54';
+        g.fillRect(0, 0, w, h);
+        for (let y = 0; y < h; y += 30 + r() * 10) {
+          const rowH = 30 + r() * 12;
+          let x = -r() * 40;
+          while (x < w) {
+            const sw = 38 + r() * 46, v = 170 + r() * 50;
+            g.fillStyle = `rgb(${v},${v - 3},${v - 12})`;
+            g.beginPath();
+            g.roundRect ? g.roundRect(x + 2, y + 2, sw - 4, rowH - 4, 6) : g.rect(x + 2, y + 2, sw - 4, rowH - 4);
+            g.fill();
+            // 石の上側は明るく、下側は影
+            g.fillStyle = 'rgba(255,255,255,0.08)'; g.fillRect(x + 4, y + 3, sw - 8, 4);
+            g.fillStyle = 'rgba(0,0,0,0.12)'; g.fillRect(x + 4, y + rowH - 8, sw - 8, 4);
+            x += sw;
+          }
+        }
+        speckle(g, w, h, 2500, 0.1, r);
+      } else if (kind === 'granite') {
+        // 石段の踏み面：御影石の細かい粒
+        g.fillStyle = '#cfcac0';
+        g.fillRect(0, 0, w, h);
+        speckle(g, w, h, 6000, 0.22, r);
+        g.fillStyle = 'rgba(60,56,50,0.25)';
+        g.fillRect(0, 0, w, 6);
       } else {
         // 石畳・石段の小径：割り石と目地（u=0..1 が道の幅、両端に縁石）
         g.fillStyle = '#6d675e';
@@ -690,18 +720,26 @@ export class Town {
           for (let k = i - 2; k <= i + 2; k++) if (pts[k] && pts[k].top !== null) { sum += pts[k].top; n++; }
           return Math.max(p.y + 0.4, sum / n);
         });
-        const g = 0.42 + r() * 0.06;
-        const face = new THREE.Color(g * 1.03, g, g * 0.88), cap = new THREE.Color(g * 1.15, g * 1.12, g);
+        const g = 0.62 + r() * 0.08;
+        const face = new THREE.Color(g * 1.03, g, g * 0.9), cap = new THREE.Color(g * 1.12, g * 1.1, g);
+        // 足もとの苔（湿った石垣の下のほう）
+        const moss = new THREE.Color(g * 0.7, g * 0.86, g * 0.52);
+        const capMoss = new THREE.Color(g * 0.85, g * 1.0, g * 0.66);
+        const U = 1 / 1.5, V = 1;
         for (let i = 0; i < pts.length - 1; i++) {
           const a = pts[i], b = pts[i + 1];
           if (tops[i] === null || tops[i + 1] === null) continue;
           const T = 0.35;
           const A0 = [a.x, a.y - 0.3, a.z], B0 = [b.x, b.y - 0.3, b.z];
+          const Am = [a.x, Math.min(tops[i], a.y + 0.3 + r() * 0.25), a.z], Bm = [b.x, Math.min(tops[i + 1], b.y + 0.3 + r() * 0.25), b.z];
           const A1 = [a.x, tops[i], a.z], B1 = [b.x, tops[i + 1], b.z];
           const A2 = [a.x + a.nx * T, tops[i], a.z + a.nz * T], B2 = [b.x + b.nx * T, tops[i + 1], b.z + b.nz * T];
           const A3 = [a.x + a.nx * T, a.y - 1.5, a.z + a.nz * T], B3 = [b.x + b.nx * T, b.y - 1.5, b.z + b.nz * T];
-          walls.quad(A0, B0, B1, A1, face);
-          walls.quad(A1, B1, B2, A2, cap);
+          const ua = i * U, ub = (i + 1) * U;
+          const uv = (p0, p1, p2, p3) => [ua, p0[1] * V, ub, p1[1] * V, ub, p2[1] * V, ua, p3[1] * V];
+          walls.quad(A0, B0, Bm, Am, moss, uv(A0, B0, Bm, Am));
+          walls.quad(Am, Bm, B1, A1, face, uv(Am, Bm, B1, A1));
+          walls.quad(A1, B1, B2, A2, r() < 0.3 ? capMoss : cap, [ua, 0, ub, 0, ub, 0.3, ua, 0.3]);
           walls.quad(A2, B2, B3, A3, face);
           // 途切れるところは端をふさぐ
           if (i === 0 || tops[i - 1] === null) walls.quad(A0, A1, A2, A3, face);
@@ -722,8 +760,8 @@ export class Town {
         });
       }
     }
-    this.group.add(instancedChunks(treads, lam(0xffffff)));
-    const wm = new THREE.Mesh(walls.build(), lam(0xffffff, { vertexColors: true, side: THREE.DoubleSide }));
+    this.group.add(instancedChunks(treads, lam(0xffffff, { map: this._texture('granite') })));
+    const wm = new THREE.Mesh(walls.build(), lam(0xffffff, { vertexColors: true, side: THREE.DoubleSide, map: this._texture('wall') }));
     wm.receiveShadow = true;
     wm.castShadow = true;
     this.group.add(wm);
@@ -1119,8 +1157,12 @@ export class Town {
       if (inPrecinct(x, z, 2) || nearRail(x, z, 5) || nearAnyRoad(x, z, margin) || inSolid(x, z)) return false;
       // 山頂の展望台からの眺め（南の尾道水道）をさえぎらない
       const dd = Math.hypot(x - SUMMIT.deck.x, z - SUMMIT.deck.z);
-      return !(dd < 25 || (dd < 90 && z < SUMMIT.deck.z + 5));
+      if (dd < 25 || (dd < 90 && z < SUMMIT.deck.z + 5)) return false;
+      // 竹田像の広場から谷（海）への眺めもあけておく
+      const px = x - TAKEDA_PLAZA.x, pz = z - TAKEDA_PLAZA.z, pd = Math.hypot(px, pz);
+      return !(pd < 45 && px * plazaView.x + pz * plazaView.z > pd * 0.35);
     };
+    const pv = downhillYaw(TAKEDA_PLAZA.x, TAKEDA_PLAZA.z, TAKEDA_PLAZA.r + 6), plazaView = { x: Math.sin(pv), z: Math.cos(pv) };
     // 秋（10〜11月）は、ところどころ赤や橙、黄色に色づく
     const month = new Date().getMonth() + 1;
     const autumn = month === 10 ? 0.12 : month === 11 ? 0.28 : 0;
@@ -3965,7 +4007,8 @@ export class Town {
     const r = this.r;
     const lines = new TriBatch();
     const white = new THREE.Color(0.93, 0.93, 0.9), yellow = new THREE.Color(0.95, 0.72, 0.18);
-    const boxes = [], whiteRail = [], poles = [], wires = [], mirrors = [], pots = [], plants = [];
+    const boxes = [], whiteRail = [], poles = [], wires = [], mirrors = [], pots = [], plants = [], tufts = [];
+    const month = new Date().getMonth() + 1;
     const stripe = (p, ang, off, len, w, col, lift = 0.085) => {
       const tx = Math.cos(ang), tz = Math.sin(ang), nx = -tz, nz = tx;
       const Q = (u, v) => { const x = p.x + tx * u + nx * (off + v), z = p.z + tz * u + nz * (off + v); return [x, groundY(x, z) + lift, z]; };
@@ -4098,6 +4141,20 @@ export class Town {
             mirrors.push({ x, y, z, face: p.angle });
           }
         }
+        // 道ばたの草むら：道のふちに、低い草と、ときどき花（梅雨どきは紫陽花）
+        for (const sd of [-1, 1]) {
+          if (r() > 0.4) continue;
+          const off = hw + 0.35 + r() * 1.1;
+          const x = p.x + nx * sd * off, z = p.z + nz * sd * off;
+          if (nearAnyRoad(x, z, 0.15) || inBuilding(x, z) || inSolid(x, z) || inPrecinct(x, z, 0)) continue;
+          const y = groundY(x, z);
+          const flower = r() < (month === 6 || month === 7 ? 0.35 : 0.08);
+          for (let k = 0; k < 2 + Math.floor(r() * 2); k++) {
+            const s2 = 0.22 + r() * 0.28, jx = (r() - 0.5) * 0.6, jz = (r() - 0.5) * 0.6;
+            tufts.push({ x: x + jx, y: y + s2 * 0.25, z: z + jz, sx: s2 * 1.5, sy: s2 * 0.7, sz: s2 * 1.5, ry: r() * 6,
+              color: flower && k === 0 ? (month === 6 || month === 7 ? ['#6a7ec8', '#8a70b8', '#d090b8'] : ['#e8e4d8', '#e8c040', '#d07090'])[Math.floor(r() * 3)] : ['#45703a', '#4f7c3e', '#5a8240', '#3e6834', '#66804a'][Math.floor(r() * 5)] });
+          }
+        }
         // 鉢植え：家の壁ぎわ（道のわきに建物がある）
         if (r() < 0.12) for (const sd of [-1, 1]) {
           const x = p.x + nx * sd * (hw + 0.35), z = p.z + nz * sd * (hw + 0.35);
@@ -4136,6 +4193,7 @@ export class Town {
       this.group.add(instancedChunks(pots, lam(0xffffff), { detail: 60, geo: new THREE.CylinderGeometry(0.5, 0.38, 1, 8) }));
       this.group.add(instancedChunks(plants, lam(0xffffff, { flatShading: true }), { detail: 60, geo: new THREE.IcosahedronGeometry(0.5, 0) }));
     }
+    if (tufts.length) this.group.add(instancedChunks(tufts, lam(0xffffff, { flatShading: true }), { detail: 50, receive: false, geo: new THREE.IcosahedronGeometry(0.5, 0) }));
     if (mirrors.length) {
       const orange = lam(0xe0702a), glass = lam(0xd8e4ea, { emissive: 0x405058, emissiveIntensity: 0.4 });
       for (const m of mirrors) {
@@ -4263,6 +4321,161 @@ export class Town {
       this.group.add(g);
       addSolid(px, pz, 1.4, 1.2, 0);
       this.fumikoAt = { x: px, z: pz };
+    }
+  }
+
+  /**
+   * 竹田像の広場：空き家から石段を少し上ったところの、平らにならした小さな広場。
+   * 御影石の敷石、谷側に低い石の塀と鉄の手すり、ベンチ、楠ともみじ、石灯籠、説明板。
+   * まん中に、尾道の眺めのほうを向いて座る田能村竹田（江戸後期の文人画家）のブロンズ像
+   */
+  _takedaPlaza() {
+    const P = TAKEDA_PLAZA, r = seededRandom('takeda');
+    const y0 = P.y;
+    const view = downhillYaw(P.x, P.z, P.r + 6);   // 谷（海）の向き
+    // 敷石：1m 角の御影石を、色を少しずつ変えて
+    const tb = new TriBatch();
+    for (let a = -P.r; a < P.r; a += 1) for (let b = -P.r; b < P.r; b += 1) {
+      if (Math.hypot(a + 0.5, b + 0.5) > P.r - 0.2) continue;
+      const v = 0.5 + r() * 0.07, col = new THREE.Color(v, v * 0.98, v * 0.92);
+      const Q = (u, w) => [P.x + u, y0 + 0.06, P.z + w];
+      tb.quad(Q(a + 0.02, b + 0.02), Q(a + 0.02, b + 0.98), Q(a + 0.98, b + 0.98), Q(a + 0.98, b + 0.02), col);
+    }
+    // 目地（敷石のあいだの暗い線）は、一段低い面で
+    const joint = new THREE.Mesh(new THREE.CircleGeometry(P.r - 0.2, 40).rotateX(-Math.PI / 2), lam(0x77726a));
+    joint.position.set(P.x, y0 + 0.045, P.z);
+    joint.receiveShadow = true;
+    this.group.add(joint);
+    const pave = new THREE.Mesh(tb.build(), lam(0xffffff, { vertexColors: true, side: THREE.DoubleSide }));
+    pave.receiveShadow = true;
+    this.group.add(pave);
+
+    const boxes = [];
+    // 谷側の低い石の塀と、黒い鉄の手すり（眺めの側、半周ほど）
+    for (let a = -1.5; a <= 1.5; a += 0.15) {
+      const ang = view + a, x = P.x + Math.sin(ang) * (P.r - 0.1), z = P.z + Math.cos(ang) * (P.r - 0.1);
+      if (nearAnyRoad(x, z, 0.4)) continue;
+      const seg = (P.r - 0.1) * 0.15 + 0.03, ry = ang;   // 箱の横（x）を円の接線へ
+      const g = 0.5 + r() * 0.06;
+      boxes.push({ x, y: y0 + 0.3, z, sx: seg, sy: 0.6, sz: 0.4, ry, color: new THREE.Color(g, g * 0.97, g * 0.9) });
+      boxes.push({ x, y: y0 + 0.62, z, sx: seg, sy: 0.06, sz: 0.46, ry, color: new THREE.Color(g * 1.12, g * 1.1, g) });
+      boxes.push({ x, y: y0 + 1.05, z, sx: seg, sy: 0.05, sz: 0.05, ry, color: '#2a2c2e' });
+      if (Math.round(a / 0.15) % 3 === 0) boxes.push({ x, y: y0 + 0.85, z, sx: 0.05, sy: 0.4, sz: 0.05, color: '#2a2c2e' });
+      addSolid(x, z, seg, 0.5, -ry);
+    }
+    // ベンチ（木の座板に、石の脚）を塀ぎわに3つ。眺めのほうを向けて
+    for (const a of [-0.9, 0, 0.9]) {
+      const ang = view + a + 0.25, d = P.r - 1.6;
+      const x = P.x + Math.sin(ang) * d, z = P.z + Math.cos(ang) * d, ry = ang;
+      if (Math.hypot(x - P.statue.x, z - P.statue.z) < 2.4) continue;
+      boxes.push({ x, y: y0 + 0.44, z, sx: 1.7, sy: 0.07, sz: 0.42, ry, color: '#8a6a48' });
+      for (const sd of [-0.62, 0.62]) boxes.push({ x: x + Math.cos(ry) * sd, y: y0 + 0.2, z: z - Math.sin(ry) * sd, sx: 0.18, sy: 0.4, sz: 0.38, ry, color: '#9a958a' });
+      addSolid(x, z, 1.8, 0.6, -ry);
+    }
+    // 山側に、楠ともみじ。足もとに植え込み
+    const trunks = [], crowns = [], shrubs = [];
+    const month = new Date().getMonth() + 1;
+    const momiji = month >= 10 && month <= 11 ? ['#c8482e', '#d8642e', '#b83a2a'] : ['#5f8a44', '#6e9a4c', '#4f7c3e'];
+    [[Math.PI + 1.35, 5.6, ['#2f5a2c', '#3a6a34', '#466e36'], 7], [Math.PI - 1.4, 5.4, momiji, 4.6]].forEach(([a, d, cols, h]) => {
+      const ang = view + a, x = P.x + Math.sin(ang) * d, z = P.z + Math.cos(ang) * d;
+      trunks.push({ x, y: y0 + h / 2, z, sx: 0.36, sy: h, sz: 0.36, rz: (r() - 0.5) * 0.2, color: '#4e3a30' });
+      for (let j = 0; j < 6; j++) crowns.push({ x: x + (r() - 0.5) * 3.4, y: y0 + h - 0.2 + r() * 1.4, z: z + (r() - 0.5) * 3.4, sx: 2.6 + r() * 1.4, sy: 1.6 + r() * 0.8, sz: 2.6 + r() * 1.4, ry: r() * 6, color: cols[j % cols.length] });
+      addSolid(x, z, 0.8, 0.8, 0);
+    });
+    for (let a = Math.PI - 1.3; a < Math.PI + 1.3; a += 0.22) {
+      const ang = view + a, x = P.x + Math.sin(ang) * (P.r - 0.5), z = P.z + Math.cos(ang) * (P.r - 0.5);
+      if (nearAnyRoad(x, z, 0.6)) continue;
+      const sz = 0.7 + r() * 0.5;
+      shrubs.push({ x, y: y0 + sz * 0.35, z, sx: sz * 1.3, sy: sz * 0.8, sz: sz * 1.3, ry: r() * 6, color: r() < 0.2 ? ['#c86a8a', '#e8e4f0', '#d8a03a'][Math.floor(r() * 3)] : ['#3e6e34', '#4f7c3e', '#35602e'][Math.floor(r() * 3)] });
+    }
+    this.group.add(instancedChunks(boxes, lam(0xffffff), { detail: 90 }));
+    this.group.add(instancedChunks(trunks, lam(0xffffff), { geo: new THREE.CylinderGeometry(0.4, 0.55, 1, 6) }));
+    this.group.add(instancedChunks(crowns, lam(0xffffff, { flatShading: true }), { geo: new THREE.IcosahedronGeometry(0.6, 1) }));
+    this.group.add(instancedChunks(shrubs, lam(0xffffff, { flatShading: true }), { detail: 80, geo: new THREE.IcosahedronGeometry(0.5, 0) }));
+
+    // ---- 田能村竹田の像：二段の御影石の台座に、膝の上に画帖をひろげて座る文人の姿 ----
+    const S = P.statue, g = new THREE.Group();
+    g.position.set(S.x, y0 + 0.06, S.z);
+    // 広場のほうを向く（像のうしろに海がひらけて、写真を撮ると尾道水道が背景になる）
+    const toC = Math.atan2(P.x - S.x, P.z - S.z);
+    const face = view + Math.atan2(Math.sin(toC - view), Math.cos(toC - view)) * 0.8;
+    g.rotation.y = face;
+    const granite = lam(0xa8a296), dark = lam(0x8e887c);
+    const bronze = new THREE.MeshLambertMaterial({ color: 0x4e5640, emissive: 0x10140c });
+    const add = (geo, mat, x, y, z, rx = 0, ry = 0, rz = 0, sc) => {
+      const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.set(rx, ry, rz);
+      if (sc) m.scale.set(...sc);
+      m.castShadow = true; m.receiveShadow = true; g.add(m); return m;
+    };
+    add(new THREE.BoxGeometry(2.2, 0.3, 1.9), dark, 0, 0.15, 0);
+    add(new THREE.BoxGeometry(1.7, 1.05, 1.4), granite, 0, 0.82, 0);
+    add(new THREE.BoxGeometry(1.85, 0.1, 1.55), dark, 0, 1.38, 0);
+    const top = 1.43;
+    // 座った体：着物の裾（ひざを組んで座る）、胴、肩
+    add(new THREE.CylinderGeometry(0.42, 0.62, 0.42, 14), bronze, 0, top + 0.21, 0.05, 0, 0, 0, [1, 1, 0.82]);
+    add(new THREE.CylinderGeometry(0.27, 0.38, 0.62, 14), bronze, 0, top + 0.72, -0.04, -0.06, 0, 0, [1, 1, 0.78]);
+    add(new THREE.SphereGeometry(0.29, 14, 10), bronze, 0, top + 1.0, -0.05, 0, 0, 0, [1.05, 0.55, 0.8]);
+    // 衿もと
+    add(new THREE.BoxGeometry(0.06, 0.4, 0.04), bronze, -0.07, top + 0.9, 0.2, 0.3, 0, 0.35);
+    add(new THREE.BoxGeometry(0.06, 0.4, 0.04), bronze, 0.07, top + 0.9, 0.2, 0.3, 0, -0.35);
+    // 頭（少しうつむき、遠くを見る）と、うしろで結った髪
+    add(new THREE.CylinderGeometry(0.075, 0.09, 0.14, 10), bronze, 0, top + 1.1, -0.02);
+    add(new THREE.SphereGeometry(0.15, 14, 12), bronze, 0, top + 1.27, 0.0, 0, 0, 0, [0.92, 1.05, 1]);
+    add(new THREE.SphereGeometry(0.06, 8, 6), bronze, 0, top + 1.33, -0.15);
+    add(new THREE.SphereGeometry(0.03, 6, 4), bronze, 0, top + 1.25, 0.15);   // 鼻
+    // 腕：左手で画帖を支え、右手に筆
+    add(new THREE.CylinderGeometry(0.075, 0.09, 0.42, 8), bronze, 0.3, top + 0.7, 0.08, -0.7, 0, -0.25);
+    add(new THREE.CylinderGeometry(0.075, 0.09, 0.42, 8), bronze, -0.3, top + 0.7, 0.08, -0.9, 0, 0.3);
+    add(new THREE.BoxGeometry(0.46, 0.03, 0.32), bronze, 0, top + 0.47, 0.33, -0.35, 0, 0);          // 画帖
+    add(new THREE.CylinderGeometry(0.012, 0.012, 0.26, 5), bronze, -0.18, top + 0.6, 0.38, -0.4, 0, 0.6);   // 筆
+    add(new THREE.SphereGeometry(0.06, 8, 6), bronze, 0.22, top + 0.5, 0.36);
+    add(new THREE.SphereGeometry(0.06, 8, 6), bronze, -0.2, top + 0.55, 0.36);
+    // 銘板
+    const tex = labelTexture('田能村竹田之像', { w: 512, h: 96, size: 56, bg: '#8e887c', fg: '#2a2622' });
+    const plate = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.22), new THREE.MeshLambertMaterial({ map: tex }));
+    plate.position.set(0, 0.95, 0.705);
+    g.add(plate);
+    this.group.add(g);
+    addSolid(S.x, S.z, 2.3, 2.0, -face);
+    this.lampPositions.push([S.x, y0 + 0.4, S.z]);
+
+    // 説明板（像のわき）と、石灯籠
+    const side = (a, d) => ({ x: P.x + Math.sin(view + a) * d, z: P.z + Math.cos(view + a) * d });
+    const bp = { x: S.x + Math.cos(face) * 2.1 + Math.sin(face) * 0.6, z: S.z - Math.sin(face) * 2.1 + Math.cos(face) * 0.6 };
+    const board = new THREE.Group();
+    board.position.set(bp.x, y0, bp.z);
+    board.rotation.y = face;
+    for (const sd of [-0.5, 0.5]) { const leg = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.2, 0.08), lam(0x3a2e26)); leg.position.set(sd, 0.6, 0); board.add(leg); }
+    const btex = canvasTexture(512, 320, (c, w, h) => {
+      c.fillStyle = '#ece4d2'; c.fillRect(0, 0, w, h);
+      c.strokeStyle = '#5a4a3a'; c.lineWidth = 8; c.strokeRect(8, 8, w - 16, h - 16);
+      c.fillStyle = '#2a2420';
+      c.font = '600 54px "Shippori Mincho", serif'; c.textAlign = 'center'; c.fillText('田能村竹田', w / 2, 92);
+      c.font = '400 30px "Shippori Mincho", serif';
+      c.fillText('江戸時代後期の文人画家', w / 2, 165);
+      c.fillText('豊後（いまの大分県）竹田の生まれ', w / 2, 225);
+    });
+    const bface = new THREE.Mesh(new THREE.PlaneGeometry(1.15, 0.72), new THREE.MeshLambertMaterial({ map: btex }));
+    bface.position.set(0, 1.25, 0.05);
+    const back = new THREE.Mesh(new THREE.BoxGeometry(1.22, 0.8, 0.06), lam(0x3a2e26));
+    back.position.set(0, 1.25, 0);
+    board.add(back, bface);
+    this.group.add(board);
+    addSolid(bp.x, bp.z, 1.2, 0.3, -face);
+    // 石灯籠（人の背くらい）。火袋は町の石灯籠と同じ素材で、夜に灯る
+    const lp = side(Math.PI + 0.25, P.r - 1.4);
+    if (!inSolid(lp.x, lp.z)) {
+      const st = [], ly = y0 + 0.06;
+      st.push({ x: lp.x, y: ly + 0.1, z: lp.z, sx: 0.6, sy: 0.2, sz: 0.6 });
+      st.push({ x: lp.x, y: ly + 0.6, z: lp.z, sx: 0.18, sy: 0.8, sz: 0.18 });
+      st.push({ x: lp.x, y: ly + 1.05, z: lp.z, sx: 0.46, sy: 0.1, sz: 0.46 });
+      st.push({ x: lp.x, y: ly + 1.55, z: lp.z, sx: 0.66, sy: 0.12, sz: 0.66, ry: Math.PI / 4 });
+      st.push({ x: lp.x, y: ly + 1.68, z: lp.z, sx: 0.14, sy: 0.16, sz: 0.14 });
+      this.group.add(instancedChunks(st, lam(0x8f897d), { detail: 90 }));
+      const fire = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.36, 0.32), this.lanternMat || lam(0x8f897d));
+      fire.position.set(lp.x, ly + 1.29, lp.z);
+      this.group.add(fire);
+      addSolid(lp.x, lp.z, 0.6, 0.6, 0);
     }
   }
 
