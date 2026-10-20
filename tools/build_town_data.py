@@ -131,7 +131,7 @@ def main():
                     road['l'] = t.get('layer', '1')
                 roads.append(road)
             elif t.get('railway') == 'rail':
-                rails.append({'p': flat, 'n': t.get('name', ''), 't': 1 if t.get('tunnel') == 'yes' else 0})
+                rails.append({'p': flat, 'n': t.get('name', ''), 't': 1 if t.get('tunnel') == 'yes' else 0, 'b': 1 if t.get('bridge') == 'yes' else 0})
             elif 'aerialway' in t:
                 ropeway.append(flat)
             elif t.get('natural') == 'coastline':

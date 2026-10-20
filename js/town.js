@@ -9,7 +9,7 @@ import { lam, buildSignAtlas, buildRetroSignAtlas, buildShopInteriorAtlas, SHOP_
 import {
   DATA, SEA_Y, BOUNDS, terrainY, groundY, surfaceY, addTread, addSolid, inSolid, walkable, ROADS, OTHER_ROADS, ARCADE_ROADS, nearAnyRoad, samplePath, roadLength, pointAlong,
   STREET_SHOPS, demAt, ALLEYS, COAST, distToCoast, straitAt, RAILS, CROSSINGS, TRAIN_TRACKS, ROPEWAY, SUMMIT, BENCHES, FERRY_ROUTES, POIS, onOnomichiSide, nearestRoad, inBuilding,
-  ROOFS, DECKS, addUpper, SANDO, KOJI, walkRoute, TAKEDA_PLAZA, FUJI_BEND,
+  ROOFS, DECKS, addUpper, SANDO, KOJI, walkRoute, TAKEDA_PLAZA, FUJI_BEND, UNDERPASSES, railGroundY, inUnderpassCut,
 } from './townMap.js';
 
 const SURFACE_LIFT = { asphalt: 0.05, tile: 0.07, stone: 0.09 };
@@ -26,6 +26,12 @@ async function loadModel(name) {
   return (await gltfLoader.loadAsync(`assets/models/${name}.glb`)).scene;
 }
 /** 坂の下る向き（モデルの正面 +Z をこちらへ向けるための rotation.y） */
+/** ガード下の掘り下げのそば（線路の高さで置く物は、ここには置かない） */
+function nearUnder(x, z) {
+  if (!UNDERPASSES.some((u) => Math.hypot(u.x - x, u.z - z) < 50)) return false;
+  for (const [a, b] of [[0, 0], [2, 0], [-2, 0], [0, 2], [0, -2]]) if (inUnderpassCut(x + a, z + b)) return true;
+  return UNDERPASSES.some((u) => Math.hypot(u.x - x, u.z - z) < 12);
+}
 function downhillYaw(x, z, d = 4) {
   const gx = terrainY(x + d, z) - terrainY(x - d, z), gz = terrainY(x, z + d) - terrainY(x, z - d);
   return Math.atan2(-gx, -gz);
@@ -266,6 +272,7 @@ export class Town {
     this._takedaPlaza();
     this._mihara();
     this._fuji();
+    this._underpasses();
     this._train();
     this._mergeStatic();
   }
@@ -395,6 +402,15 @@ export class Town {
       if (slope > 1.2) return c.setRGB(0.36, 0.33, 0.27);             // 崖・岩
       return c.setHSL(0.23 + r() * 0.05, 0.28, 0.2 + r() * 0.06 + Math.min(0.06, above / 2500));
     };
+    // ガード下：掘り下げにかかるマス（とそのとなり）を探す
+    const cutCells = new Set();
+    for (const u of UNDERPASSES) {
+      for (let x = u.x - u.reach; x <= u.x + u.reach; x += 1) for (let z = u.z - u.reach; z <= u.z + u.reach; z += 1) {
+        if (!inUnderpassCut(x, z)) continue;
+        const i = Math.floor((x - x0) / step), j = Math.floor((z - z0) / step);
+        for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) cutCells.add((i + a) * 100003 + (j + b));
+      }
+    }
     for (let tj = 0; tj < nz - 1; tj += T) {
       for (let ti = 0; ti < nx - 1; ti += T) {
         const cx = x0 + (ti + T / 2) * step, cz = z0 + (tj + T / 2) * step;
@@ -417,6 +433,8 @@ export class Town {
         for (let j = 0; j < vz - 1; j++) {
           for (let i = 0; i < vx - 1; i++) {
             const a = j * vx + i, b = a + 1, cc = a + vx, d = cc + 1;
+            // ガード下の掘り下げのマスは、あとで細かい網目で張る
+            if (m === 1 && cutCells.has((ti + i) * 100003 + (tj + j))) continue;
             idx.push(a, cc, b, b, cc, d);
           }
         }
@@ -429,6 +447,27 @@ export class Town {
         mesh.receiveShadow = true;
         this.group.add(mesh);
       }
+    }
+    // 掘り下げのマスは、1m ごとの細かい網目で（ふちは、まわりのマスとぴったり合う）
+    if (cutCells.size) {
+      const pos = [], col = [];
+      const S = 10;
+      for (const key of cutCells) {
+        const i = Math.floor(key / 100003 + 1e-9), j = key - i * 100003;
+        const bx = x0 + i * step, bz = z0 + j * step;
+        for (let a = 0; a < S; a++) for (let b = 0; b < S; b++) {
+          const P = (u, v) => { const x = bx + (u / S) * step, z = bz + (v / S) * step, y = terrainY(x, z); colorAt(x, z, y); return [x, y - 0.15, z, c.r, c.g, c.b]; };
+          const A = P(a, b), B = P(a + 1, b), C = P(a, b + 1), D = P(a + 1, b + 1);
+          for (const q of [A, C, B, B, C, D]) { pos.push(q[0], q[1], q[2]); col.push(q[3], q[4], q[5]); }
+        }
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+      geo.computeVertexNormals();
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.receiveShadow = true;
+      this.group.add(mesh);
     }
   }
 
@@ -1864,7 +1903,7 @@ export class Town {
     const rr = seededRandom('rails');
     const cTie = new THREE.Color(0x9a958c), cTieSide = new THREE.Color(0x7a766e);
     const cRail = new THREE.Color(0x6a4636), cRailTop = new THREE.Color(0xb4aca2);
-    const railY = (x, z) => terrainY(x, z) + 0.12;
+    const railY = (x, z) => railGroundY(x, z) + 0.12;   // ガード下の掘り下げは含めない
     for (const rail of RAILS) {
       const s = samplePath(rail.pts, 3);
       for (let i = 0; i < s.length - 1; i++) {
@@ -2026,7 +2065,7 @@ export class Town {
       for (let i = 0; i < sampB.length; i++) { const d = Math.hypot(sampB[i].x - x, sampB[i].z - z); if (d < bd) { bd = d; bi = i; } }
       return bi < 0 ? null : { ...sampB[bi], s: cumB[bi], d: bd };
     };
-    const blocked = (x, z) => nearAnyRoad(x, z, 0.7) || inBuilding(x, z) || CROSSINGS.some((c) => Math.hypot(c.x - x, c.z - z) < 12);
+    const blocked = (x, z) => nearAnyRoad(x, z, 0.7) || inBuilding(x, z) || CROSSINGS.some((c) => Math.hypot(c.x - x, c.z - z) < 12) || nearUnder(x, z);
     const spans = [];   // { a: {x,z,s}, b: 同 or null }
     const mats = { mast: [], beam: [], arm: [], ins: [] };
     const box = (list, ax, ay, az, bx, by, bz, w) => list.push({ ax, ay, az, bx, by, bz, w });
@@ -2166,7 +2205,7 @@ export class Town {
         const wx = p.x + ox * 3.3, wz = p.z + oz * 3.3;
         const y0 = railY(p.x, p.z) - 0.2;
         const rise = Math.max(...[3.5, 5.5, 8].map((d) => terrainY(p.x + ox * d, p.z + oz * d))) - y0;
-        const ok = rise > 1.8 && !nearAnyRoad(wx, wz, 1.2) && !CROSSINGS.some((c) => Math.hypot(c.x - wx, c.z - wz) < 9);
+        const ok = rise > 1.8 && !nearAnyRoad(wx, wz, 1.2) && !CROSSINGS.some((c) => Math.hypot(c.x - wx, c.z - wz) < 9) && !nearUnder(wx, wz);
         return { ok, x: wx, z: wz, ox, oz, y0, rise };
       });
       // 高さはなめらかに。12m より短い切れはしは立てない
@@ -4775,6 +4814,89 @@ export class Town {
     }
   }
 
+  /**
+   * ガード下：線路が橋になっているところは、道が線路の下をくぐる。掘り下げた道の両側にコンクリートの擁壁、
+   * 上に鉄道の橋（鋼の桁とコンクリートの床）。入口には高さ制限の札、天井には蛍光灯
+   */
+  _underpasses() {
+    const wall = new TriBatch();
+    const boxes = [], lights = [];
+    for (const u of UNDERPASSES) {
+      const r = seededRandom('under' + u.x.toFixed(0));
+      // 道にそって1m ごと（くぐる点の前後）
+      const win = [];
+      for (let i = 0; i < u.pts.length - 1; i++) {
+        const [ax, az] = u.pts[i], [bx, bz] = u.pts[i + 1], L = Math.hypot(bx - ax, bz - az);
+        for (let t = 0; t < L; t += 1) {
+          const sAt = u.cum[i] + t;
+          if (Math.abs(sAt - u.s0) > u.reach) continue;
+          win.push({ x: ax + (bx - ax) * (t / L), z: az + (bz - az) * (t / L), ang: Math.atan2(bz - az, bx - ax) });
+        }
+      }
+      for (const side of [-1, 1]) {
+        let prev = null;
+        for (const p of win) {
+          const nx = -Math.sin(p.ang) * side, nz = Math.cos(p.ang) * side;
+          const d = u.hw + 0.15;
+          const x = p.x + nx * d, z = p.z + nz * d;
+          const floor = terrainY(p.x, p.z) - 0.25;
+          const top = railGroundY(x + nx * 1.3, z + nz * 1.3) + 0.3;
+          const cur = top - floor > 0.7 ? { x, z, floor, top, nx, nz } : null;
+          if (cur && prev) {
+            const g = 0.6 + r() * 0.03, col = new THREE.Color(g, g * 0.99, g * 0.96), capc = new THREE.Color(g * 1.08, g * 1.07, g * 1.04);
+            const T = 0.3;
+            wall.quad([prev.x, prev.floor, prev.z], [cur.x, cur.floor, cur.z], [cur.x, cur.top, cur.z], [prev.x, prev.top, prev.z], col);
+            wall.quad([prev.x, prev.top, prev.z], [cur.x, cur.top, cur.z], [cur.x + cur.nx * T, cur.top, cur.z + cur.nz * T], [prev.x + prev.nx * T, prev.top, prev.z + prev.nz * T], capc);
+          }
+          prev = cur;
+        }
+      }
+      // 鉄道の橋：線路の下になる区間（道のり sMin〜sMax）に、天井の床と、入口の面の鋼の桁
+      const at = (sv) => {
+        for (let i = 0; i < u.pts.length - 1; i++) {
+          if (sv <= u.cum[i + 1] || i === u.pts.length - 2) {
+            const [ax, az] = u.pts[i], [bx, bz] = u.pts[i + 1], L = u.cum[i + 1] - u.cum[i] || 1, t = Math.max(0, Math.min(1, (sv - u.cum[i]) / L));
+            return { x: ax + (bx - ax) * t, z: az + (bz - az) * t, ang: Math.atan2(bz - az, bx - ax) };
+          }
+        }
+        return { x: u.x, z: u.z, ang: 0 };
+      };
+      const mid = at((u.sMin + u.sMax) / 2), len = u.sMax - u.sMin;
+      const ry = -mid.ang, wide = u.hw * 2 + 3.2;
+      const deckTop = u.baseY + 0.05;
+      boxes.push({ x: mid.x, y: deckTop - 0.6, z: mid.z, sx: len, sy: 1.2, sz: wide, ry, color: '#5e6266' });
+      for (const sv of [u.sMin, u.sMax]) {
+        const e = at(sv);
+        boxes.push({ x: e.x, y: deckTop - 0.45, z: e.z, sx: 0.3, sy: 1.6, sz: wide + 0.4, ry, color: '#4a5560' });   // 入口の面の桁
+        boxes.push({ x: e.x, y: deckTop + 0.75, z: e.z, sx: 0.08, sy: 0.08, sz: wide + 0.4, ry, color: '#4a5560' });  // 桁の上の手すり
+      }
+      // 天井の蛍光灯（夜は灯る）と、高さ制限の札（両方の入口）
+      for (let sv = u.sMin + 2; sv < u.sMax - 1; sv += 4) { const q = at(sv); lights.push({ x: q.x, y: deckTop - 1.25, z: q.z, sx: 0.18, sy: 0.08, sz: 1.2, ry }); }
+      this.lampPositions.push([mid.x, deckTop - 1.4, mid.z]);
+      const clear = (deckTop - 1.2) - u.floorY;
+      const tex = labelTexture(`高さ制限 ${clear.toFixed(1)}m`, { w: 512, h: 128, size: 64, bg: '#f2f0ea', fg: '#c8302a' });
+      for (const [sv, dir] of [[u.sMin, -1], [u.sMax, 1]]) {
+        const e = at(sv);
+        const fx = Math.cos(mid.ang) * dir, fz = Math.sin(mid.ang) * dir;
+        const plate = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.4), new THREE.MeshLambertMaterial({ map: tex }));
+        plate.position.set(e.x + fx * 0.17, deckTop - 0.45, e.z + fz * 0.17);
+        plate.rotation.y = Math.atan2(fx, fz);
+        this.group.add(plate);
+      }
+    }
+    if (wall.pos.length) {
+      const m = new THREE.Mesh(wall.build(), lam(0xffffff, { vertexColors: true, side: THREE.DoubleSide }));
+      m.castShadow = m.receiveShadow = true;
+      this.group.add(m);
+    }
+    if (boxes.length) this.group.add(instancedChunks(boxes, lam(0xffffff)));
+    if (lights.length) {
+      this.underLightMat = new THREE.MeshLambertMaterial({ color: 0xeef2f0, emissive: 0xf0f4ff, emissiveIntensity: 0.4 });
+      this.specialSignMats.push(this.underLightMat);
+      this.group.add(instancedBoxes(lights, this.underLightMat, { cast: false }));
+    }
+  }
+
   _lamps() {
     const posts = [];
     for (const road of ROADS) {
@@ -5026,7 +5148,7 @@ export class Town {
         car.visible = s > 0 && s < track.length;
         if (!car.visible) return;
         const p = this._trackPoint(track, s);
-        car.position.set(p.x, terrainY(p.x, p.z) + 0.25, p.z);
+        car.position.set(p.x, railGroundY(p.x, p.z) + 0.25, p.z);
         car.rotation.y = -p.angle;
       });
       if ((T.dir > 0 && T.s > track.length + 100) || (T.dir < 0 && T.s < -100)) {

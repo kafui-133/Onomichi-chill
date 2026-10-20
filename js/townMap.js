@@ -107,11 +107,22 @@ export function demAt(x, z) {
   return d + (c - d) * (1 - tx) + (b - d) * (1 - tz);
 }
 
+// 線路の下をくぐる道（ガード下）。下の CROSSINGS を作るときに埋める
+let UNDER = [];
+
 // 空き家から石段を少し上ったところの広場：田能村竹田之像（OpenStreetMap の artwork）のまわりを平らにならす
 export const TAKEDA_PLAZA = { x: 19, z: 16, r: 6.5, blend: 4, y: 3.0, statue: { x: 22, z: 11.6 } };
 
-/** 地形の高さ。空き家のまわりと、竹田像の広場は平らにならしてある */
+/** 地形の高さ。空き家のまわりと、竹田像の広場は平らにならしてある。線路の下をくぐる道（ガード下）は掘り下げてある */
 export function terrainY(x, z) {
+  const y = baseTerrainY(x, z);
+  return UNDER.length ? y - underpassDepth(x, z, y) : y;
+}
+/** 線路の高さの基準（ガード下の掘り下げを含まない地面） */
+export function railGroundY(x, z) {
+  return baseTerrainY(x, z);
+}
+function baseTerrainY(x, z) {
   const y = demAt(x, z);
   const P = TAKEDA_PLAZA, dp = Math.hypot(x - P.x, z - P.z);
   if (dp < P.r + P.blend) {
@@ -510,7 +521,7 @@ export const FERRY_ROUTES = FERRY_PAIRS.map(([a, b, name]) => ({ a: berth(poi(a)
 export const FERRY_PIERS = FERRY_ROUTES.map((r) => r.a);
 
 // 踏切：歩ける道と線路が交わるところ
-export const RAILS = DATA.rails.filter((r) => !r.t).map((r) => { const a = []; for (let k = 0; k < r.p.length; k += 2) a.push([r.p[k], r.p[k + 1]]); return { pts: a, name: r.n }; });
+export const RAILS = DATA.rails.filter((r) => !r.t).map((r) => { const a = []; for (let k = 0; k < r.p.length; k += 2) a.push([r.p[k], r.p[k + 1]]); return { pts: a, name: r.n, bridge: !!r.b }; });
 function segIntersect(a, b, c, d) {
   const r1 = [b[0] - a[0], b[1] - a[1]], r2 = [d[0] - c[0], d[1] - c[1]];
   const den = r1[0] * r2[1] - r1[1] * r2[0];
@@ -519,7 +530,7 @@ function segIntersect(a, b, c, d) {
   const u = ((c[0] - a[0]) * r1[1] - (c[1] - a[1]) * r1[0]) / den;
   return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? [a[0] + r1[0] * t, a[1] + r1[1] * t] : null;
 }
-export const CROSSINGS = (() => {
+const ALL_CROSSINGS = (() => {
   const out = [];
   for (const road of ROADS) {
     if (road.layered) continue;
@@ -528,15 +539,71 @@ export const CROSSINGS = (() => {
         for (let k = 0; k < rail.pts.length - 1; k++) {
           const p = segIntersect(road.pts[i], road.pts[i + 1], rail.pts[k], rail.pts[k + 1]);
           if (!p) continue;
-          if (out.some((c) => Math.hypot(c.x - p[0], c.z - p[1]) < 14)) continue;
+          const dup = out.find((c) => Math.hypot(c.x - p[0], c.z - p[1]) < 14);
+          if (dup) { if (rail.bridge) dup.under = true; continue; }
           const [ax, az] = rail.pts[k], [bx, bz] = rail.pts[k + 1];
-          out.push({ x: p[0], z: p[1], railAngle: Math.atan2(bz - az, bx - ax), width: road.width, road });
+          // 線路が橋（OpenStreetMap の bridge=yes）なら、道は線路の下をくぐる（ガード下）。踏切ではない
+          out.push({ x: p[0], z: p[1], railAngle: Math.atan2(bz - az, bx - ax), width: road.width, road, under: rail.bridge, seg: i });
         }
       }
     }
   }
   return out;
 })();
+export const CROSSINGS = ALL_CROSSINGS.filter((c) => !c.under);
+
+// ---------- ガード下：道を線路の下まで掘り下げる ----------
+// 線路の上面から 3.6m 下を道の底に。前後は 16% の坂でもとの道へもどる
+const UNDER_CLEAR = 3.6, UNDER_GRADE = 0.16;
+export const UNDERPASSES = ALL_CROSSINGS.filter((c) => c.under).map((c) => {
+  // 道の線（くぐる点のまわり ±40m）を、道のりつきの点列に
+  const P = c.road.pts;
+  const cum = [0];
+  for (let i = 1; i < P.length; i++) cum.push(cum[i - 1] + Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]));
+  const a = P[c.seg], s0 = cum[c.seg] + Math.hypot(c.x - a[0], c.z - a[1]);
+  // 複線・側線：まわりの線路すべてと交わる道のりの範囲を、橋の下にする
+  let sMin = s0, sMax = s0, top = baseTerrainY(c.x, c.z);
+  for (let i = 0; i < P.length - 1; i++) for (const rail of RAILS) for (let k = 0; k < rail.pts.length - 1; k++) {
+    const q = segIntersect(P[i], P[i + 1], rail.pts[k], rail.pts[k + 1]);
+    if (!q) continue;
+    const sq = cum[i] + Math.hypot(q[0] - P[i][0], q[1] - P[i][1]);
+    if (Math.abs(sq - s0) > 20) continue;
+    sMin = Math.min(sMin, sq); sMax = Math.max(sMax, sq);
+    top = Math.max(top, baseTerrainY(q[0], q[1]));
+  }
+  sMin -= 2.5; sMax += 2.5;
+  const floorY = top - UNDER_CLEAR;
+  return { ...c, pts: P, cum, s0, sMin, sMax, hw: c.road.width / 2, floorY, reach: 45, baseY: top };
+});
+UNDER = UNDERPASSES;
+
+/** ガード下の掘り下げの深さ（base = もとの地面の高さ） */
+function underpassDepth(x, z, base) {
+  let depth = 0;
+  for (const u of UNDER) {
+    if (Math.abs(x - u.x) > u.reach || Math.abs(z - u.z) > u.reach) continue;
+    let best = null;
+    for (let i = 0; i < u.pts.length - 1; i++) {
+      const [ax, az] = u.pts[i], [bx, bz] = u.pts[i + 1];
+      const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz || 1;
+      const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / L2));
+      const px = ax + dx * t, pz = az + dz * t, d = Math.hypot(x - px, z - pz);
+      if (!best || d < best.d) best = { d, s: u.cum[i] + Math.sqrt(L2) * t };
+    }
+    if (!best || best.d > u.hw + 1.9) continue;
+    if (Math.abs(best.s - u.s0) > u.reach) continue;
+    const ds = Math.max(0, u.sMin - best.s, best.s - u.sMax);
+    // 擁壁（道の端から 0.15m）のうしろまで平らに掘り、その先でもとの地面へ
+    const lat = best.d <= u.hw + 0.7 ? 1 : 1 - (best.d - u.hw - 0.7) / 1.2;
+    const floor = u.floorY + ds * UNDER_GRADE;
+    depth = Math.max(depth, Math.max(0, base - floor) * lat);
+  }
+  return depth;
+}
+/** ガード下の掘り下げの中か（地面の網目を細かくするところ） */
+export function inUnderpassCut(x, z) {
+  return UNDER.some((u) => Math.abs(x - u.x) < u.reach && Math.abs(z - u.z) < u.reach) && underpassDepth(x, z, baseTerrainY(x, z)) > 0.01;
+}
 
 /** 電車が走る線路（つながった区間を長くつないだもの、上り線と下り線） */
 export const TRAIN_TRACKS = (() => {
