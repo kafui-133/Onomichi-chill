@@ -174,6 +174,8 @@ const controls = new LookControls(camera, renderer.domElement, {
   },
 });
 let lockHinted = false;
+// パソコンでは、ボタンにキーの割り当てを表示する
+document.body.classList.toggle('show-keys', controls.mouseLook);
 // 地図・持ち物などの画面を開いたら、カーソルを出す（ボタンを押せるように）
 new MutationObserver(() => {
   if (document.querySelector('.modal:not(.hidden)') || !$('diary-view').classList.contains('hidden')) controls.unlock();
@@ -403,6 +405,9 @@ function renderActs(list) {
     const b = document.createElement('button');
     b.className = 'act';
     b.textContent = a.label;
+    // キーボードの割り当て：しゃがむ・立ちあがるは C、いちばん目の行動は E
+    const k = (a.id === 'crouch' || (a.id === 'rise' && walker.crouching)) ? 'C' : list[0] === a ? 'E' : '';
+    if (k) b.dataset.key = k;
     b.addEventListener('click', () => { doAction(a.id); labelTimer = 0; });
     return b;
   }));
@@ -418,6 +423,14 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyC' && mode === 'walk' && !walker.seat) walker.setCrouch(!walker.crouching);
   if (e.code === 'KeyB') ($('bag-view').classList.contains('hidden') ? food.openBag() : $('bag-view').classList.add('hidden'));
   if (e.code === 'KeyM') ($('map-view').classList.contains('hidden') ? openMap() : $('map-view').classList.add('hidden'));
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  // ほかのボタンも、キーで押せる（ボタンの左上に小さく表示）。日記・図鑑などの画面を開いているときは、閉じるのが先
+  const byKey = { Digit1: '[data-time="morning"]', Digit2: '[data-time="day"]', Digit3: '[data-time="evening"]', Digit4: '[data-time="night"]', Digit5: '#btn-flow',
+    KeyO: '#btn-out', KeyP: '#btn-photo', KeyL: '#btn-album', KeyJ: '#btn-diary', KeyZ: '#btn-zukan', KeyX: '#btn-eyes', KeyV: '#btn-sound' };
+  const sel = byKey[e.code];
+  if (!sel || $('ui').classList.contains('hidden')) return;
+  const btn = document.querySelector(sel);
+  if (btn && !btn.hidden && btn.offsetParent !== null) btn.click();
 });
 
 // 船が正面を通ると、遅れて引き波の音が岸に届く
@@ -536,7 +549,7 @@ function setEyes(closed) {
 }
 $('btn-eyes').addEventListener('click', () => { setEyes(true); diary.closedEyes(); });
 $('eyes').addEventListener('click', () => setEyes(false));
-window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && eyesClosed) setEyes(false); });
+window.addEventListener('keydown', (e) => { if ((e.key === 'Escape' || (e.code === 'KeyX' && !e.repeat)) && eyesClosed) setEyes(false); });
 
 // 写真
 let photoRequested = false;
