@@ -39,6 +39,9 @@
     <p class="eyes-hint">クリックで目をあける</p>
   </div>
 
+  <!-- マウスで見渡しているときの、画面のまん中の小さな点 -->
+  <div id="aim" aria-hidden="true"></div>
+
   <!-- シャッターフラッシュ -->
   <div id="flash"></div>
 
@@ -105,6 +108,9 @@
       <input id="vol-range" type="range" min="0" max="100" step="1" value="50" />
       <span id="vol-value">50</span>
       <button id="vol-mute" class="vol-mute" type="button">消す</button>
+      <label id="sens-label" for="sens-range">マウス感度</label>
+      <input id="sens-range" type="range" min="1" max="20" step="1" value="10" />
+      <span id="sens-value">10</span>
       <button id="vol-quality" class="vol-mute" type="button">画質 高</button>
       <button id="vol-look" class="vol-mute" type="button">新しい絵</button>
     </div>

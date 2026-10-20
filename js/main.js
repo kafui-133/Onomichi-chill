@@ -169,7 +169,15 @@ const controls = new LookControls(camera, renderer.domElement, {
   onStroke: (dt, h) => catByHitbox.get(h)?.stroke(dt),
   onRelease: (h) => catByHitbox.get(h)?.release(),
   onHover: (h) => document.body.classList.toggle('hover-cat', h),
+  onLockChange: (on) => {
+    if (on && !lockHinted) { lockHinted = true; toast('マウスで見渡す　・　Esc でカーソルを出す', 3600); }
+  },
 });
+let lockHinted = false;
+// 地図・持ち物などの画面を開いたら、カーソルを出す（ボタンを押せるように）
+new MutationObserver(() => {
+  if (document.querySelector('.modal:not(.hidden)') || !$('diary-view').classList.contains('hidden')) controls.unlock();
+}).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class'] });
 
 // ---------- 猫と音をつなぐ ----------
 const catDir = (c = cat) => new THREE.Vector3().subVectors(c.root.position, camera.position);
@@ -438,9 +446,18 @@ function dateLabel() {
   return `${kanjiNumber(d.getMonth() + 1)}月${kanjiNumber(d.getDate())}日　${PHASE_LABEL[time.phase]}`;
 }
 
+// 時間帯のボタン：押したらすぐ、そのボタンに印を移す（空が移り変わるのを待たない）
+let timeChoice = null;
+const markTime = () => {
+  if (timeChoice && !time.transition) timeChoice = null;
+  const shown = timeChoice || time.phase;
+  document.querySelectorAll('[data-time]').forEach((b) => b.classList.toggle('active', b.dataset.time === shown));
+};
 document.querySelectorAll('[data-time]').forEach((btn) => {
   btn.addEventListener('click', () => {
     time.goTo(TIME_PRESETS[btn.dataset.time]);
+    timeChoice = btn.dataset.time;
+    markTime();
   });
 });
 $('btn-flow').addEventListener('click', (e) => {
@@ -470,6 +487,15 @@ volRange.addEventListener('input', () => {
   showVolume();
 });
 $('vol-mute').addEventListener('click', () => { audio.setMuted(!audio.muted); showVolume(); });
+// マウス感度（パソコンだけ）
+if (controls.mouseLook) {
+  const sens = $('sens-range');
+  const showSens = () => { sens.value = controls.sensitivity; $('sens-value').textContent = controls.sensitivity; };
+  showSens();
+  sens.addEventListener('input', () => { controls.touch(); controls.setSensitivity(+sens.value); showSens(); });
+} else {
+  for (const id of ['sens-label', 'sens-range', 'sens-value']) $(id).hidden = true;
+}
 // 画質：高・中・低を順に切りかえる。描画の細かさと影はすぐ、灯りや人の数は次に開いたときに変わる
 const showQuality = () => { $('vol-quality').textContent = `画質 ${quality.s.label}`; };
 showQuality();
@@ -811,7 +837,7 @@ function frame(fixedDt) {
       : { home: '家に入る', sit: 'ベンチに座る', stand: '立ちあがる', crouch: 'しゃがむ', rise: '立ちあがる' }[a] || '';
     renderActs(actions.slice(0, 3).map((a) => ({ id: a, label: label(a) })));
     walkBtn.hidden = mode !== 'walk' || !!walker.seat || walker.crouching || !!ride;
-    document.querySelectorAll('[data-time]').forEach((b) => b.classList.toggle('active', b.dataset.time === time.phase));
+    markTime();
     const sl = $('sky-label');
     if (!skyShown && time.hour > 17.6 && time.hour < 19) {
       skyShown = true;

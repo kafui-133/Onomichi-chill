@@ -460,3 +460,9 @@ body.walking #toast { bottom: auto; top: 18%; }
 
 .title-credit { position: fixed; left: 0; right: 0; bottom: max(14px, env(safe-area-inset-bottom)); margin: 0; padding: 0 16px; font-size: 10px; line-height: 1.7; letter-spacing: 0.06em; color: var(--ink-dim); text-align: center; }
 .title-credit a { color: inherit; }
+
+/* マウスで見渡すとき（パソコン）：画面のまん中に小さな点。猫に向くと少し大きく */
+#aim { position: fixed; left: 50%; top: 50%; width: 5px; height: 5px; margin: -2.5px 0 0 -2.5px; border-radius: 50%; background: rgba(255, 252, 244, 0.75); box-shadow: 0 0 3px rgba(0, 0, 0, 0.5); pointer-events: none; opacity: 0; transition: opacity 0.3s, transform 0.2s; z-index: 5; }
+body.mouselook #aim { opacity: 1; }
+body.mouselook.hover-cat #aim { transform: scale(2); }
+#vol-pop [hidden] { display: none; }
