@@ -81,8 +81,9 @@ const PRECINCTS = [
   MODEL_FITS.ushitora && { ...MODEL_FITS.ushitora, r: 18 },
   ...[['天寧寺三重塔', 9]].map(([n, r]) => { const p = POIS.find((q) => q.n === n); return p && { x: p.x, z: p.z, r }; }),
   (() => { const p = POIS.find((q) => q.n === '尾道城'); return p && { x: p.x, z: p.z, r: 20 }; })(),
-  // 空き家の上の、竹田像の広場
+  // 空き家の上の、竹田像の広場と、みはらし亭
   { x: TAKEDA_PLAZA.x, z: TAKEDA_PLAZA.z, r: TAKEDA_PLAZA.r + 1 },
+  (() => { const p = POIS.find((q) => q.n === 'みはらし亭') || { x: 25, z: 35 }; const y = downhillYaw(p.x, p.z, 6); return { x: p.x + Math.sin(y) * 6.5, z: p.z + Math.cos(y) * 6.5, r: 6 }; })(),
   // 山頂の展望デッキのまわり（眺めをふさがない）
   SUMMIT.deck && { x: SUMMIT.deck.x, z: SUMMIT.deck.z, r: 22 },
   // 三重塔の下の墓地（家を建てずにあけておく）
@@ -263,6 +264,7 @@ export class Town {
     this._streetDetails();
     this._sculptures();
     this._takedaPlaza();
+    this._mihara();
     this._train();
     this._mergeStatic();
   }
@@ -734,7 +736,9 @@ export class Town {
           const Am = [a.x, Math.min(tops[i], a.y + 0.3 + r() * 0.25), a.z], Bm = [b.x, Math.min(tops[i + 1], b.y + 0.3 + r() * 0.25), b.z];
           const A1 = [a.x, tops[i], a.z], B1 = [b.x, tops[i + 1], b.z];
           const A2 = [a.x + a.nx * T, tops[i], a.z + a.nz * T], B2 = [b.x + b.nx * T, tops[i + 1], b.z + b.nz * T];
-          const A3 = [a.x + a.nx * T, a.y - 1.5, a.z + a.nz * T], B3 = [b.x + b.nx * T, b.y - 1.5, b.z + b.nz * T];
+          // 裏側は、地面がもっと低いところまで下ろす（宙に浮いて見えないように）
+          const A3 = [a.x + a.nx * T, Math.min(a.y - 1.5, terrainY(a.x + a.nx * T, a.z + a.nz * T) - 0.4), a.z + a.nz * T];
+          const B3 = [b.x + b.nx * T, Math.min(b.y - 1.5, terrainY(b.x + b.nx * T, b.z + b.nz * T) - 0.4), b.z + b.nz * T];
           const ua = i * U, ub = (i + 1) * U;
           const uv = (p0, p1, p2, p3) => [ua, p0[1] * V, ub, p1[1] * V, ub, p2[1] * V, ua, p3[1] * V];
           walls.quad(A0, B0, Bm, Am, moss, uv(A0, B0, Bm, Am));
@@ -1030,7 +1034,10 @@ export class Town {
           const beside = groundY(p.x + nx * sd * (hw + 1.6), p.z + nz * sd * (hw + 1.6));
           const h = beside > py + 0.3 ? Math.min(2.2, beside - py + 0.45) : 0.55;
           const tone = ['#a39d90', '#968f82', '#aaa598', '#8f8a7e'][Math.floor(r() * 4)];
-          walls.push({ x: wx, y: py + h / 2 - 0.15, z: wz, sx: 2.08, sy: h + 0.3, sz: 0.5, ry: -p.angle, color: tone });
+          // 谷側では、外の地面まで積み下ろす（宙に浮かないように）
+          const outside = terrainY(wx + nx * sd * 0.3, wz + nz * sd * 0.3);
+          const top = py + h, bottom = Math.min(py - 0.3, outside - 0.3);
+          walls.push({ x: wx, y: (top + bottom) / 2, z: wz, sx: 2.08, sy: top - bottom, sz: 0.5, ry: -p.angle, color: tone });
           // 積んだ石の出っぱり（ところどころ、色のちがう石）
           for (let k = 0; k < Math.round(h * 2); k++) {
             const u = (r() - 0.5) * 1.6, v = 0.15 + r() * (h - 0.25);
@@ -2204,9 +2211,40 @@ export class Town {
     };
     st(base, by);
     st(top, ty);
-    const sign = new THREE.Mesh(new THREE.PlaneGeometry(6, 1), new THREE.MeshBasicMaterial({ map: labelTexture('千光寺山ロープウェイ', { w: 768, h: 128, size: 64, bg: '#7a2a22', fg: '#f6ead8' }), side: THREE.DoubleSide }));
-    sign.position.set(base.x, by + 7.2, base.z - 4.6);
-    this.group.add(sign);
+    // 山麓駅の看板と入口：駅舎（OpenStreetMap の建物）は乗り場から西へのびている。通りに面した東と南の壁に、赤い看板
+    const signMat = new THREE.MeshBasicMaterial({ map: labelTexture('千光寺山ロープウェイ', { w: 768, h: 128, size: 64, bg: '#7a2a22', fg: '#f6ead8' }) });
+    const east = new THREE.Mesh(new THREE.PlaneGeometry(6, 1), signMat);
+    east.position.set(base.x - 0.14, by + 5.4, base.z - 0.6);
+    east.rotation.y = -Math.PI / 2;
+    const south = new THREE.Mesh(new THREE.PlaneGeometry(7.5, 1.25), signMat);
+    south.position.set(base.x - 9, by + 5.3, base.z - 5.2);
+    south.rotation.y = Math.PI;
+    this.group.add(east, south);
+    {
+      // 入口：赤いひさし、ガラスの戸、きっぷうりばの札、時刻と運賃の掲示板、のぼり
+      const items = [];
+      const ex = base.x - 0.1, ez = base.z - 2.8;
+      items.push({ x: ex - 0.9, y: by + 2.75, z: ez, sx: 1.9, sy: 0.14, sz: 3.6, color: '#7a2a22' });
+      for (const dz of [-1.6, 1.6]) items.push({ x: ex - 1.75, y: by + 1.35, z: ez + dz, sx: 0.1, sy: 2.7, sz: 0.1, color: '#5a5f62' });
+      this.group.add(instancedChunks(items, lam(0xffffff), { detail: 80 }));
+      const glass = new THREE.Mesh(new THREE.PlaneGeometry(2.8, 2.3), new THREE.MeshLambertMaterial({ color: 0x3a4a52, emissive: 0xffd8a8, emissiveIntensity: 0.25 }));
+      glass.position.set(ex - 0.06, by + 1.2, ez);
+      glass.rotation.y = -Math.PI / 2;
+      this.specialSignMats.push(glass.material);
+      const tk = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.36), new THREE.MeshBasicMaterial({ map: labelTexture('きっぷうりば', { w: 512, h: 112, size: 64, bg: '#f4efe4', fg: '#7a2a22' }) }));
+      tk.position.set(ex - 0.08, by + 2.5, ez);
+      tk.rotation.y = -Math.PI / 2;
+      const board = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.5), new THREE.MeshLambertMaterial({ map: canvasTexture(192, 240, (g, w, h) => {
+        g.fillStyle = '#f2ede2'; g.fillRect(0, 0, w, h);
+        g.fillStyle = '#7a2a22'; g.fillRect(0, 0, w, 40);
+        g.fillStyle = '#f6ead8'; g.font = '600 26px "Shippori Mincho", serif'; g.textAlign = 'center'; g.fillText('運行時刻', w / 2, 29);
+        g.fillStyle = '#2a2420'; g.font = '400 18px "Shippori Mincho", serif';
+        ['山麓駅 ⇄ 山頂駅', '', '9:00 〜 17:15', '15分ごとに運行'].forEach((t, i) => g.fillText(t, w / 2, 80 + i * 34));
+      }) }));
+      board.position.set(ex - 0.08, by + 1.35, ez + 2.6);
+      board.rotation.y = -Math.PI / 2;
+      this.group.add(glass, tk, board);
+    }
     this.ropeA = new THREE.Vector3(base.x, by + 8.5, base.z);
     this.ropeB = new THREE.Vector3(top.x, ty + 7.5, top.z);
     // 上りと下りのゴンドラは、左右に分かれた別々の索道（すれちがってもぶつからない）
@@ -3540,32 +3578,134 @@ export class Town {
   }
 
   /** 猫の細道の、猫の絵を描いた丸い石 */
+  /**
+   * 猫の細道：道ばたの「福石猫」（丸い石に猫の顔を描いたもの）を、親子や兄弟のように寄りそわせて並べる。
+   * 毛色は4種類（茶トラ・黒・白ぶち・三毛）。ところどころに招き猫の置物、植木鉢、木の案内板
+   */
   _nekoStones() {
-    const tex = canvasTexture(256, 128, (g, w, h) => {
-      g.fillStyle = '#f2ece0';
-      g.fillRect(0, 0, w, h);
-      const cx = w * 0.25, cy = h * 0.5;
-      g.fillStyle = '#e09a50';
-      g.beginPath(); g.ellipse(cx, cy, 30, 24, 0, 0, Math.PI * 2); g.fill();
-      g.beginPath(); g.moveTo(cx - 26, cy - 10); g.lineTo(cx - 22, cy - 36); g.lineTo(cx - 6, cy - 20); g.fill();
-      g.beginPath(); g.moveTo(cx + 26, cy - 10); g.lineTo(cx + 22, cy - 36); g.lineTo(cx + 6, cy - 20); g.fill();
-      g.fillStyle = '#222';
-      g.beginPath(); g.arc(cx - 10, cy - 2, 3, 0, Math.PI * 2); g.arc(cx + 10, cy - 2, 3, 0, Math.PI * 2); g.fill();
-    });
-    const geo = new THREE.SphereGeometry(0.3, 16, 10);
-    for (const road of ROADS.filter((r) => r.name === '猫の細道')) {
+    const r = seededRandom('neko-stones');
+    const coats = [
+      { base: '#f2ece0', patch: '#e09a50', stripe: 'rgba(170,90,30,0.7)', ear: '#e09a50' },   // 茶トラ
+      { base: '#2a2624', patch: null, stripe: null, ear: '#2a2624', eye: '#e8c040' },          // 黒
+      { base: '#f4f0e8', patch: '#6a6660', stripe: null, ear: '#6a6660' },                     // 白ぶち
+      { base: '#f4f0e8', patch: '#d8843e', patch2: '#2e2925', stripe: null, ear: '#d8843e' },  // 三毛
+    ];
+    const mats = coats.map((c) => new THREE.MeshLambertMaterial({ map: canvasTexture(256, 128, (g, w, h) => {
+      g.fillStyle = c.base; g.fillRect(0, 0, w, h);
+      const cx = w * 0.25, cy = h * 0.52;
+      if (c.patch) { g.fillStyle = c.patch; g.beginPath(); g.ellipse(cx + 70, cy - 20, 50, 34, 0.3, 0, Math.PI * 2); g.fill(); g.beginPath(); g.ellipse(cx - 18, cy - 26, 20, 14, 0, 0, Math.PI * 2); g.fill(); }
+      if (c.patch2) { g.fillStyle = c.patch2; g.beginPath(); g.ellipse(cx + 20, cy - 30, 16, 11, 0, 0, Math.PI * 2); g.fill(); g.beginPath(); g.ellipse(cx + 150, cy, 40, 28, 0, 0, Math.PI * 2); g.fill(); }
+      if (c.stripe) { g.strokeStyle = c.stripe; g.lineWidth = 5; for (let k = 0; k < 9; k++) { g.beginPath(); g.moveTo(cx + 40 + k * 16, 10); g.lineTo(cx + 34 + k * 16, 70); g.stroke(); } }
+      // 耳（顔の上に小さな三角）
+      g.fillStyle = c.ear;
+      for (const sd of [-1, 1]) { g.beginPath(); g.moveTo(cx + sd * 26, cy - 18); g.lineTo(cx + sd * 22, cy - 44); g.lineTo(cx + sd * 6, cy - 26); g.fill(); }
+      // 顔：目は、ねむそうな弧か、まるい目
+      const line = c.base === '#2a2624' ? '#f4f0e8' : '#2a2420';
+      g.strokeStyle = line; g.fillStyle = c.eye || line; g.lineWidth = 3;
+      if (c.eye) { for (const sd of [-1, 1]) { g.beginPath(); g.arc(cx + sd * 11, cy - 2, 4, 0, Math.PI * 2); g.fill(); } }
+      else for (const sd of [-1, 1]) { g.beginPath(); g.arc(cx + sd * 11, cy - 4, 5, 0.15 * Math.PI, 0.85 * Math.PI); g.stroke(); }
+      g.fillStyle = '#d87a7a'; g.beginPath(); g.moveTo(cx - 3, cy + 4); g.lineTo(cx + 3, cy + 4); g.lineTo(cx, cy + 8); g.fill();
+      g.beginPath(); g.moveTo(cx, cy + 8); g.quadraticCurveTo(cx - 4, cy + 13, cx - 8, cy + 10); g.moveTo(cx, cy + 8); g.quadraticCurveTo(cx + 4, cy + 13, cx + 8, cy + 10); g.stroke();
+      g.lineWidth = 1.5;
+      for (const sd of [-1, 1]) for (const k of [-1, 1]) { g.beginPath(); g.moveTo(cx + sd * 12, cy + 7 + k * 2); g.lineTo(cx + sd * 30, cy + 4 + k * 5); g.stroke(); }
+    }) }));
+    const geo = new THREE.SphereGeometry(0.3, 18, 12);
+    const stones = coats.map(() => []);
+    const figs = [], pots = [], plants = [];
+    const roads = ROADS.filter((rd) => rd.name === '猫の細道');
+    for (const road of roads) {
       const s = samplePath(road.pts, 1);
-      for (let i = 5; i < s.length; i += 11) {
+      for (let i = 3; i < s.length - 2; i += 3 + Math.floor(r() * 3)) {
         const p = s[i];
-        const side = i % 2 ? 1 : -1;
-        const x = p.x - Math.sin(p.angle) * side * (road.width / 2 - 0.2), z = p.z + Math.cos(p.angle) * side * (road.width / 2 - 0.2);
-        const m = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: tex, color: new THREE.Color().setHSL(0.08, 0.2, 0.85 + this.r() * 0.1) }));
-        m.scale.set(1, 0.75, 1);
-        m.position.set(x, terrainY(x, z) + 0.2, z);
-        m.rotation.y = -p.angle + side * Math.PI / 2 + Math.PI;
-        m.castShadow = true;
-        this.group.add(m);
+        const side = r() < 0.5 ? 1 : -1;
+        const off = road.width / 2 + 0.05;
+        const nx = -Math.sin(p.angle) * side, nz = Math.cos(p.angle) * side;
+        const x = p.x + nx * off, z = p.z + nz * off;
+        if (inBuilding(x, z)) continue;
+        // 親子・兄弟：1〜3個を寄せて、道のほうを向ける
+        const n = 1 + Math.floor(r() * 3);
+        for (let k = 0; k < n; k++) {
+          const sc = k === 0 ? 0.8 + r() * 0.5 : 0.45 + r() * 0.3;
+          const u = (k - (n - 1) / 2) * 0.42;
+          const sx = x + Math.cos(p.angle) * u - nx * 0.05 * k, sz = z + Math.sin(p.angle) * u - nz * 0.05 * k;
+          stones[Math.floor(r() * coats.length)].push({ x: sx, z: sz, y: groundY(sx, sz) + 0.21 * sc, sc, ry: Math.atan2(-nx, -nz) + (r() - 0.5) * 0.6 });
+        }
+        // ときどき、招き猫の置物か、植木鉢
+        const q = r();
+        if (q < 0.18) {
+          const fx = x + Math.cos(p.angle) * 0.9, fz = z + Math.sin(p.angle) * 0.9, fy = groundY(fx, fz);
+          figs.push({ x: fx, y: fy, z: fz, ry: Math.atan2(-nx, -nz) });
+        } else if (q < 0.4) {
+          const fx = x - Math.cos(p.angle) * 0.8, fz = z - Math.sin(p.angle) * 0.8, fy = groundY(fx, fz), s2 = 0.3 + r() * 0.15;
+          pots.push({ x: fx, y: fy + s2 / 2, z: fz, sx: s2, sy: s2, sz: s2, color: ['#b0563a', '#8a5a3a', '#c8b89a'][Math.floor(r() * 3)] });
+          plants.push({ x: fx, y: fy + s2 + 0.15, z: fz, sx: s2 * 1.5, sy: 0.4, sz: s2 * 1.5, color: r() < 0.3 ? ['#d84a6a', '#f0c030', '#e8e4f0'][Math.floor(r() * 3)] : ['#3e6e34', '#4f7c3e'][Math.floor(r() * 2)] });
+        }
       }
+    }
+    stones.forEach((list, ci) => {
+      if (!list.length) return;
+      const mesh = new THREE.InstancedMesh(geo, mats[ci], list.length);
+      const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+      list.forEach((st, k) => {
+        // 球の UV の正面（u=0.25）は +Z。顔を道へ向ける
+        q.setFromEuler(e.set(0, st.ry, 0));
+        m.compose(new THREE.Vector3(st.x, st.y, st.z), q, new THREE.Vector3(st.sc, st.sc * 0.72, st.sc * 0.92));
+        mesh.setMatrixAt(k, m);
+      });
+      mesh.castShadow = true;
+      this.group.add(mesh);
+    });
+    // 招き猫（白い陶器、赤い首輪、片手をあげる）
+    if (figs.length) {
+      const white = lam(0xf2eee6), red = lam(0xc8302a), gold = lam(0xd8b048);
+      for (const f of figs) {
+        const g = new THREE.Group();
+        g.position.set(f.x, f.y, f.z);
+        g.rotation.y = f.ry;
+        const body = new THREE.Mesh(new THREE.SphereGeometry(0.13, 12, 10), white); body.scale.set(1, 1.15, 0.9); body.position.y = 0.14;
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 10), white); head.position.y = 0.33; head.scale.set(1.1, 0.95, 0.95);
+        const collar = new THREE.Mesh(new THREE.TorusGeometry(0.075, 0.015, 6, 14), red); collar.rotation.x = Math.PI / 2; collar.position.y = 0.25;
+        const bell = new THREE.Mesh(new THREE.SphereGeometry(0.022, 8, 6), gold); bell.position.set(0, 0.23, 0.08);
+        const paw = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 6), white); paw.position.set(0.11, 0.4, 0.03);
+        const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.035, 0.14, 6), white); arm.position.set(0.11, 0.32, 0.03);
+        g.add(body, head, collar, bell, paw, arm);
+        for (const sd of [-1, 1]) { const ear = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.07, 4), white); ear.position.set(sd * 0.06, 0.43, 0); g.add(ear); }
+        g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+        this.group.add(g);
+      }
+    }
+    if (pots.length) {
+      this.group.add(instancedChunks(pots, lam(0xffffff), { detail: 60, geo: new THREE.CylinderGeometry(0.5, 0.38, 1, 8) }));
+      this.group.add(instancedChunks(plants, lam(0xffffff, { flatShading: true }), { detail: 60, geo: new THREE.IcosahedronGeometry(0.5, 0) }));
+    }
+    // 下の入口に、木の案内板「猫の細道」
+    const all = roads.flatMap((rd) => [rd.pts[0], rd.pts[rd.pts.length - 1]]);
+    if (all.length) {
+      const low = all.reduce((a, b) => (groundY(a[0], a[1]) < groundY(b[0], b[1]) ? a : b));
+      const n = nearestRoad(low[0], low[1]);
+      const ang = n ? Math.atan2(n.seg.dz, n.seg.dx) : 0;
+      const hw = n ? n.seg.half : 1;
+      const x = low[0] - Math.sin(ang) * (hw + 0.6), z = low[1] + Math.cos(ang) * (hw + 0.6), y = groundY(x, z);
+      const tex = labelTexture('猫の細道', { w: 128, h: 448, size: 96, bg: '#6a4a32', fg: '#f4ead8', vertical: true });
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.22, 1.9, 0.12), new THREE.MeshLambertMaterial({ map: tex }));
+      post.position.set(x, y + 0.95, z);
+      post.rotation.y = Math.atan2(low[0] - x, low[1] - z) + Math.PI / 2;
+      post.castShadow = true;
+      this.group.add(post);
+      const cap = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.06, 0.2), lam(0x4a3424));
+      cap.position.set(x, y + 1.93, z);
+      cap.rotation.y = post.rotation.y;
+      this.group.add(cap);
+      // てっぺんに、木彫りの猫の頭
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.13, 10, 8), lam(0x8a6a48));
+      head.position.set(x, y + 2.08, z);
+      this.group.add(head);
+      for (const sd of [-1, 1]) {
+        const ear = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.09, 4), lam(0x8a6a48));
+        ear.position.set(x + Math.cos(post.rotation.y) * sd * 0.08, y + 2.2, z - Math.sin(post.rotation.y) * sd * 0.08);
+        this.group.add(ear);
+      }
+      addSolid(x, z, 0.3, 0.3, 0);
     }
   }
 
@@ -4477,6 +4617,64 @@ export class Town {
       this.group.add(fire);
       addSolid(lp.x, lp.z, 0.6, 0.6, 0);
     }
+  }
+
+  /**
+   * みはらし亭：千光寺新道の石段の途中、海を見下ろす斜面に建つ木造二階建ての茶亭（大正時代の建物）。
+   * 谷側は石垣の基礎で持ち上げ、二階には海に向いたガラス戸と手すりの縁側。入口に木の看板
+   */
+  _mihara() {
+    const P = { x: 25, z: 35 };   // OpenStreetMap の「Miharashi-tei」の点（石段の上）
+    const view = downhillYaw(P.x, P.z, 6);
+    const vx = Math.sin(view), vz = Math.cos(view);
+    const cx = P.x + vx * 6.5, cz = P.z + vz * 6.5;
+    const floor = groundY(P.x + vx * 2.5, P.z + vz * 2.5);   // 道に近い、山側の高さを一階の床に
+    const low = Math.min(...[[-4, -3], [4, -3], [-4, 3], [4, 3]].map(([a, b]) => terrainY(cx + Math.cos(view) * a + vx * b, cz - Math.sin(view) * a + vz * b)));
+    const g = new THREE.Group();
+    g.position.set(cx, 0, cz);
+    g.rotation.y = view;   // 正面（+Z）を海へ
+    const add = (geo, color, x, y, z, ry = 0) => { const m = new THREE.Mesh(geo, typeof color === 'number' ? lam(color) : color); m.position.set(x, y, z); m.rotation.y = ry; m.castShadow = true; m.receiveShadow = true; g.add(m); return m; };
+    const W = 8, D = 6;
+    // 石垣の基礎（谷側は高く）
+    const baseH = floor - low + 0.3;
+    add(new THREE.BoxGeometry(W + 1, baseH, D + 1), new THREE.MeshLambertMaterial({ color: 0xc4beb2, map: this._texture('wall') }), 0, floor - baseH / 2, 0);
+    // 一階：焦げ茶の板壁、上は白い漆喰
+    add(new THREE.BoxGeometry(W, 2.8, D), 0x4e3828, 0, floor + 1.4, 0);
+    add(new THREE.BoxGeometry(W + 0.02, 0.7, D + 0.02), 0xece6da, 0, floor + 2.45, 0);
+    add(new THREE.BoxGeometry(W + 1.6, 0.18, D + 1.6), 0x3a3e44, 0, floor + 2.95, 0);   // 一階の庇
+    // 二階：少し小さく、海側はガラス戸と縁側の手すり
+    add(new THREE.BoxGeometry(W - 1.2, 2.5, D - 1.2), 0x5a4030, 0, floor + 4.2, -0.3);
+    add(new THREE.BoxGeometry(W - 1.18, 0.55, D - 1.18), 0xece6da, 0, floor + 5.15, -0.3);
+    const glassMat = new THREE.MeshLambertMaterial({ color: 0x9aaab0, emissive: 0xffd0a0, emissiveIntensity: 0.15 });
+    this.specialSignMats.push(glassMat);
+    const glass = add(new THREE.PlaneGeometry(W - 1.6, 1.6), glassMat, 0, floor + 4.0, (D - 1.2) / 2 - 0.3 + 0.02);
+    glass.castShadow = false;
+    for (let k = -3; k <= 3; k++) add(new THREE.BoxGeometry(0.08, 1.6, 0.08), 0x3a2a20, k * (W - 1.6) / 6, floor + 4.0, (D - 1.2) / 2 - 0.26);
+    // 縁側と手すり（二階の海側に張り出す）
+    add(new THREE.BoxGeometry(W - 0.8, 0.12, 1.1), 0x6a4e36, 0, floor + 3.05, D / 2 - 0.1);
+    add(new THREE.BoxGeometry(W - 0.8, 0.07, 0.07), 0x3a2a20, 0, floor + 3.95, D / 2 + 0.42);
+    for (let k = 0; k <= 10; k++) add(new THREE.BoxGeometry(0.05, 0.85, 0.05), 0x3a2a20, -(W - 0.8) / 2 + k * (W - 0.8) / 10, floor + 3.5, D / 2 + 0.42);
+    // 一階の海側：格子の窓
+    for (let k = -2; k <= 2; k++) add(new THREE.BoxGeometry(1.1, 1.1, 0.06), 0x2e2a26, k * 1.5, floor + 1.5, D / 2 + 0.02);
+    // 寄棟の瓦屋根
+    const R = Math.hypot(W - 1.2, D - 1.2) / 2 + 1.4;
+    const roof = add(new THREE.ConeGeometry(R, 1.9, 4), 0x3a3e44, 0, floor + 6.35, -0.3, Math.PI / 4);
+    roof.scale.set(1, 1, (D - 1.2) / (W - 1.2));
+    add(new THREE.BoxGeometry(W + 0.8, 0.18, D + 0.6), 0x3a3e44, 0, floor + 5.45, -0.3);
+    this.group.add(g);
+    addSolid(cx, cz, W + 1, D + 1, -view);
+    // 入口（道の側）の木の看板
+    const sx = P.x + vx * 2.2 + Math.cos(view) * 2.5, sz = P.z + vz * 2.2 - Math.sin(view) * 2.5;
+    const tex = labelTexture('みはらし亭', { w: 128, h: 448, size: 92, bg: '#5a4030', fg: '#f4ead8', vertical: true });
+    const sign = new THREE.Mesh(new THREE.BoxGeometry(0.3, 1.5, 0.1), new THREE.MeshLambertMaterial({ map: tex }));
+    sign.position.set(sx, groundY(sx, sz) + 1.2, sz);
+    sign.rotation.y = view + Math.PI;
+    sign.castShadow = true;
+    this.group.add(sign);
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.5, 0.1), lam(0x3a2a20));
+    post.position.set(sx, groundY(sx, sz) + 0.25, sz);
+    this.group.add(post);
+    this.lampPositions.push([cx + vx * 3.2, floor + 2.6, cz + vz * 3.2]);
   }
 
   _lamps() {
