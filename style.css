@@ -477,3 +477,5 @@ body.show-keys #ui [data-key]::before {
   font: 600 9px/13px ui-monospace, Menlo, Consolas, monospace; text-align: center; letter-spacing: 0;
   pointer-events: none;
 }
+#aim-hint { position: fixed; left: 50%; top: calc(50% + 18px); transform: translateX(-50%); margin: 0; font-size: 12px; letter-spacing: 0.12em; color: rgba(255, 252, 244, 0.85); text-shadow: 0 0 4px rgba(0, 0, 0, 0.7); pointer-events: none; opacity: 0; transition: opacity 0.3s; z-index: 5; white-space: nowrap; }
+body.mouselook.hover-cat #aim-hint { opacity: 1; }

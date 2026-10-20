@@ -80,11 +80,12 @@ export class LookControls {
 
   _down(e) {
     if (!this.enabled || this.activePointer !== null) return;
-    // パソコン：まだカーソルが出ているときのクリックは、マウスで見渡すモードに入るだけ
-    if (this.mouseLook && e.pointerType === 'mouse' && !this.locked) {
+    // パソコン：まだカーソルが出ているときのクリックは、マウスで見渡すモードに入る（猫の上なら、そのままなでる）
+    if (this.mouseLook && e.pointerType === 'mouse' && !this.locked && !(e.button === 0 && this._hit(e))) {
       if (e.button === 0) this.dom.requestPointerLock?.();
       return;
     }
+    if (e.pointerType === 'mouse' && e.button !== 0) return;   // なでるのは左クリック
     this.activePointer = e.pointerId;
     this.touch();
     this.dom.setPointerCapture?.(e.pointerId);
