@@ -230,7 +230,7 @@ function mikoshi(r) {
 class Fireworks {
   constructor(scene, launch) {
     this.launch = launch;   // 打ち上げの台船（海の上）
-    this.N = 5000;
+    this.N = 14000;
     this.pos = new Float32Array(this.N * 3);
     this.col = new Float32Array(this.N * 3);
     this.vel = new Float32Array(this.N * 3);
@@ -246,6 +246,7 @@ class Fireworks {
     scene.add(this.points);
     this.shells = [];
     this.timer = 1;
+    this.pending = [];
     this.r = seededRandom('hanabi');
   }
   _emit(x, y, z, vx, vy, vz, life, c) {
@@ -256,7 +257,7 @@ class Fireworks {
   /** 1発打ち上げる。onBurst(x, y, z) は開いた瞬間（音のため） */
   shoot(onBurst) {
     const r = this.r, L = this.launch;
-    this.shells.push({ x: L.x + (r() - 0.5) * 40, z: L.z + (r() - 0.5) * 16, y: L.y, vy: 55 + r() * 18, t: 0, fuse: 1.6 + r() * 0.8, onBurst,
+    this.shells.push({ x: L.x + (r() - 0.5) * 40, z: L.z + (r() - 0.5) * 16, y: L.y, vy: 55 + r() * 18, t: 0, fuse: 1.3 + r() * 0.6, onBurst,
       kind: Math.floor(r() * 4), color: [[1, 0.45, 0.3], [1, 0.85, 0.35], [0.45, 0.75, 1], [0.6, 1, 0.5], [1, 0.5, 0.85], [1, 1, 0.95]][Math.floor(r() * 6)] });
   }
   update(dt, active) {
@@ -264,9 +265,15 @@ class Fireworks {
     if (active) {
       this.timer -= dt;
       if (this.timer <= 0) {
-        this.shoot(this.onBurst);
-        // ときどき、たて続けに（スターマイン）
-        this.timer = r() < 0.15 ? 0.12 : 0.6 + r() * 1.4;
+        // ふだんは1〜3発ずつ。ときどき、たて続けに十数発（スターマイン）
+        const q = r();
+        const n = q < 0.12 ? 10 + Math.floor(r() * 8) : 1 + Math.floor(r() * 3);
+        for (let k = 0; k < n; k++) this.pending.push(k * (q < 0.12 ? 0.18 : 0.35) + r() * 0.1);
+        this.timer = q < 0.12 ? 4 : 0.5 + r() * 1.0;
+      }
+      for (let k = this.pending.length - 1; k >= 0; k--) {
+        this.pending[k] -= dt;
+        if (this.pending[k] <= 0) { this.shoot(this.onBurst); this.pending.splice(k, 1); }
       }
     }
     // 上がっていく玉：細い火の尾
@@ -557,7 +564,8 @@ export class Festivals {
     }
     // 花火（夜の19時半〜20時半）
     if (this.fw) {
-      const on = this.active.has('hanabi') && hour >= 19.5 && hour < 20.6;
+      // 花火の日は、暗くなったら（夜の19時ごろ〜明け方まで）ずっと上がる。時を止めていても上がりつづける
+      const on = this.active.has('hanabi') && (night > 0.35 || (hour >= 19 && hour < 21));
       this.fw.points.visible = this.active.has('hanabi');
       this.burst = (x, y, z) => {
         const d = Math.hypot(x - cam.x, y - cam.y, z - cam.z);
