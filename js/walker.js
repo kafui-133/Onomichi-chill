@@ -28,7 +28,7 @@ export class Walker {
     this.upper = null;   // 歩道橋・駅のテラスなど、上の階にいるときの足もとの高さ
 
     window.addEventListener('keydown', (e) => {
-      if (e.target.closest?.('input, textarea')) return; // 日記を書いているあいだは操作しない
+      if (e.target.closest?.('input, textarea, select')) return; // 日記を書いているあいだ（つまみ・選択肢を操作しているあいだも）は操作しない
       if (!this.enabled) return;
       this.keys.add(e.code);
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();

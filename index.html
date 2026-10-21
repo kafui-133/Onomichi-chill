@@ -98,19 +98,26 @@
       <button id="btn-eyes" title="目を閉じる（X）" data-key="X">
         <svg viewBox="0 0 24 24"><path d="M3 11c2.5 3.5 5.5 5 9 5s6.5-1.5 9-5" /><path d="M6 14.5l-1.5 2M12 16v2.5M18 14.5l1.5 2" /></svg>
       </button>
+      <button id="btn-event" title="祭り・イベント（F）" data-key="F">
+        <svg viewBox="0 0 24 24"><path d="M12 2.5v2" /><path d="M9 4.5h6" /><path d="M7.5 7.5c0-1.6 2-3 4.5-3s4.5 1.4 4.5 3v7c0 1.6-2 3-4.5 3s-4.5-1.4-4.5-3z" /><path d="M7.6 10h8.8M7.6 13h8.8" /><path d="M9 17.5h6" /><path d="M12 17.5v2.5" /></svg>
+      </button>
       <button id="btn-sound" title="音（V）" data-key="V" aria-pressed="true">
         <svg viewBox="0 0 24 24"><path d="M4 10v4h3l4 3.5v-11L7 10z" /><path class="wave" d="M15 9c1.2 1.6 1.2 4.4 0 6M17.5 7c2.4 3 2.4 7 0 10" /></svg>
       </button>
     </div>
 
     <!-- 音量 -->
+    <!-- 祭り・イベント：いつでも、そのイベントの尾道に -->
+    <div id="event-pop" hidden>
+      <label for="event-select">祭り・イベント</label>
+      <select id="event-select" class="event-select"></select>
+    </div>
+
     <div id="vol-pop" hidden>
       <label for="vol-range">音量</label>
       <input id="vol-range" type="range" min="0" max="100" step="1" value="50" />
       <span id="vol-value">50</span>
       <button id="vol-mute" class="vol-mute" type="button">消す</button>
-      <label for="event-select">イベント</label>
-      <select id="event-select" class="event-select"></select>
       <label id="sens-label" for="sens-range">マウス感度</label>
       <input id="sens-range" type="range" min="1" max="20" step="1" value="10" />
       <span id="sens-value">10</span>

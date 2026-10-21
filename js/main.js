@@ -183,8 +183,8 @@ let lockHinted = false;
 document.body.classList.toggle('show-keys', controls.mouseLook);
 // 地図・持ち物などの画面を開いたら、カーソルを出す（ボタンを押せるように）
 new MutationObserver(() => {
-  if (document.querySelector('.modal:not(.hidden)') || !$('diary-view').classList.contains('hidden')) controls.unlock();
-}).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class'] });
+  if (document.querySelector('.modal:not(.hidden)') || !$('diary-view').classList.contains('hidden') || !$('vol-pop').hidden || !$('event-pop').hidden) controls.unlock();
+}).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class', 'hidden'] });
 
 // ---------- 猫と音をつなぐ ----------
 const catDir = (c = cat) => new THREE.Vector3().subVectors(c.root.position, camera.position);
@@ -422,7 +422,7 @@ const holdWalk = (on) => { walker.touchForward = on; walkBtn.classList.toggle('h
 walkBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); walkBtn.setPointerCapture?.(e.pointerId); holdWalk(true); });
 ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((ev) => walkBtn.addEventListener(ev, () => holdWalk(false)));
 window.addEventListener('keydown', (e) => {
-  if (e.target.closest?.('input, textarea')) return; // 日記を書いているあいだは操作しない
+  if (e.target.closest?.('input, textarea, select')) return; // 日記を書いているあいだ（つまみ・選択肢を操作しているあいだも）は操作しない
   if (e.repeat || eyesClosed) return;
   if ((e.code === 'KeyE' || e.code === 'Enter') && actions.length) doAction();
   if (e.code === 'KeyC' && mode === 'walk' && !walker.seat) walker.setCrouch(!walker.crouching);
@@ -431,7 +431,7 @@ window.addEventListener('keydown', (e) => {
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   // ほかのボタンも、キーで押せる（ボタンの左上に小さく表示）。日記・図鑑などの画面を開いているときは、閉じるのが先
   const byKey = { Digit1: '[data-time="morning"]', Digit2: '[data-time="day"]', Digit3: '[data-time="evening"]', Digit4: '[data-time="night"]', Digit5: '#btn-flow',
-    KeyO: '#btn-out', KeyP: '#btn-photo', KeyL: '#btn-album', KeyJ: '#btn-diary', KeyZ: '#btn-zukan', KeyX: '#btn-eyes', KeyV: '#btn-sound' };
+    KeyO: '#btn-out', KeyF: '#btn-event', KeyP: '#btn-photo', KeyL: '#btn-album', KeyJ: '#btn-diary', KeyZ: '#btn-zukan', KeyX: '#btn-eyes', KeyV: '#btn-sound' };
   const sel = byKey[e.code];
   if (!sel || $('ui').classList.contains('hidden')) return;
   const btn = document.querySelector(sel);
@@ -493,10 +493,17 @@ const showVolume = () => {
   $('btn-sound').setAttribute('aria-pressed', String(!audio.muted && v > 0));
 };
 showVolume();
+const eventPop = $('event-pop');
 $('btn-sound').addEventListener('click', (e) => {
   e.stopPropagation();
   volPop.hidden = !volPop.hidden;
+  eventPop.hidden = true;
   showVolume();
+});
+$('btn-event').addEventListener('click', (e) => {
+  e.stopPropagation();
+  eventPop.hidden = !eventPop.hidden;
+  volPop.hidden = true;
 });
 volRange.addEventListener('input', () => {
   controls.touch(); // 調整しているあいだは、UI を隠さない
@@ -566,6 +573,7 @@ $('vol-look').addEventListener('click', () => {
 ['pointerdown', 'pointermove', 'keydown'].forEach((ev) => document.addEventListener(ev, () => controls.touch(), true));
 document.addEventListener('pointerdown', (e) => {
   if (!volPop.hidden && !volPop.contains(e.target) && !e.target.closest('#btn-sound')) volPop.hidden = true;
+  if (!eventPop.hidden && !eventPop.contains(e.target) && !e.target.closest('#btn-event')) eventPop.hidden = true;
 });
 
 // 目を閉じる
@@ -644,10 +652,11 @@ let idleTimer = null;
 function wakeUI() {
   document.body.classList.remove('idle');
   clearTimeout(idleTimer);
-  idleTimer = setTimeout(() => { if (volPop.hidden) document.body.classList.add('idle'); else wakeUI(); }, COARSE ? 8000 : 4500);
+  idleTimer = setTimeout(() => { if (volPop.hidden && eventPop.hidden) document.body.classList.add('idle'); else wakeUI(); }, COARSE ? 8000 : 4500);
 }
 window.addEventListener('pointermove', wakeUI);
 window.addEventListener('pointerdown', wakeUI);
+window.addEventListener('keydown', wakeUI);   // キーで開いたメニューも、すぐ見えるように
 
 // タイトル
 $('btn-start').addEventListener('click', async () => {
@@ -666,7 +675,7 @@ let skyShown = false;
 if (DEBUG) {
   $('debug').classList.remove('hidden');
   window.addEventListener('keydown', (e) => {
-    if (e.target.closest?.('input, textarea')) return; // 日記を書いているあいだは操作しない
+    if (e.target.closest?.('input, textarea, select')) return; // 日記を書いているあいだ（つまみ・選択肢を操作しているあいだも）は操作しない
     if (e.key === '1') cat.addAffection(2);
     if (e.key === '2') cat.reset();
     if (e.key === '3') time.hour = (time.hour + 1) % 24;
