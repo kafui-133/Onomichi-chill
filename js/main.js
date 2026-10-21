@@ -17,7 +17,8 @@ import { Zukan } from './zukan.js';
 import { Diary } from './diary.js';
 import { ITEMS } from './items.js';
 import { quality } from './quality.js';
-import { eventsOn, eventGlow } from './events.js';
+import { EVENTS, eventsOn, eventGlow, forcedEvent, setForcedEvent, whenLabel, dateOf } from './events.js';
+import { Festivals } from './festivals.js';
 import { Candles } from './candles.js';
 import { look, Look, applyToonShading } from './look.js';
 import { People } from './people.js';
@@ -130,9 +131,13 @@ const allCats = [cat, ...strays];
 // 灯りは、イベントのある日になってから作る（ふだんは何も足さない）
 let candles = null;
 let eventShownDay = null;
+const eventShown = {};   // イベントごとの、知らせを出した日
+const festivals = new Festivals(scene, town, audio);
+festivals.onToast = (m) => { toast(m, 5000); diary.event?.('ベッチャー祭りで、鬼に祝い棒でたたかれた。これで一年、元気でいられるらしい。'); };
 function prepareEvents() {
   const evs = eventsOn(time.day);
   if (evs.some((e) => e.id === 'akari') && !candles) candles = new Candles(scene, town, quality.s.candles);
+  festivals.set(evs.map((e) => e.id));
   return evs;
 }
 let todaysEvents = prepareEvents();
@@ -382,7 +387,7 @@ const nearPerson = () => (mode === 'walk' && !walker.seat && !ride ? people.near
 let talkTimer = null;
 function talkTo(p) {
   const evs = todaysEvents.map((e) => e.id);
-  const line = people.talk(p, time.hour, evs.includes('akari') ? 'akari' : null);
+  const line = people.talk(p, time.hour, evs[0] || null);
   const box = $('talk');
   clearTimeout(talkTimer);
   talkTimer = null;
@@ -500,6 +505,31 @@ volRange.addEventListener('input', () => {
   showVolume();
 });
 $('vol-mute').addEventListener('click', () => { audio.setMuted(!audio.muted); showVolume(); });
+// イベント：いつでも、そのイベントの尾道に切りかえる（「暦どおり」なら、その日のイベントだけ）
+{
+  const sel = $('event-select');
+  const y = dateOf(time.day).y;
+  const today = () => eventsOn(time.day).map((e) => e.name).join('・');
+  const fill = () => {
+    sel.replaceChildren(new Option(forcedEvent() ? '暦どおり' : `暦どおり${today() ? `（今日は${today()}）` : ''}`, ''), ...EVENTS.map((e) => new Option(`${e.name}（${whenLabel(e, y)}）`, e.id)));
+    sel.value = forcedEvent() || '';
+  };
+  fill();
+  sel.addEventListener('change', () => {
+    controls.touch();
+    setForcedEvent(sel.value);
+    todaysEvents = prepareEvents();
+    for (const k in eventShown) delete eventShown[k];
+    eventShownDay = null;
+    const ev = EVENTS.find((e) => e.id === sel.value);
+    if (ev) {
+      toast(`尾道は、${ev.name}の日になった`, 3600);
+      // そのイベントがいちばんよく見える時間へ
+      if (Math.abs(time.hour - ev.best) > 0.3 && (time.hour < ev.hours[0] || time.hour > ev.hours[1])) { time.goTo(ev.best); }
+    } else toast('暦どおりの尾道にもどった', 2600);
+    fill();
+  });
+}
 // マウス感度（パソコンだけ）
 if (controls.mouseLook) {
   const sens = $('sens-range');
@@ -756,6 +786,15 @@ function frame(fixedDt) {
     audio.fumikiri({ gain: 0.08 + 0.8 * clamp(1 - d / 500, 0, 1), dirX: cr.x - ears.x, dirZ: cr.z - ears.z, near: clamp(1 - d / 120, 0, 1) });
   }
 
+  // 祭り（屋台・花火・行列・鬼など）。開かれている時間になったら、はじめの一度だけ知らせる
+  festivals.update(dt, t, time.hour, camera.position, p.night);
+  for (const ev of todaysEvents) {
+    if (ev.id === 'akari' || eventShown[ev.id] === time.day || eventGlow(ev, time.hour) < 0.5) continue;
+    eventShown[ev.id] = time.day;
+    toast(`今日は${ev.name}。${ev.note}`, 6000);
+    diary.event(ev.diary);
+  }
+
   // 季節のイベントの灯り（暮れてから）
   if (candles) {
     const ev = todaysEvents.find((e) => e.id === 'akari');
@@ -883,7 +922,7 @@ function frame(fixedDt) {
 function loop() { frame(); }
 if (CAPTURE) {
   $('title').style.display = 'none';
-  Object.assign(window, { THREE, scene, camera, time, cat, audio, boats, controls, renderer, town, walker, strays, people, PLACES, food, diary, enterTown, enterRoom, goHome, getCandles: () => candles, startRide, ROADS, pointAlong, getRide: () => ride, view });
+  Object.assign(window, { THREE, scene, camera, time, cat, audio, boats, controls, renderer, town, walker, strays, people, PLACES, food, diary, enterTown, enterRoom, goHome, getCandles: () => candles, startRide, ROADS, pointAlong, getRide: () => ride, view, festivals });
   window.captureStep = (dt) => frame(dt);
   window.captureReady = true;
 } else {

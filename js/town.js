@@ -2583,8 +2583,10 @@ export class Town {
     const sakura = month === 3 || month === 4 ? ['#f2c4cf', '#eab4c2', '#f6d4dc'] : month === 10 || month === 11 ? ['#c86a3a', '#b8803a', '#7a8a44'] : ['#5f8a44', '#6e9a4c', '#557c3c'];
     const boxes = [], trunks = [], crowns = [], rocks = [];
     const free = (x, z, m = 1) => !nearAnyRoad(x, z, m) && !inBuilding(x, z) && !inSolid(x, z);
+    this.sakuraTrees = [];   // さくら祭りで、季節でなくても満開にするため
     const tree = (x, z, colors, h = 4.5 + r() * 1.5) => {
       const y = groundY(x, z);
+      if (colors === sakura) this.sakuraTrees.push({ x, y, z, h });
       trunks.push({ x, y: y + h / 2, z, sx: 0.32, sy: h, sz: 0.32, rz: (r() - 0.5) * 0.25, color: '#4e3a30' });
       for (let j = 0; j < 4; j++) crowns.push({ x: x + (r() - 0.5) * 3, y: y + h - 0.3 + r() * 1.2, z: z + (r() - 0.5) * 3, sx: 2.8 + r() * 1.2, sy: 1.8 + r() * 0.6, sz: 2.8 + r() * 1.2, ry: r() * 6, color: colors[j % colors.length] });
       addSolid(x, z, 0.7, 0.7, 0);

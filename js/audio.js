@@ -499,6 +499,31 @@ export class AudioEngine {
   }
 
   /** お寺の鐘（梵鐘）。うなりを含んだ長い余韻 */
+  /** 花火の音：ドン、と低く。距離のぶん遅れて届き、山にこだまする */
+  boom(gain = 0.5, delay = 0) {
+    if (!this.started) return;
+    const pan = (Math.random() - 0.5) * 0.4;
+    this._noiseBurst({ type: 'brown', freq: 70 + Math.random() * 30, q: 0.8, gain: 0.5 * gain, attack: 0.004, decay: 1.4, when: delay, pan });
+    this._noiseBurst({ type: 'pink', freq: 220, q: 0.6, gain: 0.18 * gain, attack: 0.002, decay: 0.5, when: delay, pan });
+    this._noiseBurst({ type: 'brown', freq: 60, q: 0.7, gain: 0.16 * gain, attack: 0.05, decay: 1.6, when: delay + 0.9, pan: -pan });   // こだま
+    // パチパチと散る音
+    for (let i = 0; i < (this.lite ? 2 : 6); i++) this._noiseBurst({ type: 'white', freq: 2500 + Math.random() * 2500, q: 3, gain: 0.03 * gain, attack: 0.002, decay: 0.05, when: delay + 0.6 + Math.random() * 1.2, pan: pan + (Math.random() - 0.5) * 0.5 });
+  }
+
+  /** 祭りの太鼓：ドン、と短く */
+  taiko(gain = 0.4) {
+    if (!this.started) return;
+    this._noiseBurst({ type: 'brown', freq: 110, q: 1.2, gain: 0.35 * gain, attack: 0.003, decay: 0.35, pan: 0 });
+    this._tone({ freq: 72, gain: 0.12 * gain, attack: 0.003, decay: 0.4, pan: 0 });
+  }
+
+  /** 祝い棒で、ぽんとたたかれる音 */
+  whack() {
+    if (!this.started) return;
+    this._noiseBurst({ type: 'pink', freq: 900, q: 2, gain: 0.25, attack: 0.002, decay: 0.08, pan: 0 });
+    this._noiseBurst({ type: 'white', freq: 3000, q: 1.5, gain: 0.06, attack: 0.002, decay: 0.12, when: 0.01, pan: 0 });
+  }
+
   templeBell(loud = false) {
     if (!this.started) return;
     const pan = this._pan(-1, -0.6) * 0.7;
