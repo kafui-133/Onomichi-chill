@@ -10,6 +10,9 @@ import { lam, labelTexture } from './townKit.js';
 import { buildPerson, mat } from './people.js';
 import { canvasTexture, glowTexture, seededRandom, damp } from './util.js';
 
+// スマホ（指で操作する端末）は軽く：花火の粒と、祭りの人・屋台を少なめに
+const LITE = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
+
 const STALL_FOOD = ['たこ焼き', '焼きそば', 'わたあめ', 'かき氷', 'りんご飴', 'ヨーヨー釣り', 'いか焼き', '金魚すくい', 'ベビーカステラ', 'フランクフルト', 'じゃがバター', 'くじ引き'];
 const MARCHE = ['パン', '雑貨', 'コーヒー', 'レモネード', '手づくり', '古本', '焼き菓子', 'はちみつ'];
 
@@ -228,9 +231,11 @@ function mikoshi(r) {
 
 // ---------- 花火 ----------
 class Fireworks {
-  constructor(scene, launch) {
+  constructor(scene, launch, lite = false) {
     this.launch = launch;   // 打ち上げの台船（海の上）
-    this.N = 14000;
+    this.lite = lite;       // スマホ：粒を少なく、間をあけて、スターマインなし
+    this.N = lite ? 2600 : 14000;
+    this.frame = 0;
     this.pos = new Float32Array(this.N * 3);
     this.col = new Float32Array(this.N * 3);
     this.vel = new Float32Array(this.N * 3);
@@ -241,7 +246,7 @@ class Fireworks {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
     geo.setAttribute('color', new THREE.BufferAttribute(this.col, 3));
-    this.points = new THREE.Points(geo, new THREE.PointsMaterial({ size: 4.6, map: glowTexture(), vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+    this.points = new THREE.Points(geo, new THREE.PointsMaterial({ size: lite ? 3.6 : 4.6, map: glowTexture(), vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
     this.points.frustumCulled = false;
     scene.add(this.points);
     this.shells = [];
@@ -267,9 +272,10 @@ class Fireworks {
       if (this.timer <= 0) {
         // ふだんは1〜3発ずつ。ときどき、たて続けに十数発（スターマイン）
         const q = r();
-        const n = q < 0.12 ? 10 + Math.floor(r() * 8) : 1 + Math.floor(r() * 3);
-        for (let k = 0; k < n; k++) this.pending.push(k * (q < 0.12 ? 0.18 : 0.35) + r() * 0.1);
-        this.timer = q < 0.12 ? 4 : 0.5 + r() * 1.0;
+        const mine = !this.lite && q < 0.12;
+        const n = mine ? 10 + Math.floor(r() * 8) : this.lite ? 1 : 1 + Math.floor(r() * 3);
+        for (let k = 0; k < n; k++) this.pending.push(k * (mine ? 0.18 : 0.35) + r() * 0.1);
+        this.timer = mine ? 4 : this.lite ? 1.4 + r() * 1.2 : 0.5 + r() * 1.0;
       }
       for (let k = this.pending.length - 1; k >= 0; k--) {
         this.pending[k] -= dt;
@@ -279,10 +285,10 @@ class Fireworks {
     // 上がっていく玉：細い火の尾
     for (const s of this.shells) {
       s.t += dt; s.vy -= 9.8 * dt * 0.6; s.y += s.vy * dt;
-      this._emit(s.x, s.y, s.z, (r() - 0.5) * 0.6, -2, (r() - 0.5) * 0.6, 0.5, [1, 0.75, 0.4]);
+      if (!this.lite || this.frame % 3 === 0) this._emit(s.x, s.y, s.z, (r() - 0.5) * 0.6, -2, (r() - 0.5) * 0.6, 0.5, [1, 0.75, 0.4]);
       if (s.t >= s.fuse) {
         s.done = true;
-        const n = s.kind === 3 ? 110 : 220, sp = s.kind === 1 ? 20 : 32 + r() * 8;
+        const n = (s.kind === 3 ? 110 : 220) * (this.lite ? 0.4 : 1) | 0, sp = s.kind === 1 ? 20 : 32 + r() * 8;
         for (let k = 0; k < n; k++) {
           // 球のかたちに散る（kind 2 は輪、3 は柳のように垂れる）
           let ux = r() * 2 - 1, uy = r() * 2 - 1, uz = r() * 2 - 1;
@@ -296,9 +302,16 @@ class Fireworks {
       }
     }
     this.shells = this.shells.filter((s) => !s.done);
+    this.frame++;
     const P = this.pos, V = this.vel, C = this.col, B = this.base;
+    let alive = 0;
     for (let i = 0; i < this.N; i++) {
-      if (this.life[i] <= 0) { C[i * 3] = C[i * 3 + 1] = C[i * 3 + 2] = 0; continue; }
+      if (this.life[i] <= 0) {
+        // 消えた粒は、画面の外（ずっと下）へ。色が黒くても、描くと重いので
+        if (P[i * 3 + 1] > -9000) { C[i * 3] = C[i * 3 + 1] = C[i * 3 + 2] = 0; P[i * 3 + 1] = -1e4; }
+        continue;
+      }
+      alive++;
       this.life[i] -= dt;
       const drag = Math.exp(-1.6 * dt);
       V[i * 3] *= drag; V[i * 3 + 1] = V[i * 3 + 1] * drag - 6 * dt; V[i * 3 + 2] *= drag;
@@ -308,8 +321,12 @@ class Fireworks {
       const a = Math.min(1, f * 1.6) * tw;
       C[i * 3] = B[i * 3] * a; C[i * 3 + 1] = B[i * 3 + 1] * a; C[i * 3 + 2] = B[i * 3 + 2] * a;
     }
-    this.points.geometry.attributes.position.needsUpdate = true;
-    this.points.geometry.attributes.color.needsUpdate = true;
+    // 粒がひとつもないあいだは、送り直さない
+    if (alive || this.wasAlive) {
+      this.points.geometry.attributes.position.needsUpdate = true;
+      this.points.geometry.attributes.color.needsUpdate = true;
+    }
+    this.wasAlive = alive > 0;
   }
 }
 
@@ -470,10 +487,10 @@ export class Festivals {
 
   _hanabi() {
     const g = this._group(), r = seededRandom('hanabi-fes');
-    const stalls = this._stalls(g, -150, 300, 16, 'hanabi-stalls');
-    const people = this._people(g, stalls, yukata, 30, r);
+    const stalls = this._stalls(g, -150, 300, LITE ? 10 : 16, 'hanabi-stalls');
+    const people = this._people(g, stalls, yukata, LITE ? 12 : 30, r);
     const lx = -60, lz = straitAt(lx).z + 25;
-    this.fw = new Fireworks(this.scene, { x: lx, y: SEA_Y + 2, z: lz });
+    this.fw = new Fireworks(this.scene, { x: lx, y: SEA_Y + 2, z: lz }, LITE);
     this.fw.onBurst = (x, y, z) => this.burst?.(x, y, z);
     // 打ち上げの台船
     const barge = new THREE.Mesh(new THREE.BoxGeometry(14, 1.2, 6), mat('#3a3e44'));
