@@ -439,24 +439,45 @@ body.walking #toast { bottom: auto; top: 18%; }
 }
 
 /* ---------- 音量 ---------- */
-#vol-pop {
+#vol-pop, #event-pop {
   position: absolute; right: max(20px, calc(env(safe-area-inset-right) + 12px)); bottom: max(72px, calc(env(safe-area-inset-bottom) + 64px));
   display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 999px;
   background: var(--glass); border: 1px solid rgba(244, 239, 230, 0.18);
   backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
   pointer-events: auto; font-size: 12px; letter-spacing: 0.15em; color: var(--ink); z-index: 6;
 }
-#vol-pop[hidden] { display: none; }
-#vol-pop, #vol-pop label, #ui #vol-pop .vol-mute { white-space: nowrap; flex: none; }
-#vol-pop { width: max-content; }
+#vol-pop[hidden], #event-pop[hidden] { display: none; }
+#vol-pop, #vol-pop label, #ui #vol-pop .vol-mute, #event-pop label { white-space: nowrap; flex: none; }
+#vol-pop, #event-pop { width: max-content; }
 #vol-range { width: 140px; accent-color: #f0b27a; touch-action: none; }
 #vol-value { min-width: 2.6em; text-align: right; font-variant-numeric: tabular-nums; }
 #ui #vol-pop .vol-mute { width: auto; height: 28px; border-radius: 999px; padding: 0 12px; font-size: 12px; letter-spacing: 0.15em; color: var(--ink); }
 @media (max-width: 560px) {
-  #vol-pop { right: auto; left: 50%; transform: translateX(-50%); bottom: max(124px, calc(env(safe-area-inset-bottom) + 116px)); }
+  #vol-pop, #event-pop { right: auto; left: 50%; transform: translateX(-50%); bottom: max(124px, calc(env(safe-area-inset-bottom) + 116px)); }
   #vol-range { width: 150px; flex: none; }
-  #vol-pop { gap: 8px; padding: 10px 14px; flex-wrap: wrap; justify-content: center; width: min(340px, calc(100vw - 32px)); border-radius: 20px; }
+  #vol-pop, #event-pop { gap: 8px; padding: 10px 14px; flex-wrap: wrap; justify-content: center; width: min(340px, calc(100vw - 32px)); border-radius: 20px; }
 }
 
 .title-credit { position: fixed; left: 0; right: 0; bottom: max(14px, env(safe-area-inset-bottom)); margin: 0; padding: 0 16px; font-size: 10px; line-height: 1.7; letter-spacing: 0.06em; color: var(--ink-dim); text-align: center; }
 .title-credit a { color: inherit; }
+
+/* マウスで見渡すとき（パソコン）：画面のまん中に小さな点。猫に向くと少し大きく */
+#aim { position: fixed; left: 50%; top: 50%; width: 5px; height: 5px; margin: -2.5px 0 0 -2.5px; border-radius: 50%; background: rgba(255, 252, 244, 0.75); box-shadow: 0 0 3px rgba(0, 0, 0, 0.5); pointer-events: none; opacity: 0; transition: opacity 0.3s, transform 0.2s; z-index: 5; }
+body.mouselook #aim { opacity: 1; }
+body.mouselook.hover-cat #aim { transform: scale(2); }
+#vol-pop [hidden] { display: none; }
+
+/* キーの割り当て（パソコンだけ）：ボタンの左上に小さな札 */
+body.show-keys #ui [data-key]::before {
+  content: attr(data-key);
+  position: absolute; left: -7px; top: -7px;
+  min-width: 19px; height: 19px; padding: 0 4px; box-sizing: border-box;
+  border-radius: 5px; border: 1px solid rgba(244, 239, 230, 0.5);
+  background: rgba(20, 18, 16, 0.82); color: #fffaf0;
+  font: 700 12px/17px ui-monospace, Menlo, Consolas, monospace; text-align: center; letter-spacing: 0;
+  pointer-events: none;
+}
+#aim-hint { position: fixed; left: 50%; top: calc(50% + 18px); transform: translateX(-50%); margin: 0; font-size: 12px; letter-spacing: 0.12em; color: rgba(255, 252, 244, 0.85); text-shadow: 0 0 4px rgba(0, 0, 0, 0.7); pointer-events: none; opacity: 0; transition: opacity 0.3s; z-index: 5; white-space: nowrap; }
+body.mouselook.hover-cat #aim-hint { opacity: 1; }
+#event-pop .event-select { max-width: 300px; font: inherit; font-size: 12px; color: var(--ink); background: rgba(20, 18, 16, 0.55); border: 1px solid rgba(244, 239, 230, 0.3); border-radius: 999px; padding: 4px 10px; }
+#event-pop .event-select option { color: #222; }

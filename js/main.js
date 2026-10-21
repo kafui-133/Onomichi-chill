@@ -17,7 +17,8 @@ import { Zukan } from './zukan.js';
 import { Diary } from './diary.js';
 import { ITEMS } from './items.js';
 import { quality } from './quality.js';
-import { eventsOn, eventGlow } from './events.js';
+import { EVENTS, eventsOn, eventGlow, forcedEvent, setForcedEvent, whenLabel, dateOf } from './events.js';
+import { Festivals } from './festivals.js';
 import { Candles } from './candles.js';
 import { look, Look, applyToonShading } from './look.js';
 import { People } from './people.js';
@@ -130,9 +131,13 @@ const allCats = [cat, ...strays];
 // 灯りは、イベントのある日になってから作る（ふだんは何も足さない）
 let candles = null;
 let eventShownDay = null;
+const eventShown = {};   // イベントごとの、知らせを出した日
+const festivals = new Festivals(scene, town, audio);
+festivals.onToast = (m) => { toast(m, 5000); diary.event?.('ベッチャー祭りで、鬼に祝い棒でたたかれた。これで一年、元気でいられるらしい。'); };
 function prepareEvents() {
   const evs = eventsOn(time.day);
   if (evs.some((e) => e.id === 'akari') && !candles) candles = new Candles(scene, town, quality.s.candles);
+  festivals.set(evs.map((e) => e.id));
   return evs;
 }
 let todaysEvents = prepareEvents();
@@ -169,7 +174,17 @@ const controls = new LookControls(camera, renderer.domElement, {
   onStroke: (dt, h) => catByHitbox.get(h)?.stroke(dt),
   onRelease: (h) => catByHitbox.get(h)?.release(),
   onHover: (h) => document.body.classList.toggle('hover-cat', h),
+  onLockChange: (on) => {
+    if (on && !lockHinted) { lockHinted = true; toast('マウスで見渡す　・　Esc でカーソルを出す', 3600); }
+  },
 });
+let lockHinted = false;
+// パソコンでは、ボタンにキーの割り当てを表示する
+document.body.classList.toggle('show-keys', controls.mouseLook);
+// 地図・持ち物などの画面を開いたら、カーソルを出す（ボタンを押せるように）
+new MutationObserver(() => {
+  if (document.querySelector('.modal:not(.hidden)') || !$('diary-view').classList.contains('hidden') || !$('vol-pop').hidden || !$('event-pop').hidden) controls.unlock();
+}).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class', 'hidden'] });
 
 // ---------- 猫と音をつなぐ ----------
 const catDir = (c = cat) => new THREE.Vector3().subVectors(c.root.position, camera.position);
@@ -372,7 +387,7 @@ const nearPerson = () => (mode === 'walk' && !walker.seat && !ride ? people.near
 let talkTimer = null;
 function talkTo(p) {
   const evs = todaysEvents.map((e) => e.id);
-  const line = people.talk(p, time.hour, evs.includes('akari') ? 'akari' : null);
+  const line = people.talk(p, time.hour, evs[0] || null);
   const box = $('talk');
   clearTimeout(talkTimer);
   talkTimer = null;
@@ -395,6 +410,9 @@ function renderActs(list) {
     const b = document.createElement('button');
     b.className = 'act';
     b.textContent = a.label;
+    // キーボードの割り当て：しゃがむ・立ちあがるは C、いちばん目の行動は E
+    const k = (a.id === 'crouch' || (a.id === 'rise' && walker.crouching)) ? 'C' : list[0] === a ? 'E' : '';
+    if (k) b.dataset.key = k;
     b.addEventListener('click', () => { doAction(a.id); labelTimer = 0; });
     return b;
   }));
@@ -404,12 +422,20 @@ const holdWalk = (on) => { walker.touchForward = on; walkBtn.classList.toggle('h
 walkBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); walkBtn.setPointerCapture?.(e.pointerId); holdWalk(true); });
 ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((ev) => walkBtn.addEventListener(ev, () => holdWalk(false)));
 window.addEventListener('keydown', (e) => {
-  if (e.target.closest?.('input, textarea')) return; // 日記を書いているあいだは操作しない
+  if (e.target.closest?.('input, textarea, select')) return; // 日記を書いているあいだ（つまみ・選択肢を操作しているあいだも）は操作しない
   if (e.repeat || eyesClosed) return;
   if ((e.code === 'KeyE' || e.code === 'Enter') && actions.length) doAction();
   if (e.code === 'KeyC' && mode === 'walk' && !walker.seat) walker.setCrouch(!walker.crouching);
   if (e.code === 'KeyB') ($('bag-view').classList.contains('hidden') ? food.openBag() : $('bag-view').classList.add('hidden'));
   if (e.code === 'KeyM') ($('map-view').classList.contains('hidden') ? openMap() : $('map-view').classList.add('hidden'));
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  // ほかのボタンも、キーで押せる（ボタンの左上に小さく表示）。日記・図鑑などの画面を開いているときは、閉じるのが先
+  const byKey = { Digit1: '[data-time="morning"]', Digit2: '[data-time="day"]', Digit3: '[data-time="evening"]', Digit4: '[data-time="night"]', Digit5: '#btn-flow',
+    KeyO: '#btn-out', KeyF: '#btn-event', KeyP: '#btn-photo', KeyL: '#btn-album', KeyJ: '#btn-diary', KeyZ: '#btn-zukan', KeyX: '#btn-eyes', KeyV: '#btn-sound' };
+  const sel = byKey[e.code];
+  if (!sel || $('ui').classList.contains('hidden')) return;
+  const btn = document.querySelector(sel);
+  if (btn && !btn.hidden && btn.offsetParent !== null) btn.click();
 });
 
 // 船が正面を通ると、遅れて引き波の音が岸に届く
@@ -438,9 +464,18 @@ function dateLabel() {
   return `${kanjiNumber(d.getMonth() + 1)}月${kanjiNumber(d.getDate())}日　${PHASE_LABEL[time.phase]}`;
 }
 
+// 時間帯のボタン：押したらすぐ、そのボタンに印を移す（空が移り変わるのを待たない）
+let timeChoice = null;
+const markTime = () => {
+  if (timeChoice && !time.transition) timeChoice = null;
+  const shown = timeChoice || time.phase;
+  document.querySelectorAll('[data-time]').forEach((b) => b.classList.toggle('active', b.dataset.time === shown));
+};
 document.querySelectorAll('[data-time]').forEach((btn) => {
   btn.addEventListener('click', () => {
     time.goTo(TIME_PRESETS[btn.dataset.time]);
+    timeChoice = btn.dataset.time;
+    markTime();
   });
 });
 $('btn-flow').addEventListener('click', (e) => {
@@ -458,10 +493,17 @@ const showVolume = () => {
   $('btn-sound').setAttribute('aria-pressed', String(!audio.muted && v > 0));
 };
 showVolume();
+const eventPop = $('event-pop');
 $('btn-sound').addEventListener('click', (e) => {
   e.stopPropagation();
   volPop.hidden = !volPop.hidden;
+  eventPop.hidden = true;
   showVolume();
+});
+$('btn-event').addEventListener('click', (e) => {
+  e.stopPropagation();
+  eventPop.hidden = !eventPop.hidden;
+  volPop.hidden = true;
 });
 volRange.addEventListener('input', () => {
   controls.touch(); // 調整しているあいだは、UI を隠さない
@@ -470,6 +512,40 @@ volRange.addEventListener('input', () => {
   showVolume();
 });
 $('vol-mute').addEventListener('click', () => { audio.setMuted(!audio.muted); showVolume(); });
+// イベント：いつでも、そのイベントの尾道に切りかえる（「暦どおり」なら、その日のイベントだけ）
+{
+  const sel = $('event-select');
+  const y = dateOf(time.day).y;
+  const today = () => eventsOn(time.day).map((e) => e.name).join('・');
+  const fill = () => {
+    sel.replaceChildren(new Option(forcedEvent() ? '暦どおり' : `暦どおり${today() ? `（今日は${today()}）` : ''}`, ''), ...EVENTS.map((e) => new Option(`${e.name}（${whenLabel(e, y)}）`, e.id)));
+    sel.value = forcedEvent() || '';
+  };
+  fill();
+  sel.addEventListener('change', () => {
+    controls.touch();
+    setForcedEvent(sel.value);
+    todaysEvents = prepareEvents();
+    for (const k in eventShown) delete eventShown[k];
+    eventShownDay = null;
+    const ev = EVENTS.find((e) => e.id === sel.value);
+    if (ev) {
+      toast(`尾道は、${ev.name}の日になった`, 3600);
+      // そのイベントがいちばんよく見える時間へ
+      if (Math.abs(time.hour - ev.best) > 0.3 && (time.hour < ev.hours[0] || time.hour > ev.hours[1])) { time.goTo(ev.best); }
+    } else toast('暦どおりの尾道にもどった', 2600);
+    fill();
+  });
+}
+// マウス感度（パソコンだけ）
+if (controls.mouseLook) {
+  const sens = $('sens-range');
+  const showSens = () => { sens.value = controls.sensitivity; $('sens-value').textContent = controls.sensitivity; };
+  showSens();
+  sens.addEventListener('input', () => { controls.touch(); controls.setSensitivity(+sens.value); showSens(); });
+} else {
+  for (const id of ['sens-label', 'sens-range', 'sens-value']) $(id).hidden = true;
+}
 // 画質：高・中・低を順に切りかえる。描画の細かさと影はすぐ、灯りや人の数は次に開いたときに変わる
 const showQuality = () => { $('vol-quality').textContent = `画質 ${quality.s.label}`; };
 showQuality();
@@ -497,6 +573,7 @@ $('vol-look').addEventListener('click', () => {
 ['pointerdown', 'pointermove', 'keydown'].forEach((ev) => document.addEventListener(ev, () => controls.touch(), true));
 document.addEventListener('pointerdown', (e) => {
   if (!volPop.hidden && !volPop.contains(e.target) && !e.target.closest('#btn-sound')) volPop.hidden = true;
+  if (!eventPop.hidden && !eventPop.contains(e.target) && !e.target.closest('#btn-event')) eventPop.hidden = true;
 });
 
 // 目を閉じる
@@ -510,7 +587,7 @@ function setEyes(closed) {
 }
 $('btn-eyes').addEventListener('click', () => { setEyes(true); diary.closedEyes(); });
 $('eyes').addEventListener('click', () => setEyes(false));
-window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && eyesClosed) setEyes(false); });
+window.addEventListener('keydown', (e) => { if ((e.key === 'Escape' || (e.code === 'KeyX' && !e.repeat)) && eyesClosed) setEyes(false); });
 
 // 写真
 let photoRequested = false;
@@ -575,10 +652,11 @@ let idleTimer = null;
 function wakeUI() {
   document.body.classList.remove('idle');
   clearTimeout(idleTimer);
-  idleTimer = setTimeout(() => { if (volPop.hidden) document.body.classList.add('idle'); else wakeUI(); }, COARSE ? 8000 : 4500);
+  idleTimer = setTimeout(() => { if (volPop.hidden && eventPop.hidden) document.body.classList.add('idle'); else wakeUI(); }, COARSE ? 8000 : 4500);
 }
 window.addEventListener('pointermove', wakeUI);
 window.addEventListener('pointerdown', wakeUI);
+window.addEventListener('keydown', wakeUI);   // キーで開いたメニューも、すぐ見えるように
 
 // タイトル
 $('btn-start').addEventListener('click', async () => {
@@ -597,7 +675,7 @@ let skyShown = false;
 if (DEBUG) {
   $('debug').classList.remove('hidden');
   window.addEventListener('keydown', (e) => {
-    if (e.target.closest?.('input, textarea')) return; // 日記を書いているあいだは操作しない
+    if (e.target.closest?.('input, textarea, select')) return; // 日記を書いているあいだ（つまみ・選択肢を操作しているあいだも）は操作しない
     if (e.key === '1') cat.addAffection(2);
     if (e.key === '2') cat.reset();
     if (e.key === '3') time.hour = (time.hour + 1) % 24;
@@ -717,6 +795,15 @@ function frame(fixedDt) {
     audio.fumikiri({ gain: 0.08 + 0.8 * clamp(1 - d / 500, 0, 1), dirX: cr.x - ears.x, dirZ: cr.z - ears.z, near: clamp(1 - d / 120, 0, 1) });
   }
 
+  // 祭り（屋台・花火・行列・鬼など）。開かれている時間になったら、はじめの一度だけ知らせる
+  festivals.update(dt, t, time.hour, camera.position, p.night);
+  for (const ev of todaysEvents) {
+    if (ev.id === 'akari' || eventShown[ev.id] === time.day || eventGlow(ev, time.hour) < 0.5) continue;
+    eventShown[ev.id] = time.day;
+    toast(`今日は${ev.name}。${ev.note}`, 6000);
+    diary.event(ev.diary);
+  }
+
   // 季節のイベントの灯り（暮れてから）
   if (candles) {
     const ev = todaysEvents.find((e) => e.id === 'akari');
@@ -811,7 +898,7 @@ function frame(fixedDt) {
       : { home: '家に入る', sit: 'ベンチに座る', stand: '立ちあがる', crouch: 'しゃがむ', rise: '立ちあがる' }[a] || '';
     renderActs(actions.slice(0, 3).map((a) => ({ id: a, label: label(a) })));
     walkBtn.hidden = mode !== 'walk' || !!walker.seat || walker.crouching || !!ride;
-    document.querySelectorAll('[data-time]').forEach((b) => b.classList.toggle('active', b.dataset.time === time.phase));
+    markTime();
     const sl = $('sky-label');
     if (!skyShown && time.hour > 17.6 && time.hour < 19) {
       skyShown = true;
@@ -844,7 +931,7 @@ function frame(fixedDt) {
 function loop() { frame(); }
 if (CAPTURE) {
   $('title').style.display = 'none';
-  Object.assign(window, { THREE, scene, camera, time, cat, audio, boats, controls, renderer, town, walker, strays, people, PLACES, food, diary, enterTown, enterRoom, goHome, getCandles: () => candles, startRide, ROADS, pointAlong, getRide: () => ride, view });
+  Object.assign(window, { THREE, scene, camera, time, cat, audio, boats, controls, renderer, town, walker, strays, people, PLACES, food, diary, enterTown, enterRoom, goHome, getCandles: () => candles, startRide, ROADS, pointAlong, getRide: () => ride, view, festivals });
   window.captureStep = (dt) => frame(dt);
   window.captureReady = true;
 } else {

@@ -1,10 +1,11 @@
 // 主観視点の見渡し：ドラッグでゆるやかに首を振る（慣性つき）。ホイールで少しだけ寄る。
-// 猫の上で押すと「なでる」、短く離すと「触れる」。
+// パソコン（マウス）では、画面をクリックするとカーソルが消え、マウスを動かすだけで見渡せる（FPS のように）。Esc でカーソルにもどる。
+// 猫の上で押すと「なでる」、短く離すと「触れる」（マウスで見渡しているときは、画面のまん中の猫）。
 import * as THREE from 'three';
 import { clamp, damp } from './util.js';
 
 export class LookControls {
-  constructor(camera, dom, { pickables = () => [], onPoke, onStroke, onRelease, onHover } = {}) {
+  constructor(camera, dom, { pickables = () => [], onPoke, onStroke, onRelease, onHover, onLockChange } = {}) {
     this.camera = camera;
     this.dom = dom;
     this.yaw = 0;
@@ -22,9 +23,20 @@ export class LookControls {
     this.pointer = new THREE.Vector2();
     this.raycaster = new THREE.Raycaster();
     this.pickables = pickables;
-    this.cb = { onPoke, onStroke, onRelease, onHover };
+    this.cb = { onPoke, onStroke, onRelease, onHover, onLockChange };
     this.basePos = camera.position.clone();
     camera.rotation.order = 'YXZ';
+
+    // パソコン（マウスがおもな入力）だけ、マウスの動きで見渡す。感度は 1〜20（10 がふつう）
+    this.mouseLook = typeof matchMedia !== 'undefined' && matchMedia('(hover: hover) and (pointer: fine)').matches;
+    this.sensitivity = (() => { try { return +localStorage.getItem('onomichi-mouse-sens') || 10; } catch { return 10; } })();
+    this.locked = false;
+    document.addEventListener('pointerlockchange', () => {
+      this.locked = document.pointerLockElement === this.dom;
+      document.body.classList.toggle('mouselook', this.locked);
+      if (!this.locked && this.petting) this._up();
+      this.cb.onLockChange?.(this.locked);
+    });
 
     this.activePointer = null; // 見渡しに使っている指（2本目の指＝「歩く」ボタンなどは無視する）
     dom.addEventListener('pointerdown', (e) => this._down(e));
@@ -39,7 +51,7 @@ export class LookControls {
     }, { passive: false });
     this.keyLook = true; // 歩いているときは矢印キーを移動に使う
     window.addEventListener('keydown', (e) => {
-      if (e.target.closest?.('input, textarea')) return; // 日記を書いているあいだは操作しない
+      if (e.target.closest?.('input, textarea, select')) return; // 日記を書いているあいだ（つまみ・選択肢を操作しているあいだも）は操作しない
       if (!this.keyLook || !this.enabled) return;
       const step = 0.25;
       if (e.key === 'ArrowLeft') this.targetYaw += step;
@@ -50,17 +62,30 @@ export class LookControls {
   }
 
   touch() { this.lastInput = performance.now(); }
+  setSensitivity(v) {
+    this.sensitivity = clamp(v, 1, 20);
+    try { localStorage.setItem('onomichi-mouse-sens', String(this.sensitivity)); } catch { /* ignore */ }
+  }
+  /** マウスの見渡しをやめて、カーソルを出す（地図や持ち物を開くとき） */
+  unlock() { if (this.locked) document.exitPointerLock?.(); }
   get idleSeconds() { return (performance.now() - this.lastInput) / 1000; }
 
   _hit(e) {
     const r = this.dom.getBoundingClientRect();
-    this.pointer.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    if (this.locked) this.pointer.set(0, 0);   // マウスで見渡しているときは、画面のまん中
+    else this.pointer.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
     this.raycaster.setFromCamera(this.pointer, this.camera);
     return this.raycaster.intersectObjects(this.pickables(), false)[0];
   }
 
   _down(e) {
     if (!this.enabled || this.activePointer !== null) return;
+    // パソコン：まだカーソルが出ているときのクリックは、マウスで見渡すモードに入る（猫の上なら、そのままなでる）
+    if (this.mouseLook && e.pointerType === 'mouse' && !this.locked && !(e.button === 0 && this._hit(e))) {
+      if (e.button === 0) this.dom.requestPointerLock?.();
+      return;
+    }
+    if (e.pointerType === 'mouse' && e.button !== 0) return;   // なでるのは左クリック
     this.activePointer = e.pointerId;
     this.touch();
     this.dom.setPointerCapture?.(e.pointerId);
@@ -68,15 +93,31 @@ export class LookControls {
     const hit = this._hit(e);
     if (hit) {
       this.petting = true;
+      this.petMoved = 0;
       this.petTarget = hit.object;
       return;
     }
+    if (this.locked) { this.activePointer = null; return; }   // マウスで見渡しているときは、ドラッグはいらない
     this.dragging = true;
     this.last = { x: e.clientX, y: e.clientY };
     document.body.classList.add('dragging');
   }
 
   _move(e) {
+    if (this.locked) {
+      if (!this.enabled) return;
+      // マウスの動きで、そのまま首を振る（慣性なし）
+      this.touch();
+      const k = 0.00022 * this.sensitivity * (this.fov / 55);
+      this.targetYaw -= e.movementX * k;
+      this.targetPitch = clamp(this.targetPitch - e.movementY * k, -1.0, 0.55);
+      if (this.petting) {
+        this.petMoved = (this.petMoved || 0) + Math.abs(e.movementX) + Math.abs(e.movementY);
+        if (this.petMoved > 120) this._up();
+      }
+      this.cb.onHover?.(!!this._hit(e));
+      return;
+    }
     if (this.activePointer !== null && e.pointerId !== this.activePointer) return;
     if (!this.enabled) return;
     if (this.dragging) {
@@ -132,8 +173,10 @@ export class LookControls {
 
   update(dt, elapsed) {
     if (this.petting) this.cb.onStroke?.(dt, this.petTarget);
-    this.yaw = damp(this.yaw, this.targetYaw, 4, dt);
-    this.pitch = damp(this.pitch, this.targetPitch, 4, dt);
+    // マウスで見渡しているときは、手の動きにすぐついてくる
+    const follow = this.locked ? 28 : 4;
+    this.yaw = damp(this.yaw, this.targetYaw, follow, dt);
+    this.pitch = damp(this.pitch, this.targetPitch, follow, dt);
     this.fov = damp(this.fov, this.targetFov, 4, dt);
     // 呼吸のようなごくわずかな揺れ
     const breath = Math.sin(elapsed * 0.9);

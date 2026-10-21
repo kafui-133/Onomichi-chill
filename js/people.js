@@ -36,6 +36,14 @@ const TALK = {
     { lines: ['おはようございます。これから仕事なんです。', '向島から渡船で通ってるんですよ。橋もあるけど、こっちのほうが早いし、気持ちいい。', 'それじゃ、いってきます。'], hours: [0, 12] },
   ],
 };
+// 祭りの日のひとこと（会話の終わりの前に入る）
+const EVENT_LINE = {
+  sakura: { stroller: '桜がちょうど見ごろじゃけえ、千光寺公園まで上がってみんさい。夜はぼんぼりがきれいなんよ。', traveler: 'さくら祭りなんですって。山の上が、桜でピンク色に見えました。' },
+  minato: { stroller: '今日はみなと祭よ。海岸通りに屋台がずらっと出とるけえ、行ってみんさい。', traveler: '踊りの行列、見ました？ 太鼓の音が、ずっと響いてて。' },
+  hanabi: { stroller: '今夜は住吉さんの花火じゃけえ。海の上に上がるんよ。どこから見てもええよ。', traveler: '花火大会に合わせて来たんです。浴衣、似合ってます？' },
+  cosplay: { stroller: '駅前で仮装のお祭りしよるんよ。いろんな格好の人がおって、見とるだけで楽しいよ。', traveler: '駅前の仮装の人たち、すごかったですね。写真をたくさん撮っちゃいました。' },
+  beccha: { stroller: 'ベッチャーの鬼に会うたら、たたかれときんさい。一年、病気せんようになるんよ。', traveler: '鬼に追いかけられて、子どもが泣いてました。でも、それが縁起がいいんですって。' },
+};
 const AKARI_LINE = { stroller: '今夜は灯りまつりじゃけえ、坂の上まで行ってみんさい。ろうそくがずうっと並んどるよ。', traveler: '今夜は灯りまつりなんですって。それが見たくて、もう一泊することにしました。' };
 
 // 種類ごとの、見た目・速さ・いる時間・人数
@@ -58,7 +66,7 @@ const PAL = {
 
 // ---------- かたち（共有のジオメトリ） ----------
 let G = null;
-function geos() {
+export function geos() {
   if (G) return G;
   const leg = new THREE.CapsuleGeometry(0.068, 0.66, 3, 8); leg.translate(0, -0.4, 0);
   const arm = new THREE.CapsuleGeometry(0.05, 0.46, 3, 8); arm.translate(0, -0.27, 0);
@@ -75,10 +83,10 @@ function geos() {
   return G;
 }
 const MATS = new Map();
-const mat = (c) => { if (!MATS.has(c)) MATS.set(c, lam(c)); return MATS.get(c); };
+export const mat = (c) => { if (!MATS.has(c)) MATS.set(c, lam(c)); return MATS.get(c); };
 
 /** 人をひとり組み立てる。正面は +Z。足もとが原点 */
-function buildPerson(kind, r) {
+export function buildPerson(kind, r) {
   const g = geos();
   const pick = (a) => a[Math.floor(r() * a.length)];
   const root = new THREE.Group();
@@ -276,6 +284,7 @@ export class People {
       const set = sets[p.talk % sets.length];
       const lines = [...set.lines];
       if (event === 'akari' && AKARI_LINE[p.kind] && hour > 15) lines.splice(lines.length - 1, 0, AKARI_LINE[p.kind]);
+      else if (EVENT_LINE[event]?.[p.kind]) lines.splice(lines.length - 1, 0, EVENT_LINE[event][p.kind]);
       this.talking = { p, lines, i: 0 };
       p.talk++;   // 次に話すときは、別の話
     } else this.talking.i++;
