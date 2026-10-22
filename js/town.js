@@ -81,12 +81,15 @@ const MODEL_FITS = (() => {
   return out;
 })();
 
+const SMALL_SHRINES = ['住吉神社', '吉備津彦神社'];
 // 名所の境内：まわりを埋める家や木を置かず、OpenStreetMap の小さな建物（境内のお堂など）も模型にまかせる
 const PRECINCTS = [
   MODEL_FITS.senkoji && { ...MODEL_FITS.senkoji, r: 19 },
   MODEL_FITS.ushitora && { ...MODEL_FITS.ushitora, r: 18 },
   ...[['天寧寺三重塔', 9]].map(([n, r]) => { const p = POIS.find((q) => q.n === n); return p && { x: p.x, z: p.z, r }; }),
   (() => { const p = POIS.find((q) => q.n === '尾道城'); return p && { x: p.x, z: p.z, r: 20 }; })(),
+  // 町なかの小さな神社（住吉神社・吉備津彦神社）：地図の箱の代わりに、社殿と鳥居を建てる
+  ...SMALL_SHRINES.map((n) => { const p = POIS.find((q) => q.n === n); return p && { x: p.x, z: p.z, r: 8 }; }),
   // 空き家の上の、竹田像の広場と、みはらし亭
   { x: TAKEDA_PLAZA.x, z: TAKEDA_PLAZA.z, r: TAKEDA_PLAZA.r + 1 },
   (() => { const p = POIS.find((q) => q.n === 'みはらし亭') || { x: 25, z: 35 }; const y = downhillYaw(p.x, p.z, 6); return { x: p.x + Math.sin(y) * 6.5, z: p.z + Math.cos(y) * 6.5, r: 6 }; })(),
@@ -273,6 +276,7 @@ export class Town {
     this._mihara();
     this._fuji();
     this._underpasses();
+    this._smallShrines();
     this._train();
     this._mergeStatic();
   }
@@ -4896,6 +4900,147 @@ export class Town {
       this.underLightMat = new THREE.MeshLambertMaterial({ color: 0xeef2f0, emissive: 0xf0f4ff, emissiveIntensity: 0.4 });
       this.specialSignMats.push(this.underLightMat);
       this.group.add(instancedBoxes(lights, this.underLightMat, { cast: false }));
+    }
+  }
+
+  /**
+   * 町なかの小さな神社：石の鳥居、短い参道（敷石）、狛犬ひと組、石灯籠、手水鉢、朱塗りの拝殿と、うしろの本殿、玉垣。
+   *   住吉神社：海の神さま。海岸通りに面して、海のほうを向く。夏の住吉花火まつりの神社
+   *   吉備津彦神社（一宮神社）：宝土寺のとなりの坂の上。秋のベッチャー祭りの神社。鬼の面の絵馬と、祝い棒
+   */
+  _smallShrines() {
+    for (const name of SMALL_SHRINES) {
+      const P = POIS.find((q) => q.n === name);
+      if (!P) continue;
+      const r = seededRandom('shrine' + name);
+      const sea = name === '住吉神社';
+      const face = downhillYaw(P.x, P.z, 10);   // 正面は坂の下（住吉さんは海）へ
+      const fx = Math.sin(face), fz = Math.cos(face), sx = Math.cos(face), sz = -Math.sin(face);
+      const at = (u, v) => ({ x: P.x + sx * u + fx * v, z: P.z + sz * u + fz * v });   // u=横、v=前
+      const y0 = groundY(P.x, P.z);
+      const g = new THREE.Group();
+      g.position.set(P.x, y0, P.z);
+      g.rotation.y = face;
+      const add = (geo, color, x, y, z, ry = 0) => { const m = new THREE.Mesh(geo, typeof color === 'number' ? lam(color) : color); m.position.set(x, y, z); m.rotation.y = ry; m.castShadow = m.receiveShadow = true; g.add(m); return m; };
+      // 境内の地面（玉砂利）と、坂の下側は石垣で受ける（宙に浮かないように、いちばん低い地面まで積む）
+      let low = 0;
+      for (const u of [-5.5, 0, 5.5]) for (const v of [-6.5, 0, 6.5]) { const q = at(u, v); low = Math.min(low, terrainY(q.x, q.z) - y0); }
+      const baseH = 0.5 - low + 0.4;
+      add(new THREE.BoxGeometry(11, baseH, 13), new THREE.MeshLambertMaterial({ color: 0xc4beb2, map: this._texture('wall') }), 0, 0.1 - baseH / 2, 0);
+      add(new THREE.BoxGeometry(10.9, 0.04, 12.9), 0xb8b2a6, 0, 0.11, 0);
+      // 本殿（うしろ、一段高く）と拝殿（前）。朱の柱、白い壁、銅板の緑の屋根
+      const vermilion = 0xc8442e, roofC = sea ? 0x4e7a6a : 0x3c4148;
+      const honden = this._hall(3.2, 3, 2.6, { wall: 0xf2eee4, roof: roofC, plaster: 0xf2eee4, base: 0xa8a296 });
+      honden.position.set(0, 0.6, -4);
+      g.add(honden);
+      const haiden = this._hall(5.4, 3.6, 2.8, { wall: vermilion, roof: roofC, plaster: 0xf2eee4, base: 0xa8a296 });
+      haiden.position.set(0, 0.2, -0.2);
+      g.add(haiden);
+      // 拝殿の正面：しめ縄と紙垂、鈴と鈴緒、賽銭箱
+      const rope = add(new THREE.CylinderGeometry(0.11, 0.11, 4.2, 8), 0xd8c890, 0, 3.1, 1.75);
+      rope.rotation.z = Math.PI / 2;
+      for (const u of [-1.2, 0, 1.2]) add(new THREE.BoxGeometry(0.14, 0.4, 0.02), 0xffffff, u, 2.75, 1.82);
+      add(new THREE.SphereGeometry(0.16, 10, 8), new THREE.MeshLambertMaterial({ color: 0xd8b048, emissive: 0x302008 }), 0, 2.85, 1.9);
+      add(new THREE.CylinderGeometry(0.03, 0.03, 1.6, 6), 0xc8302a, 0, 2.0, 1.92);
+      add(new THREE.BoxGeometry(1.0, 0.55, 0.5), 0x5a3e2c, 0, 0.6, 2.35);
+      // 玉垣（低い石の柵）を、社殿のまわりに
+      for (let k = -5; k <= 5; k++) for (const [u, v, ry] of [[k, -5.8, 0], [-5.2, k * 0.95 - 0.8, Math.PI / 2], [5.2, k * 0.95 - 0.8, Math.PI / 2]]) {
+        if (Math.abs(v) > 6) continue;
+        add(new THREE.BoxGeometry(0.18, 0.75, 0.18), 0xb4aea2, u, 0.48, v);
+        add(new THREE.BoxGeometry(0.95, 0.1, 0.12), 0xb4aea2, u, 0.8, v, ry);
+      }
+      // 参道の敷石と、両わきの石灯籠・狛犬
+      for (let v = 2.6; v < 9; v += 0.9) add(new THREE.BoxGeometry(1.6, 0.08, 0.82), new THREE.Color().setScalar(0.62 + r() * 0.06).getHex(), 0, 0.12, v);
+      for (const u of [-1.6, 1.6]) {
+        // 狛犬：台座にすわる、口をあけた獅子
+        const dog = new THREE.Group();
+        const st = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.8, 0.9), lam(0xa8a296)); st.position.y = 0.4;
+        const body = new THREE.Mesh(new THREE.SphereGeometry(0.32, 10, 8), lam(0x9a958a)); body.scale.set(0.8, 1.1, 1); body.position.set(0, 1.12, -0.05);
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.24, 10, 8), lam(0x9a958a)); head.position.set(0, 1.55, 0.12);
+        const mane = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.08, 6, 12), lam(0x8e897e)); mane.position.set(0, 1.52, 0.05);
+        for (const m of [st, body, head, mane]) { m.castShadow = true; dog.add(m); }
+        dog.position.set(u, 0.1, 5.2);
+        dog.rotation.y = -Math.sign(u) * 0.35;   // 参道のほうを向く
+        g.add(dog);
+        // 石灯籠
+        add(new THREE.BoxGeometry(0.5, 0.2, 0.5), 0xa8a296, u * 1.6, 0.2, 7);
+        add(new THREE.CylinderGeometry(0.12, 0.14, 1.0, 8), 0xa8a296, u * 1.6, 0.8, 7);
+        add(new THREE.BoxGeometry(0.42, 0.38, 0.42), this.lanternMat || lam(0xa8a296), u * 1.6, 1.5, 7);
+        const cap = add(new THREE.ConeGeometry(0.42, 0.32, 4), 0xa8a296, u * 1.6, 1.86, 7);
+        cap.rotation.y = Math.PI / 4;
+      }
+      // 手水鉢（参道の左わき）
+      add(new THREE.BoxGeometry(1.0, 0.6, 0.6), 0x9a958a, -3.4, 0.4, 3.6);
+      add(new THREE.BoxGeometry(0.85, 0.05, 0.45), new THREE.MeshLambertMaterial({ color: 0x5a7a8a, emissive: 0x0a1418 }), -3.4, 0.71, 3.6);
+      // 石の鳥居（明神鳥居）：参道の入口
+      const tor = new THREE.Group();
+      const stone = lam(0xb4aea2);
+      for (const u of [-1.55, 1.55]) { const post = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.21, 3.8, 12), stone); post.position.set(u, 1.9, 0); tor.add(post); }
+      const kasagi = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.3, 0.42), stone); kasagi.position.y = 3.9;
+      const shimaki = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.18, 0.36), stone); shimaki.position.y = 3.68;
+      const nuki = new THREE.Mesh(new THREE.BoxGeometry(3.9, 0.2, 0.22), stone); nuki.position.y = 3.05;
+      const gaku = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.62), new THREE.MeshLambertMaterial({ map: labelTexture(name.replace('神社', ''), { w: 128, h: 192, size: 46, bg: '#2a2622', fg: '#e8d8a0', vertical: true }) }));
+      gaku.position.set(0, 3.38, 0.13);
+      tor.add(kasagi, shimaki, nuki, gaku);
+      tor.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+      // 鳥居の足もとは参道の入口（境内の外の、道の高さ）
+      const tp = at(0, 9.6);
+      const ty = groundY(tp.x, tp.z) - y0;
+      tor.position.set(0, ty - 0.05, 9.6);
+      g.add(tor);
+      // 鳥居から境内へ：高さがちがえば石段でつなぐ
+      if (Math.abs(ty - 0.1) > 0.25) {
+        const n = Math.ceil(Math.abs(ty - 0.1) / 0.18);
+        for (let k = 0; k < n; k++) {
+          const t = (k + 0.5) / n, yy = 0.1 + (ty - 0.1) * t, vv = 6.5 + 3.1 * t;
+          add(new THREE.BoxGeometry(2.2, Math.abs(ty - 0.1) / n + 0.02, 3.1 / n + 0.02), 0xb4aea2, 0, yy - Math.sign(ty - 0.1) * 0.0, vv);
+        }
+      }
+      // 祭りの神社らしいもの
+      if (sea) {
+        // 海の神さま：境内に錨（いかり）と、奉納の小さな船の模型
+        const anchor = new THREE.Group();
+        const shank = new THREE.Mesh(new THREE.BoxGeometry(0.16, 1.6, 0.16), lam(0x2a2c2e)); shank.position.y = 0.95;
+        const arm = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.07, 6, 16, Math.PI), lam(0x2a2c2e)); arm.rotation.z = Math.PI; arm.position.y = 0.6;
+        const stock = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.1, 0.1), lam(0x2a2c2e)); stock.position.y = 1.6;
+        anchor.add(shank, arm, stock);
+        anchor.position.set(3.4, 0.1, 3.0);
+        g.add(anchor);
+        const boat = add(new THREE.BoxGeometry(0.9, 0.25, 0.3), 0x8a5a3a, 3.4, 0.62, 4.4);
+        boat.rotation.y = 0.4;
+      } else {
+        // ベッチャーの神社：絵馬掛け（鬼の面の絵馬）と、祝い棒を立てた台
+        add(new THREE.BoxGeometry(2.2, 0.08, 0.1), 0x5a3e2c, 3.3, 1.6, 2.8);
+        for (const u of [2.3, 4.3]) add(new THREE.BoxGeometry(0.1, 1.6, 0.1), 0x5a3e2c, u, 0.85, 2.8);
+        const emaTex = canvasTexture(64, 48, (c, w, h) => {
+          c.fillStyle = '#d8c8a0'; c.beginPath(); c.moveTo(0, 14); c.lineTo(w / 2, 0); c.lineTo(w, 14); c.lineTo(w, h); c.lineTo(0, h); c.fill();
+          c.fillStyle = '#c8302a'; c.beginPath(); c.arc(w / 2, 28, 12, 0, Math.PI * 2); c.fill();
+          c.fillStyle = '#1a1010'; c.fillRect(w / 2 - 8, 24, 5, 3); c.fillRect(w / 2 + 3, 24, 5, 3); c.fillRect(w / 2 - 5, 33, 10, 2);
+        });
+        const emaM = new THREE.MeshLambertMaterial({ map: emaTex });
+        for (let k = 0; k < 8; k++) { const e = new THREE.Mesh(new THREE.PlaneGeometry(0.24, 0.18), emaM); e.position.set(2.45 + k * 0.25, 1.45 - (k % 2) * 0.05, 2.86); e.rotation.z = (r() - 0.5) * 0.2; g.add(e); }
+        for (let k = 0; k < 3; k++) { const st = add(new THREE.CylinderGeometry(0.025, 0.03, 1.4, 6), 0xd8c8a0, -3.2 + k * 0.25, 0.8, 1.6); st.rotation.z = (k - 1) * 0.12; }
+      }
+      // 境内の木：住吉さんは松、一宮さんは楠
+      for (const [u, v] of [[-4.2, -3.5], [4.2, -3]]) {
+        const p = at(u, v);
+        const tr = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.35, 5, 7), lam(0x4e3a2e));
+        tr.position.set(u, 2.5, v);
+        tr.rotation.z = sea ? (u > 0 ? -0.15 : 0.12) : 0;
+        g.add(tr);
+        for (let k = 0; k < 4; k++) {
+          const c = new THREE.Mesh(sea ? new THREE.CylinderGeometry(1.4, 1.6, 0.5, 7) : new THREE.IcosahedronGeometry(1.6, 1), lam(sea ? 0x2f4a2e : 0x355c30, { flatShading: true }));
+          c.position.set(u + (r() - 0.5) * 1.6, 4.4 + k * (sea ? 0.55 : 0.8), v + (r() - 0.5) * 1.6);
+          c.castShadow = true;
+          g.add(c);
+        }
+        addSolid(p.x, p.z, 0.6, 0.6, 0);
+      }
+      this.group.add(g);
+      // 社殿のところは歩けない。参道（前）は歩ける
+      const hc = at(0, -2);
+      addSolid(hc.x, hc.z, 6.5, 7.5, -face);
+      this.lampPositions.push([at(-2.6, 7).x, y0 + 1.5, at(-2.6, 7).z], [at(2.6, 7).x, y0 + 1.5, at(2.6, 7).z]);
     }
   }
 
