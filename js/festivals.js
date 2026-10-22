@@ -5,7 +5,7 @@
 //   仮装・コスプレ オノミチフェスタ：駅前の芝生の広場に、仮装した人と、白いテントのマルシェ
 //   ベッチャー祭り：面をつけた3体の鬼（ソバ・ベタ・ショーキー）が商店街を歩き、近づくと祝い棒でたたく。神輿も通る
 import * as THREE from 'three';
-import { ROADS, COAST, SUMMIT, ARCADE_ROADS, samplePath, roadLength, groundY, surfaceY, terrainY, SEA_Y, nearAnyRoad, inBuilding, inSolid, onOnomichiSide, straitAt, walkable } from './townMap.js';
+import { ROADS, POIS, COAST, SUMMIT, ARCADE_ROADS, samplePath, roadLength, groundY, surfaceY, terrainY, SEA_Y, nearAnyRoad, inBuilding, inSolid, onOnomichiSide, straitAt, walkable } from './townMap.js';
 import { lam, labelTexture } from './townKit.js';
 import { buildPerson, mat } from './people.js';
 import { canvasTexture, glowTexture, seededRandom, damp } from './util.js';
@@ -489,7 +489,9 @@ export class Festivals {
     const g = this._group(), r = seededRandom('hanabi-fes');
     const stalls = this._stalls(g, -150, 300, LITE ? 10 : 16, 'hanabi-stalls');
     const people = this._people(g, stalls, yukata, LITE ? 12 : 30, r);
-    const lx = -60, lz = straitAt(lx).z + 25;
+    // 打ち上げは、住吉神社の前の海（尾道水道）に浮かべた台船から
+    const sumi = POIS.find((q) => q.n === '住吉神社');
+    const lx = sumi ? sumi.x + 30 : -60, lz = straitAt(lx).z + 25;
     this.fw = new Fireworks(this.scene, { x: lx, y: SEA_Y + 2, z: lz }, LITE);
     this.fw.onBurst = (x, y, z) => this.burst?.(x, y, z);
     // 打ち上げの台船
