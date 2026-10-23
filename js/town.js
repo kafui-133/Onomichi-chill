@@ -1458,13 +1458,38 @@ export class Town {
         shrubs.push({ x, y: ground + s * 0.45, z, sx: s * 1.2, sy: s, sz: s * 1.2, color: leaf() });
       }
     }
+    // 葉のかたまり：いくつかの丸を寄せた、でこぼこの樹冠。下ほど暗く、上ほど明るく（頂点の色を、木ごとの色に掛ける）
+    const shade = (g, lo = 0.55) => {
+      g.computeBoundingBox();
+      const { min, max } = g.boundingBox, pos = g.attributes.position, col = new Float32Array(pos.count * 3);
+      for (let i = 0; i < pos.count; i++) {
+        const t = (pos.getY(i) - min.y) / (max.y - min.y || 1);
+        const v = lo + (1 - lo) * Math.min(1, t * 1.25);
+        col[i * 3] = v * 0.97; col[i * 3 + 1] = v; col[i * 3 + 2] = v * 0.92;
+      }
+      g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      return g;
+    };
+    const lobes = (list) => mergeGeometries(list.map(([x, y, z, rad]) => new THREE.IcosahedronGeometry(rad, 0).translate(x, y, z)));
+    const clumpGeo = shade(lobes([[0, -0.05, 0, 0.82], [0.5, 0.1, 0.25, 0.58], [-0.42, 0.05, 0.38, 0.6], [-0.1, 0.05, -0.52, 0.58], [0.08, 0.5, 0.02, 0.6]]));
+    const simpleGeo = shade(new THREE.IcosahedronGeometry(1, 0), 0.62);
+    const vmat = lam(0xffffff, { flatShading: true, vertexColors: true });
     const mat = lam(0xffffff, { flatShading: true });
-    this.group.add(instancedChunks(broad, mat, { geo: new THREE.IcosahedronGeometry(1, 0) }));
+    // 町なかと坂の木（海から50mまで）は、でこぼこの樹冠と幹。上の森は、軽い丸のまま
+    const townTrees = broad.filter((b) => b.y - SEA_Y < 50), forestTrees = broad.filter((b) => b.y - SEA_Y >= 50);
+    // 町の木は、幹が見えるくらい樹冠を持ち上げる（窓からの眺めをふさがない範囲で）
+    for (const b of townTrees) b.y += Math.max(0, Math.min(b.sx * 0.22, viewCap(b.x, b.z) - (b.y + b.sy) - 0.3));
+    this.group.add(instancedChunks(townTrees, vmat, { geo: clumpGeo }));
+    this.group.add(instancedChunks(forestTrees, vmat, { geo: simpleGeo }));
+    this.group.add(instancedChunks(townTrees.map((b) => {
+      const g = terrainY(b.x, b.z), top = b.y - b.sy * 0.35;
+      return { x: b.x, y: (g + top) / 2 - 0.2, z: b.z, sx: 0.15 * b.sx + 0.08, sy: top - g + 0.4, sz: 0.15 * b.sx + 0.08, color: new THREE.Color().setHSL(0.07, 0.18, 0.2 + ((b.x * 7.1 + b.z) % 1 + 1) % 1 * 0.08) };
+    }), lam(0xffffff), { geo: new THREE.CylinderGeometry(0.7, 1, 1, 5), receive: false }));
     // 松：葉の段（つぶした円錐）
     const pineGeo = new THREE.ConeGeometry(1, 1, 7);
     this.group.add(instancedChunks(pines, mat, { geo: pineGeo }));
     this.group.add(instancedChunks(pines.map((p) => ({ x: p.x, y: p.y - p.sy * 1.6, z: p.z, sx: 0.12, sy: p.sy * 2.6, sz: 0.12, color: new THREE.Color(0x4a3a2c) })), lam(0xffffff), { geo: new THREE.CylinderGeometry(1, 1, 1, 5) }));
-    this.group.add(instancedChunks(shrubs, mat, { geo: new THREE.IcosahedronGeometry(1, 0), cast: false }));
+    this.group.add(instancedChunks(shrubs, vmat, { geo: shade(lobes([[0, 0, 0, 0.8], [0.45, -0.1, 0.2, 0.55], [-0.4, -0.1, -0.25, 0.55]]), 0.6), cast: false }));
   }
 
   /** 空き家の外観：石垣の土台、瓦屋根、戸口 */
