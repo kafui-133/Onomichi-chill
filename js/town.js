@@ -4348,7 +4348,7 @@ export class Town {
   _seaside() {
     const r = this.r;
     const tb = new TriBatch();
-    const rail = [], bitts = [], planters = [], trunks = [], crowns = [], hulls = [], cabins = [];
+    const rail = [], bitts = [], planters = [], trunks = [], crowns = [], hulls = [], cabins = [], fenders = [], ropes = [];
     const tileA = new THREE.Color('#bdb4a3'), tileB = new THREE.Color('#ada392'), edgeC = new THREE.Color('#8a8072');
     const piers = POIS.filter((p) => p.k === 'ferry_terminal');
     let lastTree = -99, run = 0;
@@ -4391,13 +4391,36 @@ export class Town {
           // 係船柱（黒い、頭のふくらんだ短い柱）
           const x = a.x + nx * 0.6, z = a.z + nz * 0.6, y = groundY(x, z);
           bitts.push({ x, y: y + 0.25, z, sx: 0.32, sy: 0.5, sz: 0.32, color: '#25272a' });
+          // 岸壁の、古タイヤの防舷材（水面の少し上に、ロープでつるす）
+          const fy = (gy + SEA_Y) / 2 + 0.2;
+          fenders.push({ x: a.x - nx * 0.12, y: fy, z: a.z - nz * 0.12, sx: 0.7, sy: 0.7, sz: 0.7, ry: ry + Math.PI / 2, color: '#1e1f20' });
+          ropes.push(new THREE.Vector3(a.x - nx * 0.05, gy, a.z - nz * 0.05), new THREE.Vector3(a.x - nx * 0.1, fy + 0.3, a.z - nz * 0.1));
           // ときどき、小舟をつないでおく（海側に水があるところだけ）
-          if (r() < 0.45 && demAt(a.x - nx * 3, a.z - nz * 3) < SEA_Y - 0.5) {
-            const bx = a.x - nx * 1.7, bz = a.z - nz * 1.7, by = SEA_Y + 0.2;
-            const white = r() < 0.7;
-            hulls.push({ x: bx, y: by, z: bz, sx: 4.4, sy: 0.75, sz: 1.6, ry, color: white ? '#ece9e2' : '#5a7a8a' });
-            hulls.push({ x: bx, y: by + 0.2, z: bz, sx: 4.42, sy: 0.12, sz: 1.62, ry, color: white ? '#2a5a8a' : '#e8e4da' });
-            if (r() < 0.6) cabins.push({ x: bx + Math.cos(a.angle) * 0.6, y: by + 0.75, z: bz + Math.sin(a.angle) * 0.6, sx: 1.3, sy: 0.8, sz: 1.2, ry, color: '#f4f2ec' });
+          if (r() < 0.45 && demAt(a.x - nx * 4, a.z - nz * 4) < SEA_Y - 0.5) {
+            const bx = a.x - nx * 2.7, bz = a.z - nz * 2.7, by = SEA_Y + 0.25;
+            const white = r() < 0.7, flip = r() < 0.5 ? 0 : Math.PI, tx = Math.cos(a.angle) * (flip ? -1 : 1), tz = Math.sin(a.angle) * (flip ? -1 : 1);
+            const len = 4 + r() * 1.6;
+            hulls.push({ x: bx, y: by, z: bz, sx: len, sy: 0.8, sz: 1.6, ry: ry + flip, color: white ? '#ece9e2' : ['#5a7a8a', '#7a4a3a', '#3e5a7a'][Math.floor(r() * 3)] });
+            hulls.push({ x: bx, y: by + 0.24, z: bz, sx: len * 1.01, sy: 0.1, sz: 1.62, ry: ry + flip, color: white ? ['#2a5a8a', '#b03a2e', '#2a7a5a'][Math.floor(r() * 3)] : '#e8e4da' });
+            hulls.push({ x: bx, y: by + 0.36, z: bz, sx: len * 0.9, sy: 0.04, sz: 1.4, ry: ry + flip, color: '#8a6e50' });   // 甲板（板張り）
+            // 船外機（とも＝船尾に、黒い箱と、水へのびる足）
+            const sx0 = bx - tx * len * 0.52, sz0 = bz - tz * len * 0.52;
+            cabins.push({ x: sx0, y: by + 0.7, z: sz0, sx: 0.36, sy: 0.5, sz: 0.3, ry, color: '#2a2c30' });
+            cabins.push({ x: sx0 - tx * 0.05, y: by + 0.15, z: sz0 - tz * 0.05, sx: 0.08, sy: 0.7, sz: 0.12, ry, color: '#3a3c40' });
+            if (r() < 0.55) {
+              // 小さな操舵室：白い箱に、まわりの窓（暗い帯）と屋根
+              cabins.push({ x: bx + tx * 0.4, y: by + 0.75, z: bz + tz * 0.4, sx: 1.0, sy: 0.75, sz: 0.95, ry, color: '#f4f2ec' });
+              cabins.push({ x: bx + tx * 0.4, y: by + 0.88, z: bz + tz * 0.4, sx: 1.02, sy: 0.26, sz: 0.97, ry, color: '#3a4652' });
+              cabins.push({ x: bx + tx * 0.4, y: by + 1.15, z: bz + tz * 0.4, sx: 1.15, sy: 0.06, sz: 1.08, ry, color: '#e8e4dc' });
+            }
+            else for (let k = 0; k < 2; k++) cabins.push({ x: bx + tx * (k - 0.3) * 1.1, y: by + 0.48, z: bz + tz * (k - 0.3) * 1.1, sx: 0.25, sy: 0.12, sz: 1.3, ry, color: '#a0825e' });   // 腰掛けの板
+            // もやい綱（係船柱から、舟のへさきへ。少したるませる）
+            const hx = bx + tx * len * 0.45, hz = bz + tz * len * 0.45;
+            let prev = new THREE.Vector3(x, y + 0.45, z);
+            for (let k = 1; k <= 5; k++) {
+              const t = k / 5, q = new THREE.Vector3(x + (hx - x) * t, y + 0.45 + (by + 0.45 - y - 0.45) * t - Math.sin(t * Math.PI) * 0.35, z + (hz - z) * t);
+              ropes.push(prev, q); prev = q;
+            }
           }
         }
         // 植えこみ（約28m ごと）：コンクリートの鉢に、松か桜
@@ -4429,9 +4452,21 @@ export class Town {
       this.group.add(instancedChunks(crowns, lam(0xffffff, { flatShading: true }), { geo: new THREE.IcosahedronGeometry(0.6, 1) }));
     }
     if (hulls.length) {
-      this.group.add(instancedChunks(hulls, lam(0xffffff)));
+      // 舟の形：上から見て、へさきのとがった形を、縦にのばしたもの（底は少しすぼめる）
+      const sh = new THREE.Shape();
+      sh.moveTo(-0.5, -0.42); sh.lineTo(0.12, -0.5); sh.quadraticCurveTo(0.42, -0.42, 0.5, 0); sh.quadraticCurveTo(0.42, 0.42, 0.12, 0.5); sh.lineTo(-0.5, 0.42); sh.lineTo(-0.5, -0.42);
+      const hullGeo = new THREE.ExtrudeGeometry(sh, { depth: 1, bevelEnabled: false, curveSegments: 6 });
+      hullGeo.rotateX(-Math.PI / 2);
+      hullGeo.translate(0, -0.5, 0);
+      hullGeo.scale(1, 1, -1);   // 面の向き（表）を外側に（左右対称なので形は変わらない）
+      const hp = hullGeo.attributes.position;
+      for (let i = 0; i < hp.count; i++) if (hp.getY(i) < 0) { hp.setX(i, hp.getX(i) * 0.9); hp.setZ(i, hp.getZ(i) * 0.7); }
+      hullGeo.computeVertexNormals();
+      this.group.add(instancedChunks(hulls, lam(0xffffff), { geo: hullGeo }));
       if (cabins.length) this.group.add(instancedChunks(cabins, lam(0xffffff)));
     }
+    if (fenders.length) this.group.add(instancedChunks(fenders, lam(0xffffff), { detail: 80, geo: new THREE.TorusGeometry(0.36, 0.13, 6, 12) }));
+    if (ropes.length) this.group.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(ropes), new THREE.LineBasicMaterial({ color: 0xd8cfb0 })));
   }
 
   /**
