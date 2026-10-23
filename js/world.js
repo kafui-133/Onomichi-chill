@@ -41,6 +41,7 @@ export class World {
     const q = new THREE.Quaternion();
     const c = new THREE.Color();
     const windows = [];
+    const glass = [], frames = [];   // 昼も見える窓（暗いガラスに白い枠）
     list.forEach((h, i) => {
       q.setFromEuler(new THREE.Euler(0, h.rot, 0));
       m.compose(new THREE.Vector3(h.x, h.y, h.z), q, new THREE.Vector3(h.w, h.h, h.d));
@@ -49,6 +50,21 @@ export class World {
       m.compose(new THREE.Vector3(h.x, h.y + h.h + h.roofH * 0.25, h.z), q, new THREE.Vector3(h.w * 1.08, h.roofH, h.d * 1.15));
       roofs.setMatrixAt(i, m);
       roofs.setColorAt(i, c.set(h.roof));
+      // 昼の窓：家の表と裏に、各階1〜3枚（家は地面より3m低いところから建てている）
+      {
+        const floors = Math.max(1, Math.round((h.h - 3) / 3.2));
+        const n = Math.max(1, Math.min(3, Math.floor(h.w / 2.6)));
+        const cr = Math.cos(h.rot), sr = Math.sin(h.rot);
+        for (const side of [1, -1]) for (let f = 0; f < floors; f++) for (let k = 0; k < n; k++) {
+          if (this.r() < 0.2) continue;
+          const lx = ((k + 0.5) / n - 0.5) * h.w * 0.8, lz = side * (h.d / 2 + 0.04);
+          const wx = h.x + lx * cr + lz * sr, wz = h.z - lx * sr + lz * cr, wy = h.y + 4.4 + f * 3.1;
+          if (wy > h.y + h.h - 0.6) continue;
+          const ry = h.rot + (side < 0 ? Math.PI : 0);
+          frames.push([wx - Math.sin(ry) * 0.01, wy, wz - Math.cos(ry) * 0.01, ry]);
+          glass.push([wx, wy, wz, ry]);
+        }
+      }
       // 夜に灯る窓（点くかどうかは、日と時間で決める）
       if (this.r() < 0.9) {
         // 家は地面より3m低いところから建てている（坂で浮かないように）ので、窓はその上から
@@ -66,6 +82,17 @@ export class World {
     bodies.castShadow = bodies.receiveShadow = true;
     roofs.castShadow = true;
     this.group.add(bodies, roofs);
+    if (glass.length) {
+      const plane = new THREE.PlaneGeometry(1, 1);
+      const put = (arr, mat, sx, sy) => {
+        const mesh = new THREE.InstancedMesh(plane, mat, arr.length);
+        const e = new THREE.Euler();
+        arr.forEach(([x, y, z, ry], k) => { q.setFromEuler(e.set(0, ry, 0)); m.compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(sx, sy, 1)); mesh.setMatrixAt(k, m); });
+        this.group.add(mesh);
+      };
+      put(frames, this.mat(0xe6e2d8), 1.12, 1.0);
+      put(glass, this.mat(0x3e4a54), 0.95, 0.84);
+    }
     return windows;
   }
 

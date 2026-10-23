@@ -848,6 +848,8 @@ export class Town {
   _buildings() {
     const tbTown = new TriBatch(), tbStation = new TriBatch();
     const facadeWin = [], facadeSlab = [];
+    const houseWin = [], houseFrame = [], houseDoor = [], shopFront = [];
+    const maxHouseWin = Math.round(14000 * quality.s.people);
     const maxFacade = Math.round(16000 * quality.s.people);
     let tb = tbTown;
     // 駅舎（いちばん大きい駅の輪郭）は、Blender のモデルに差しかえられるよう別にまとめる
@@ -935,7 +937,19 @@ export class Town {
           const ox = ccw ? dz : -dz, oz = ccw ? -dx : dx;
           const ry = Math.atan2(ox, oz);
           const n = Math.max(1, Math.floor((L - 1.2) / 2.6));
+          // 平地で、道に面した壁の1階は、お店の店先（ガラスかシャッター、色つきの日よけ、看板）
+          const mx0 = (ax + bx) / 2, mz0 = (az + bz) / 2;
+          const shop = yMin - SEA_Y < 8 && L >= 4.5 && !!nearAnyRoad(mx0 + ox * 3.5, mz0 + oz * 3.5, 0) && r() < 0.8;
+          if (shop) {
+            const bry = Math.atan2(-dz, dx), w = L * 0.84;
+            const closed = r() < 0.3;
+            shopFront.push({ x: mx0 + ox * 0.07, y: yMin + 1.4, z: mz0 + oz * 0.07, sx: w, sy: 2.4, sz: 1, ry, color: closed ? '#a8aaa6' : ['#55646e', '#4a5a62', '#6a6a60'][Math.floor(r() * 3)] });
+            if (!closed) shopFront.push({ x: mx0 + ox * 0.08, y: yMin + 1.05, z: mz0 + oz * 0.08, sx: w * 0.9, sy: 1.5, sz: 1, ry, color: ['#d8c8a0', '#c8b890', '#e0d4b8'][Math.floor(r() * 3)], glow: true });
+            facadeSlab.push({ x: mx0 + ox * 0.55, y: yMin + 2.85, z: mz0 + oz * 0.55, sx: w, sy: 0.08, sz: 1.1, ry: bry, rx: 0.25, color: ['#c8402a', '#2a5a8a', '#3a7a4a', '#d8a030', '#8a3a5a', '#e8e4d8'][Math.floor(r() * 6)] });
+            facadeSlab.push({ x: mx0 + ox * 0.1, y: yMin + 3.35, z: mz0 + oz * 0.1, sx: Math.min(w, 5), sy: 0.6, sz: 0.12, ry: bry, color: ['#f2efe6', '#2a2a2a', '#c8302a', '#1f4f9a'][Math.floor(r() * 4)] });
+          }
           for (let fy = yMin + 1.5; fy < top - 1.4; fy += 3) {
+            if (shop && fy < yMin + 3) continue;
             for (let k = 0; k < n; k++) {
               const t = (k + 0.5) / n;
               facadeWin.push({ x: ax + (bx - ax) * t + ox * 0.06, y: fy + 0.25, z: az + (bz - az) * t + oz * 0.06, sx: 1.35, sy: 1.1, sz: 1, ry });
@@ -943,8 +957,8 @@ export class Town {
             // 海側（南向き）の壁には、各階のベランダ
             if (balcony && oz < -0.45 && fy > yMin + 3) {
               const mx = (ax + bx) / 2, mz = (az + bz) / 2, bry = Math.atan2(-dz, dx);
-              facadeSlab.push({ x: mx + ox * 0.45, y: fy - 0.85, z: mz + oz * 0.45, sx: L * 0.86, sy: 0.12, sz: 0.9, ry: bry });
-              facadeSlab.push({ x: mx + ox * 0.88, y: fy - 0.4, z: mz + oz * 0.88, sx: L * 0.86, sy: 0.85, sz: 0.06, ry: bry });
+              facadeSlab.push({ x: mx + ox * 0.45, y: fy - 0.85, z: mz + oz * 0.45, sx: L * 0.86, sy: 0.12, sz: 0.9, ry: bry, color: '#e4e2dc' });
+              facadeSlab.push({ x: mx + ox * 0.88, y: fy - 0.4, z: mz + oz * 0.88, sx: L * 0.86, sy: 0.85, sz: 0.06, ry: bry, color: '#e4e2dc' });
             }
           }
         }
@@ -990,8 +1004,47 @@ export class Town {
           if (pointInPoly(gx * 4 + 2, gz * 4 + 2, poly)) this.occupied.add(gx * 100003 + gz);
         }
       }
+      // 低い家（1〜2階）：昼も見える窓（白い枠に暗いガラス、ときどき格子）と、いちばん長い壁に玄関の戸。
+      // 夜は、そのうちのいくつかが灯る
+      const lowHouse = !station && !templeHall && !u2 && (top - yMin < 7.5 || area < 60);
+      if (lowHouse && houseWin.length < maxHouseWin) {
+        const ccw = signedArea(poly) > 0;
+        let best = 0, bi = 0;
+        for (let i = 0; i < poly.length; i++) { const L = Math.hypot(poly[(i + 1) % poly.length][0] - poly[i][0], poly[(i + 1) % poly.length][1] - poly[i][1]); if (L > best) { best = L; bi = i; } }
+        const floors = Math.max(1, Math.min(2, Math.round((top - yMin - 0.6) / 2.8)));
+        const koshi = r() < 0.35;   // 古い町家の、木の格子の窓
+        for (let i = 0; i < poly.length; i++) {
+          const [ax, az] = poly[i], [bx, bz] = poly[(i + 1) % poly.length];
+          const L = Math.hypot(bx - ax, bz - az);
+          if (L < 2.6) continue;
+          const dx = (bx - ax) / L, dz = (bz - az) / L;
+          const ox = ccw ? dz : -dz, oz = ccw ? -dx : dx;
+          const ry = Math.atan2(ox, oz);
+          const n = Math.max(1, Math.floor((L - 0.8) / 2.8));
+          for (let f = 0; f < floors; f++) {
+            for (let k = 0; k < n; k++) {
+              const t = (k + 0.5) / n;
+              // 坂では、壁の外の地面の高さから測る（窓が地面に埋もれないように）
+              const gy = Math.max(yMin, terrainY(ax + (bx - ax) * t + ox * 0.8, az + (bz - az) * t + oz * 0.8));
+              const fy = gy + 1.45 + f * 2.8;
+              if (fy + 0.6 > top - 0.3) continue;
+              // 玄関（いちばん長い壁の1階の、まん中の窓のかわり）
+              if (i === bi && f === 0 && k === Math.floor(n / 2)) {
+                houseDoor.push({ x: ax + (bx - ax) * t + ox * 0.05, y: gy + 1.0, z: az + (bz - az) * t + oz * 0.05, sx: 0.95, sy: 1.95, sz: 1, ry, color: ['#5a3e2c', '#3e2e24', '#6a6a66', '#7a5a3a'][Math.floor(r() * 4)] });
+                continue;
+              }
+              if (r() < 0.15) continue;
+              const wx = ax + (bx - ax) * t, wz = az + (bz - az) * t;
+              houseWin.push({ x: wx + ox * 0.05, y: fy, z: wz + oz * 0.05, sx: 1.0, sy: 0.9, sz: 1, ry });
+              houseFrame.push({ x: wx + ox * 0.04, y: fy, z: wz + oz * 0.04, sx: 1.16, sy: 1.06, sz: 0.06, ry, color: koshi ? '#5a3e2c' : '#e8e4da' });
+              if (koshi && f === 0) for (let q = -2; q <= 2; q++) houseFrame.push({ x: wx + ox * 0.09 + dx * q * 0.2, y: fy, z: wz + oz * 0.09 + dz * q * 0.2, sx: 0.04, sy: 0.9, sz: 0.04, ry, color: '#4a3424' });
+              if (r() < 0.4) winList.push({ x: wx + ox * 0.08, y: fy, z: wz + oz * 0.08, sx: 0.95, sy: 0.85, sz: 1, ry });
+            }
+          }
+        }
+      }
       // 夜に灯る窓（いちばん長い壁の外側に1〜2枚）
-      if (r() < 0.7) {
+      if (!lowHouse && r() < 0.7) {
         let best = 0, bi = 0;
         for (let i = 0; i < poly.length; i++) {
           const [ax, az] = poly[i], [bx, bz] = poly[(i + 1) % poly.length];
@@ -1012,7 +1065,20 @@ export class Town {
     }
     // 窓（昼は青みがかった暗いガラス）とベランダ
     this.group.add(instancedBoxes(facadeWin, lam(0x46525e), { cast: false, receive: false, geo: new THREE.PlaneGeometry(1, 1) }));
-    this.group.add(instancedBoxes(facadeSlab, lam(0xe4e2dc), { cast: true, receive: true }));
+    this.group.add(instancedChunks(facadeSlab, lam(0xffffff), { cast: true, receive: true }));
+    // 1階の店先：シャッターやガラス戸と、店の中の明るさ（夜は灯る）
+    if (shopFront.length) {
+      this.group.add(instancedChunks(shopFront.filter((f) => !f.glow), lam(0xffffff), { detail: 160, cast: false, geo: new THREE.PlaneGeometry(1, 1) }));
+      this.shopGlowMat = new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0xffd8a0, emissiveIntensity: 0.1 });
+      this.specialSignMats.push(this.shopGlowMat);
+      this.group.add(instancedChunks(shopFront.filter((f) => f.glow), this.shopGlowMat, { detail: 160, cast: false, geo: new THREE.PlaneGeometry(1, 1) }));
+    }
+    // 低い家の窓・枠・玄関（遠くでは描かない）
+    if (houseWin.length) {
+      this.group.add(instancedChunks(houseWin, lam(0x3e4a54), { detail: 170, cast: false, receive: false, geo: new THREE.PlaneGeometry(1, 1) }));
+      this.group.add(instancedChunks(houseFrame, lam(0xffffff), { detail: 130, cast: false }));
+      this.group.add(instancedChunks(houseDoor, lam(0xffffff), { detail: 150, cast: false, geo: new THREE.PlaneGeometry(1, 1) }));
+    }
     for (const batch of [tbTown, tbStation]) {
       const mesh = new THREE.Mesh(batch.build(), lam(0xffffff, { vertexColors: true, side: THREE.DoubleSide }));
       mesh.castShadow = mesh.receiveShadow = true;
