@@ -214,7 +214,24 @@ const FUJI_STEPS = (() => {
   return { k: 'steps', w: 1.6, p: [a.x, a.z, a.x - 0.8, a.z + 6, 58.6, 6, 55.4, 16, b.x, b.z], n: '' };
 })();
 
-const ALL_ROADS_RAW = [...DATA.roads, DOOR_PATH, PLAZA_PATH, FUJI_STEPS].map((r, id) => {
+// 浄土寺の参道：南の道から、山門をくぐって本堂の前まで（境内を歩けるように）
+const JODOJI_PATH = (() => {
+  const p = DATA.pois.find((q) => q.n === '浄土寺');
+  if (!p) return null;
+  const gate = [p.x, p.z - 27];
+  let best = null;
+  for (const r of DATA.roads) {
+    if (r.l || !['residential', 'tertiary', 'unclassified', 'service', 'footway', 'path', 'secondary', 'living_street'].includes(r.k)) continue;
+    for (let k = 0; k < r.p.length; k += 2) {
+      const d = Math.hypot(r.p[k] - gate[0], r.p[k + 1] - gate[1]);
+      if (r.p[k + 1] < gate[1] && (!best || d < best.d)) best = { d, x: r.p[k], z: r.p[k + 1] };
+    }
+  }
+  if (!best || best.d > 60) return null;
+  return { k: 'footway', w: 2.6, p: [best.x, best.z, gate[0], gate[1] - 4, gate[0], gate[1], p.x, p.z - 8], n: '浄土寺の参道' };
+})();
+
+const ALL_ROADS_RAW = [...DATA.roads, DOOR_PATH, PLAZA_PATH, FUJI_STEPS, ...(JODOJI_PATH ? [JODOJI_PATH] : [])].map((r, id) => {
   const pts = [];
   for (let k = 0; k < r.p.length; k += 2) pts.push([r.p[k], r.p[k + 1]]);
   return {
