@@ -5626,20 +5626,60 @@ export class Town {
       });
     });
     const body = lam(0xe8e6e0), stripe = lam(0xb8322a), dark = lam(0x2a2e33);
+    const glass = lam(0x27303a), under = lam(0x3a3c40), roofM = lam(0x9a9c9e), wheel = lam(0x202224), light = new THREE.MeshBasicMaterial({ color: 0xfff6e0 });
     this.trainWinMat = new THREE.MeshBasicMaterial({ color: 0xffe2c0, transparent: true, opacity: 0 });
+    // 車体の断面：すその少しすぼまった側面と、丸い屋根。長さ方向（x）にのばす
+    const CL = 19.5, CW = 2.9;
+    const prof = new THREE.Shape();
+    prof.moveTo(-CW / 2 + 0.08, 0.6); prof.lineTo(CW / 2 - 0.08, 0.6); prof.lineTo(CW / 2, 1.1); prof.lineTo(CW / 2, 3.35);
+    prof.quadraticCurveTo(CW / 2, 3.85, CW / 2 - 0.45, 3.9); prof.lineTo(-CW / 2 + 0.45, 3.9); prof.quadraticCurveTo(-CW / 2, 3.85, -CW / 2, 3.35); prof.lineTo(-CW / 2, 1.1);
+    const bodyGeo = new THREE.ExtrudeGeometry(prof, { depth: CL, bevelEnabled: false, curveSegments: 5 });
+    bodyGeo.rotateY(Math.PI / 2);
+    bodyGeo.translate(-CL / 2, 0, 0);
     const cars = [];
     for (let i = 0; i < 4; i++) {
       const car = new THREE.Group();
-      const b = new THREE.Mesh(new THREE.BoxGeometry(19.5, 3.2, 2.9), body);
-      b.position.y = 2.1;
-      b.castShadow = true;
-      const s = new THREE.Mesh(new THREE.BoxGeometry(19.55, 0.7, 2.95), stripe);
-      s.position.y = 1.3;
-      const w = new THREE.Mesh(new THREE.BoxGeometry(17.5, 0.9, 2.95), dark);
-      w.position.y = 2.6;
-      const wl = new THREE.Mesh(new THREE.BoxGeometry(17.4, 0.8, 2.97), this.trainWinMat);
-      wl.position.y = 2.6;
-      car.add(b, s, w, wl);
+      const add = (geo, mat, x, y, z, shadow = false) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = shadow; car.add(m); return m; };
+      const bx = (w, h, d, mat, x, y, z, shadow) => add(new THREE.BoxGeometry(w, h, d), mat, x, y, z, shadow);
+      add(bodyGeo, body, 0, 0, 0, true);
+      // 側面：3つの両びらきの戸（戸の窓）と、そのあいだの窓、窓の下の帯
+      for (const sd of [-1, 1]) {
+        const z = sd * (CW / 2 + 0.01);
+        bx(CL - 0.4, 0.32, 0.02, stripe, 0, 1.45, z);
+        for (const dxp of [-6.3, 0, 6.3]) {
+          bx(1.35, 1.95, 0.03, dark, dxp, 1.88, z);                            // 戸のすきま
+          bx(1.28, 1.9, 0.04, body, dxp, 1.88, z);                             // 戸
+          for (const h of [-0.33, 0.33]) bx(0.48, 0.75, 0.05, glass, dxp + h, 2.45, z);   // 戸の窓
+        }
+        for (const wx of [-8.9, -3.15, 3.15, 8.9]) bx(wx === -8.9 || wx === 8.9 ? 0.9 : 3.8, 0.85, 0.035, glass, wx, 2.55, z);
+        // 夜の窓明かり（窓の高さの帯）
+        add(new THREE.BoxGeometry(CL - 1, 0.7, 0.05), this.trainWinMat, 0, 2.55, z * 1.003);
+      }
+      // 床下の機器と、台車（2つ、車輪4つずつ）
+      bx(CL - 5, 0.55, CW - 0.6, under, 0, 0.55, 0);
+      for (const tx of [-CL / 2 + 2.6, CL / 2 - 2.6]) {
+        bx(2.6, 0.45, CW - 0.4, under, tx, 0.45, 0);
+        for (const ax of [-0.95, 0.95]) for (const sd of [-1, 1]) {
+          const w = add(new THREE.CylinderGeometry(0.43, 0.43, 0.14, 12), wheel, tx + ax, 0.18, sd * 0.72);
+          w.rotation.x = Math.PI / 2;
+        }
+      }
+      // 屋根：冷房の箱と、2両目にはパンタグラフ
+      for (const rx of [-4.5, 4.5]) bx(2.8, 0.35, 1.7, roofM, rx, 4.05, 0);
+      if (i === 1) {
+        bx(1.6, 0.12, 1.4, dark, 0, 4.0, 0);
+        const arm1 = bx(1.7, 0.05, 0.05, dark, -0.4, 4.45, 0); arm1.rotation.z = 0.55;
+        const arm2 = bx(1.7, 0.05, 0.05, dark, 0.4, 4.85, 0); arm2.rotation.z = -0.55;
+        bx(0.15, 0.06, 1.8, dark, 0.05, 5.25, 0);
+      }
+      // 先頭車の顔（両端の車の外側の妻面）：黒い大きな窓、帯の色の顔、前照灯
+      if (i === 0 || i === 3) for (const ex of [-1, 1]) {
+        const x = ex * (CL / 2 + 0.02);
+        bx(0.05, 1.25, CW - 0.35, glass, x, 2.75, 0);
+        bx(0.05, 1.0, CW - 0.1, stripe, x, 1.5, 0);
+        for (const sd of [-1, 1]) bx(0.06, 0.16, 0.36, light, x * 1.0005, 1.75, sd * 0.95);
+        bx(0.06, 0.08, 1.1, dark, x * 1.0007, 3.55, 0);   // 行き先表示
+      } else for (const ex of [-1, 1]) bx(0.3, 2.3, 1.3, dark, ex * (CL / 2 + 0.15), 2.1, 0);   // 貫通路のほろ
       car.visible = false;
       this.group.add(car);
       cars.push(car);
