@@ -1187,6 +1187,7 @@ export class Town {
       g.fillStyle = '#f0f0f0'; for (const [cx, cy] of [[0, 0], [w - 3, 0], [0, h - 3], [w - 3, h - 3]]) g.fillRect(cx, cy, 3, 3);   // 四すみ（uv (0,0) のあたり）は無地
     });
     wallTex.wrapS = wallTex.wrapT = THREE.RepeatWrapping;
+    this.wallTex = wallTex;
     for (const batch of [tbTown, tbStation]) {
       const mesh = new THREE.Mesh(batch.build(), lam(0xffffff, { vertexColors: true, side: THREE.DoubleSide, map: wallTex }));
       mesh.castShadow = mesh.receiveShadow = true;
@@ -1241,8 +1242,35 @@ export class Town {
       bins.get(k).push(h);
     }
     const win = [];
+    this.world.houseWallMap = this.wallTex;
     for (const items of bins.values()) win.push(...this.world._houses(items));
     this.world.scheduledWindows(win);
+    // 坂の家の土台：石垣の段（尾道の斜面は、家ごとに石を積んで平らにしてある）。下り側に石垣が見える
+    const tb = new TriBatch(), sc = new THREE.Color();
+    for (const h of list) {
+      const ground = h.y + 3, cr = Math.cos(h.rot), sr = Math.sin(h.rot);
+      const hw = h.w / 2 + 0.35, hd = h.d / 2 + 0.35;
+      const corners = [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]].map(([lx, lz]) => [h.x + lx * cr + lz * sr, h.z - lx * sr + lz * cr]);
+      const ys = corners.map(([x, z]) => terrainY(x, z));
+      const lo = Math.min(...ys), hi = Math.max(...ys);
+      if (hi - lo < 0.5) continue;                        // 平らなところは、土台なし
+      const top = Math.min(hi + 0.25, ground + 0.9), bot = lo - 0.6;
+      if (top - bot < 0.8) continue;
+      sc.setHSL(0.09 + this.r() * 0.04, 0.08 + this.r() * 0.06, 0.5 + this.r() * 0.12);
+      let u = 0;
+      for (let i = 0; i < 4; i++) {
+        const [ax, az] = corners[i], [bx, bz] = corners[(i + 1) % 4], L = Math.hypot(bx - ax, bz - az);
+        tb.quad([ax, bot, az], [bx, bot, bz], [bx, top, bz], [ax, top, az], sc, [u / 1.5, bot, (u + L) / 1.5, bot, (u + L) / 1.5, top, u / 1.5, top]);
+        u += L;
+      }
+      // 上の面（家のまわりの、ふちの石）
+      tb.quad([corners[0][0], top, corners[0][1]], [corners[3][0], top, corners[3][1]], [corners[2][0], top, corners[2][1]], [corners[1][0], top, corners[1][1]], sc);
+    }
+    if (tb.pos.length) {
+      const mesh = new THREE.Mesh(tb.build(), lam(0xffffff, { vertexColors: true, side: THREE.DoubleSide, map: this._texture('wall') }));
+      mesh.castShadow = mesh.receiveShadow = true;
+      this.group.add(mesh);
+    }
   }
 
   /**

@@ -35,7 +35,7 @@ export class World {
     // 三角柱：長さ方向を x に、頂点（棟）を上に向ける
     roofGeo.rotateZ(Math.PI / 2);
     roofGeo.rotateX(-Math.PI / 2);
-    const bodies = new THREE.InstancedMesh(bodyGeo, this.mat(0xffffff), list.length);
+    const bodies = new THREE.InstancedMesh(bodyGeo, this.houseWallMap ? this.mat(0xffffff, { map: this.houseWallMap }) : this.mat(0xffffff), list.length);
     // 瓦の列（棟にそって並ぶ）。三角柱の UV は、u が屋根をまわる向き、v が棟の向き
     if (!this.roofTile) {
       this.roofTile = canvasTexture(64, 64, (g, w, h) => {
