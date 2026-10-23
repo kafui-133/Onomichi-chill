@@ -848,7 +848,7 @@ export class Town {
   _buildings() {
     const tbTown = new TriBatch(), tbStation = new TriBatch();
     const facadeWin = [], facadeSlab = [];
-    const houseWin = [], houseFrame = [], houseDoor = [], shopFront = [];
+    const houseWin = [], houseFrame = [], houseDoor = [], shopFront = [], houseBits = [], laundry = [];
     const roofTb = new TriBatch();   // 瓦屋根（瓦の列のテクスチャをくり返して貼る）
     const maxHouseWin = Math.round(14000 * quality.s.people);
     const maxFacade = Math.round(16000 * quality.s.people);
@@ -1052,6 +1052,56 @@ export class Town {
               if (r() < 0.4) winList.push({ x: wx + ox * 0.08, y: fy, z: wz + oz * 0.08, sx: 0.95, sy: 0.85, sz: 1, ry });
             }
           }
+          // 道に面した壁の、暮らしの小物：エアコンの室外機、雨どい、物干し、玄関わきの鉢植え
+          const at = (t, off) => [ax + (bx - ax) * t + ox * off, az + (bz - az) * t + oz * off];
+          const [cx, cz] = at(0.5, 1.4);
+          if (!nearAnyRoad(cx, cz, 1.2)) continue;
+          const floorAt = (t, off) => { const [x, z] = at(t, off); return [x, Math.max(yMin, terrainY(x, z)), z]; };
+          // 雨どい（壁の端、軒から地面まで）
+          if (r() < 0.6) {
+            const [x, y, z] = floorAt(r() < 0.5 ? 0.06 : 0.94, 0.07);
+            houseBits.push({ x, y: (y + top - 0.2) / 2, z, sx: 0.08, sy: top - 0.2 - y, sz: 0.08, ry, color: '#8a8a84' });
+          }
+          // 室外機（白い箱に、黒っぽいファンの丸）：地面に置くか、2階の壁に金具でつける
+          if (r() < 0.45) {
+            const t = 0.15 + r() * 0.7, high = floors > 1 && r() < 0.4;
+            const [x, y, z] = floorAt(t, 0.32);
+            if (high || !nearAnyRoad(x, z, 0.05)) {
+              const uy = high ? y + 3.6 : y + 0.3;
+              if (uy + 0.3 < top - 0.4) {
+                houseBits.push({ x, y: uy, z, sx: 0.8, sy: 0.6, sz: 0.3, ry, color: '#e6e4dc' });
+                houseBits.push({ x: x + ox * 0.155 - dx * 0.1, y: uy, z: z + oz * 0.155 - dz * 0.1, sx: 0.42, sy: 0.42, sz: 0.02, ry, color: '#4a4c4c' });
+                if (high) houseBits.push({ x: x - ox * 0.05, y: uy - 0.33, z: z - oz * 0.05, sx: 0.9, sy: 0.05, sz: 0.4, ry, color: '#6a6a66' });
+                const [px, , pz] = floorAt(t + 0.25 / L, 0.05);
+                houseBits.push({ x: px, y: (uy + y) / 2 + 0.1, z: pz, sx: 0.04, sy: Math.max(0.2, uy - y), sz: 0.04, ry, color: '#d8d4c8' });   // ドレンの管
+              }
+            }
+          }
+          // 物干し：2階の窓の下に、さお竿と洗濯物（晴れた昼の暮らし）
+          if (floors > 1 && L > 4 && r() < 0.22) {
+            const t = 0.3 + r() * 0.4, [x, y, z] = floorAt(t, 0.55);
+            const py = y + 4.35;
+            if (py < top - 0.3) {
+              for (const s of [-1, 1]) houseBits.push({ x: x + dx * s * 0.9 - ox * 0.25, y: py, z: z + dz * s * 0.9 - oz * 0.25, sx: 0.04, sy: 0.04, sz: 0.55, ry, color: '#7a7a76' });
+              houseBits.push({ x, y: py, z, sx: 2.2, sy: 0.04, sz: 0.04, ry, color: '#c8c8c2' });
+              let u = -0.9;
+              while (u < 0.8) {
+                const w2 = 0.3 + r() * 0.35, h2 = 0.4 + r() * 0.45;
+                laundry.push({ x: x + dx * (u + w2 / 2), y: py - h2 / 2 - 0.02, z: z + dz * (u + w2 / 2), sx: w2, sy: h2, sz: 0.03, ry, color: ['#f2f0ea', '#e8e8f0', '#8aa8c8', '#e0a0a8', '#d8c870', '#6a7a9a', '#f0f0f0', '#c86a4a'][Math.floor(r() * 8)] });
+                u += w2 + 0.06 + r() * 0.15;
+              }
+            }
+          }
+          // 玄関わきの鉢植え
+          if (i === bi && r() < 0.55) {
+            for (let k = 0; k < 1 + Math.floor(r() * 3); k++) {
+              const [x, y, z] = floorAt(0.5 + (0.7 + k * 0.42) / L * (r() < 0.5 ? 1 : -1), 0.3);
+              if (nearAnyRoad(x, z, 0.02)) continue;
+              const s2 = 0.26 + r() * 0.16;
+              houseBits.push({ x, y: y + s2 / 2, z, sx: s2, sy: s2, sz: s2, color: ['#b0563a', '#8a5a3a', '#6a7a8a', '#c8b89a'][Math.floor(r() * 4)] });
+              houseBits.push({ x, y: y + s2 + 0.15, z, sx: s2 * 1.3, sy: 0.32 + r() * 0.25, sz: s2 * 1.3, color: r() < 0.25 ? ['#d84a6a', '#f0c030', '#e8e4f0'][Math.floor(r() * 3)] : ['#3e6e34', '#4f7c3e', '#5a8a44'][Math.floor(r() * 3)] });
+            }
+          }
         }
       }
       // 夜に灯る窓（いちばん長い壁の外側に1〜2枚）
@@ -1089,6 +1139,8 @@ export class Town {
       this.group.add(instancedChunks(houseWin, lam(0x3e4a54), { detail: 170, cast: false, receive: false, geo: new THREE.PlaneGeometry(1, 1) }));
       this.group.add(instancedChunks(houseFrame, lam(0xffffff), { detail: 130, cast: false }));
       this.group.add(instancedChunks(houseDoor, lam(0xffffff), { detail: 150, cast: false, geo: new THREE.PlaneGeometry(1, 1) }));
+      if (houseBits.length) this.group.add(instancedChunks(houseBits, lam(0xffffff), { detail: 110, receive: false }));
+      if (laundry.length) this.group.add(instancedChunks(laundry, lam(0xffffff), { detail: 110, receive: false }));
     }
     {
       // 瓦：横の列ごとに、丸みの明暗と、列のあいだの影。色は頂点の色（紺・灰・赤茶）を掛ける
@@ -4421,25 +4473,40 @@ export class Town {
     // ---- 坂の小道：電柱と電線、カーブミラー、鉢植え ----
     const polePts = [];
     for (const road of ROADS) {
-      if (road.surface !== 'stone' || road.covered || road.alley || roadLength(road.pts) < 25) continue;
+      // 坂の小道と、平地の町なかの細い車道（国道や駅前・海ぎわの広い道はのぞく）
+      const street = road.surface === 'asphalt' && road.kind !== 'trunk' && road.width <= 7;
+      if ((road.surface !== 'stone' && !street) || road.covered || road.alley || roadLength(road.pts) < 25) continue;
       const pts = samplePath(road.pts, 2);
       let last = -99, run = 0;
       for (let i = 1; i < pts.length - 1; i++, run += 2) {
         const p = pts[i];
         const above = terrainY(p.x, p.z) - SEA_Y;
-        if (above < 8 || above > 90) continue;
+        if (street ? (above < 1.2 || above > 90 || distToCoast(p.x, p.z) < 14 || inStationFront(p.x, p.z) || !onOnomichiSide(p.x, p.z) || Math.hypot(p.x, p.z) > 900) : (above < 8 || above > 90)) continue;
         const nx = -Math.sin(p.angle), nz = Math.cos(p.angle);
         const hw = road.width / 2;
         // 電柱（約28m ごと、道の片側）
         if (run - last > 28) {
           const x = p.x + nx * (hw + 0.4), z = p.z + nz * (hw + 0.4);
-          if (!nearAnyRoad(x, z, 0.1) && !inBuilding(x, z) && !inSolid(x, z) && !inPrecinct(x, z, 2)) {
+          if (!nearAnyRoad(x, z, 0.1) && !inBuilding(x, z) && !inSolid(x, z) && !inPrecinct(x, z, 2) && !nearRail(x, z, 4)) {
             last = run;
             const y = groundY(x, z);
-            poles.push({ x, y: y + 4.5, z, sx: 0.24, sy: 9, sz: 0.24, color: '#9a978e' });
-            poles.push({ x, y: y + 8.4, z, sx: 1.4, sy: 0.12, sz: 0.12, ry: -p.angle + Math.PI / 2, color: '#6a6862' });
-            poles.push({ x: x + Math.cos(p.angle) * 0.3, y: y + 6.6, z: z + Math.sin(p.angle) * 0.3, sx: 0.45, sy: 0.7, sz: 0.45, color: '#7a7a74' });   // 変圧器
-            polePts.push({ x, y: y + 8.45, z, road });
+            const ca = -p.angle + Math.PI / 2, tx = Math.cos(p.angle), tz = Math.sin(p.angle);
+            poles.push({ x, y: y + 5, z, sx: 0.26, sy: 10, sz: 0.26, color: '#9a978e' });
+            // 腕木（上は高圧の3本、少し下に低圧の腕木）と、白いがいし
+            for (const [hy, w] of [[9.3, 1.6], [8.3, 1.1]]) {
+              boxes.push({ x, y: y + hy, z, sx: w, sy: 0.1, sz: 0.1, ry: ca, color: '#5a5a56' });
+              for (const u of hy > 9 ? [-0.7, 0, 0.7] : [-0.45, 0.45]) boxes.push({ x: x + nx * u, y: y + hy + 0.1, z: z + nz * u, sx: 0.08, sy: 0.14, sz: 0.08, color: '#e8e8e2' });
+            }
+            if (r() < 0.45) {
+              poles.push({ x: x + tx * 0.34, y: y + 7.2, z: z + tz * 0.34, sx: 0.46, sy: 0.85, sz: 0.46, color: '#8a8a84' });   // 変圧器（柱上トランス）
+              boxes.push({ x: x + tx * 0.34, y: y + 7.7, z: z + tz * 0.34, sx: 0.5, sy: 0.08, sz: 0.5, color: '#6a6a66' });
+            }
+            // 足もとの黄色と黒の、反射板のカバー
+            poles.push({ x, y: y + 1.0, z, sx: 0.29, sy: 1.6, sz: 0.29, color: '#d8b838' });
+            for (let q = 0; q < 3; q++) poles.push({ x, y: y + 0.5 + q * 0.5, z, sx: 0.295, sy: 0.16, sz: 0.295, color: '#2a2a28' });
+            // 番号札（青い小さな板）
+            boxes.push({ x: x - nx * 0.14, y: y + 2.4, z: z - nz * 0.14, sx: 0.18, sy: 0.32, sz: 0.02, ry: ca + Math.PI / 2, color: '#2a5a9a' });
+            polePts.push({ x, y: y + 9.45, z, road, nx, nz, y0: y });
             addSolid(x, z, 0.4, 0.4, 0);
           }
         }
@@ -4454,7 +4521,7 @@ export class Town {
         }
         // 道ばたの草むら：道のふちに、低い草と、ときどき花（梅雨どきは紫陽花）
         for (const sd of [-1, 1]) {
-          if (r() > 0.4) continue;
+          if (street || r() > 0.4) continue;
           const off = hw + 0.35 + r() * 1.1;
           const x = p.x + nx * sd * off, z = p.z + nz * sd * off;
           if (nearAnyRoad(x, z, 0.15) || inBuilding(x, z) || inSolid(x, z) || inPrecinct(x, z, 0)) continue;
@@ -4479,17 +4546,33 @@ export class Town {
         }
       }
     }
-    // 電線：同じ道の、となりあう電柱のあいだ（2本、少したるませる）
+    // 電線：同じ道の、となりあう電柱のあいだ（高圧3本・低圧2本と、下の黒い通信ケーブル。少したるませる）
+    const span = (ax, ay, az, bx, by, bz, sagM) => {
+      let prev = null;
+      for (let k = 0; k <= 8; k++) {
+        const t = k / 8, sag = Math.sin(t * Math.PI) * sagM;
+        const q = new THREE.Vector3(ax + (bx - ax) * t, ay + (by - ay) * t - sag, az + (bz - az) * t);
+        if (prev) wires.push(prev, q);
+        prev = q;
+      }
+    };
     for (let i = 1; i < polePts.length; i++) {
       const a = polePts[i - 1], b = polePts[i];
       if (a.road !== b.road || Math.hypot(a.x - b.x, a.z - b.z) > 45) continue;
-      for (const o of [-0.5, 0.5]) {
-        let prev = null;
-        for (let k = 0; k <= 6; k++) {
-          const t = k / 6, sag = Math.sin(t * Math.PI) * 0.5;
-          const q = new THREE.Vector3(a.x + (b.x - a.x) * t + o * 0.1, a.y + (b.y - a.y) * t - sag + o * 0.05, a.z + (b.z - a.z) * t);
-          if (prev) wires.push(prev, q);
-          prev = q;
+      for (const [dy, u, sg] of [[0, -0.7, 0.45], [0, 0, 0.45], [0, 0.7, 0.45], [-1, -0.45, 0.6], [-1, 0.45, 0.6], [-3.6, 0, 0.9], [-3.9, 0.1, 1.0]]) {
+        span(a.x + a.nx * u, a.y + dy, a.z + a.nz * u, b.x + b.nx * u, b.y + dy, b.z + b.nz * u, sg);
+      }
+    }
+    // 引込線：電柱から、道のわきの家の軒へ
+    for (const a of polePts) {
+      for (const sd of [1, -1]) {
+        if (r() < 0.35) continue;
+        for (let d = 1.5; d < 9; d += 0.5) {
+          const hx = a.x + a.nx * sd * d, hz = a.z + a.nz * sd * d;
+          if (!inBuilding(hx, hz)) continue;
+          const j = (r() - 0.5) * 4;
+          span(a.x, a.y - 1, a.z, hx - a.nx * sd * 0.2 + a.nz * j, a.y0 + 4.6, hz - a.nz * sd * 0.2 - a.nx * j, 0.35);
+          break;
         }
       }
     }
