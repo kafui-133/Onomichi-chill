@@ -886,6 +886,11 @@ export class Town {
       let h = b.h;
       if (!h) h = area < 60 ? 5.5 + r() * 1.5 : area < 220 ? 6.5 + r() * 3 : area < 900 ? 9 + r() * 6 : 12 + r() * 8;
       if (b.k === 'temple' || b.k === 'shrine') h = 9;
+      // 古寺めぐりのお寺の境内の建物（本堂・庫裏・鐘楼など）：家やビルではなく、お堂の姿に。
+      // 低めの焦げ茶の板壁に白い小壁、大きく張り出した瓦の屋根。窓の列やベランダはつけない
+      const pcx = poly.reduce((s2, q) => s2 + q[0], 0) / poly.length, pcz = poly.reduce((s2, q) => s2 + q[1], 0) / poly.length;
+      const templeHall = area >= 30 && area < 900 && !b.h && KOJI.some((t) => Math.hypot(t.x - pcx, t.z - pcz) < 26);
+      if (templeHall) h = Math.min(6.5, 3.6 + Math.sqrt(area) * 0.12);
       const base = yMin - 2.5;
       let top = (yMin + yMax) / 2 + h;
       const cx0 = poly.reduce((s, p) => s + p[0], 0) / poly.length, cz0 = poly.reduce((s, p) => s + p[1], 0) / poly.length;
@@ -898,14 +903,28 @@ export class Town {
       if (station) top = Math.min(top, yMin + 8.5);
       const u2 = b.n === 'ONOMICHI U2';
       if (u2) this.u2Poly = poly;
-      const wc = new THREE.Color(station ? '#efede6' : u2 ? '#5a6068' : walls[Math.floor(r() * walls.length)]);
-      roofTile = roofTiles[Math.floor(r() * roofTiles.length)];
+      const wc = new THREE.Color(station ? '#efede6' : u2 ? '#5a6068' : templeHall ? ['#5a3e2c', '#4e3626', '#634430'][Math.floor(r() * 3)] : walls[Math.floor(r() * walls.length)]);
+      roofTile = templeHall ? new THREE.Color(['#353a42', '#3c4148', '#2f343b'][Math.floor(r() * 3)]) : roofTiles[Math.floor(r() * roofTiles.length)];
       for (let i = 0; i < poly.length; i++) {
         const [ax, az] = poly[i], [bx, bz] = poly[(i + 1) % poly.length];
         tb.quad([ax, base, az], [bx, base, bz], [bx, top, bz], [ax, top, az], wc);
+        if (templeHall) {
+          // 白い小壁（軒の下）と、石の基壇（足もと）
+          const mx = (ax + bx) / 2 - pcx, mz = (az + bz) / 2 - pcz, ml = Math.hypot(mx, mz) || 1, ox = (mx / ml) * 0.05, oz = (mz / ml) * 0.05;
+          tb.quad([ax + ox, top - 1.1, az + oz], [bx + ox, top - 1.1, bz + oz], [bx + ox, top - 0.05, bz + oz], [ax + ox, top - 0.05, az + oz], new THREE.Color('#ece6da'));
+          tb.quad([ax + ox * 6, yMin - 0.6, az + oz * 6], [bx + ox * 6, yMin - 0.6, bz + oz * 6], [bx + ox * 6, yMin + 0.55, bz + oz * 6], [ax + ox * 6, yMin + 0.55, az + oz * 6], new THREE.Color('#a8a296'));
+          // 柱（およそ2m ごと）と、腰の高さの長押（横木）
+          const L = Math.hypot(bx - ax, bz - az), tx = (bx - ax) / (L || 1), tz = (bz - az) / (L || 1), post = new THREE.Color('#3a2418');
+          const n = Math.max(1, Math.round(L / 2));
+          for (let k = 0; k <= n; k++) {
+            const px = ax + (bx - ax) * (k / n) + ox * 1.6, pz = az + (bz - az) * (k / n) + oz * 1.6;
+            tb.quad([px - tx * 0.14, yMin + 0.55, pz - tz * 0.14], [px + tx * 0.14, yMin + 0.55, pz + tz * 0.14], [px + tx * 0.14, top - 1.1, pz + tz * 0.14], [px - tx * 0.14, top - 1.1, pz - tz * 0.14], post);
+          }
+          for (const hy of [yMin + 1.5, top - 1.25]) tb.quad([ax + ox * 1.3, hy - 0.09, az + oz * 1.3], [bx + ox * 1.3, hy - 0.09, bz + oz * 1.3], [bx + ox * 1.3, hy + 0.09, bz + oz * 1.3], [ax + ox * 1.3, hy + 0.09, az + oz * 1.3], post);
+        }
       }
       // 3階以上の建物（海沿いのマンションやビル）：各階の窓の列と、海側のベランダ
-      if (!station && top - yMin >= 7.5 && area >= 60 && facadeWin.length < maxFacade) {
+      if (!station && !templeHall && top - yMin >= 7.5 && area >= 60 && facadeWin.length < maxFacade) {
         const ccw = signedArea(poly) > 0;
         const balcony = r() < 0.5;
         for (let i = 0; i < poly.length; i++) {
@@ -932,7 +951,7 @@ export class Town {
       }
       // 屋根：小さな家は瓦の寄棟、大きな建物は平らな屋上
       const contour = poly.map(([x, z]) => new THREE.Vector2(x, z));
-      const hip = (area < 260 && poly.length <= 10) || station;
+      const hip = (area < 260 && poly.length <= 10) || station || (templeHall && poly.length <= 12);
       if (station) {
         // 駅舎：1階はガラス張りの店先
         const glass = new THREE.Color('#8fa6b2');
@@ -946,10 +965,10 @@ export class Town {
       }
       if (hip) {
         const cx = poly.reduce((s, p) => s + p[0], 0) / poly.length, cz = poly.reduce((s, p) => s + p[1], 0) / poly.length;
-        const shrink = station ? 0.82 : 0.35;
+        const shrink = station ? 0.82 : templeHall ? 0.25 : 0.35;
         const inner = poly.map(([x, z]) => [cx + (x - cx) * shrink, cz + (z - cz) * shrink]);
-        const rh = station ? 1.8 : 1.4 + Math.sqrt(area) * 0.08;
-        const eave = 0.45;
+        const rh = station ? 1.8 : templeHall ? 2.2 + Math.sqrt(area) * 0.16 : 1.4 + Math.sqrt(area) * 0.08;
+        const eave = templeHall ? 1.5 : 0.45;
         const outer = poly.map(([x, z]) => {
           const dx = x - cx, dz = z - cz, L = Math.hypot(dx, dz) || 1;
           return [x + (dx / L) * eave, z + (dz / L) * eave];
