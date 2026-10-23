@@ -401,8 +401,24 @@ export class Town {
     const T = 32;
     const r = this.r;
     const c = new THREE.Color();
-    const mat = lam(0xffffff, { vertexColors: true });
-    const colorAt = (x, z, y) => {
+    // 地面のきめ：やわらかいまだらと、細かい粒（草地にも、町の舗装にも。色は頂点の色を掛ける）。8m でくり返す
+    const ground = canvasTexture(256, 256, (g, w, h) => {
+      g.fillStyle = '#f8f8f8'; g.fillRect(0, 0, w, h);
+      const rr = seededRandom('ground-tex');
+      for (let k = 0; k < 70; k++) {
+        const x = rr() * w, y = rr() * h, rad = 8 + rr() * 30, dark = rr() < 0.6;
+        for (const ox of [-w, 0, w]) for (const oy of [-h, 0, h]) {
+          const grd = g.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, rad);
+          grd.addColorStop(0, dark ? `rgba(40,40,30,${0.05 + rr() * 0.06})` : 'rgba(255,255,255,0.06)');
+          grd.addColorStop(1, 'rgba(0,0,0,0)');
+          g.fillStyle = grd; g.fillRect(x + ox - rad, y + oy - rad, rad * 2, rad * 2);
+        }
+      }
+      speckle(g, w, h, 5000, 0.1, rr);
+    });
+    const mat = lam(0xffffff, { vertexColors: true, map: ground });
+    const UV = 1 / 8;
+    const colorAt0 = (x, z, y) => {
       const above = y - SEA_Y;
       const slope = Math.abs(terrainY(x + 2.5, z) - terrainY(x - 2.5, z)) / 5 + Math.abs(terrainY(x, z + 2.5) - terrainY(x, z - 2.5)) / 5;
       if (above < -0.5) return c.setRGB(0.32, 0.36, 0.34);           // 海の底
@@ -410,6 +426,7 @@ export class Town {
       if (slope > 1.2) return c.setRGB(0.36, 0.33, 0.27);             // 崖・岩
       return c.setHSL(0.23 + r() * 0.05, 0.28, 0.2 + r() * 0.06 + Math.min(0.06, above / 2500));
     };
+    const colorAt = (x, z, y) => colorAt0(x, z, y).multiplyScalar(1.1);   // きめの分、少し明るく
     // ガード下：掘り下げにかかるマス（とそのとなり）を探す
     const cutCells = new Set();
     for (const u of UNDERPASSES) {
@@ -426,13 +443,14 @@ export class Town {
         const m = near ? 1 : 2;
         const ci = Math.min(T, nx - 1 - ti), cj = Math.min(T, nz - 1 - tj);
         const vx = Math.floor(ci / m) + 1, vz = Math.floor(cj / m) + 1;
-        const pos = new Float32Array(vx * vz * 3), col = new Float32Array(vx * vz * 3);
+        const pos = new Float32Array(vx * vz * 3), col = new Float32Array(vx * vz * 3), uv = new Float32Array(vx * vz * 2);
         for (let j = 0; j < vz; j++) {
           for (let i = 0; i < vx; i++) {
             const k = j * vx + i;
             const x = x0 + (ti + Math.min(ci, i * m)) * step, z = z0 + (tj + Math.min(cj, j * m)) * step;
             const y = terrainY(x, z);
             pos[k * 3] = x; pos[k * 3 + 1] = y - 0.15; pos[k * 3 + 2] = z;
+            uv[k * 2] = x * UV; uv[k * 2 + 1] = z * UV;
             colorAt(x, z, y);
             col[k * 3] = c.r; col[k * 3 + 1] = c.g; col[k * 3 + 2] = c.b;
           }
@@ -449,6 +467,7 @@ export class Town {
         const geo = new THREE.BufferGeometry();
         geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
         geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+        geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
         geo.setIndex(idx);
         geo.computeVertexNormals();
         const mesh = new THREE.Mesh(geo, mat);
@@ -458,7 +477,7 @@ export class Town {
     }
     // 掘り下げのマスは、1m ごとの細かい網目で（ふちは、まわりのマスとぴったり合う）
     if (cutCells.size) {
-      const pos = [], col = [];
+      const pos = [], col = [], uv = [];
       const S = 10;
       for (const key of cutCells) {
         const i = Math.floor(key / 100003 + 1e-9), j = key - i * 100003;
@@ -466,12 +485,13 @@ export class Town {
         for (let a = 0; a < S; a++) for (let b = 0; b < S; b++) {
           const P = (u, v) => { const x = bx + (u / S) * step, z = bz + (v / S) * step, y = terrainY(x, z); colorAt(x, z, y); return [x, y - 0.15, z, c.r, c.g, c.b]; };
           const A = P(a, b), B = P(a + 1, b), C = P(a, b + 1), D = P(a + 1, b + 1);
-          for (const q of [A, C, B, B, C, D]) { pos.push(q[0], q[1], q[2]); col.push(q[3], q[4], q[5]); }
+          for (const q of [A, C, B, B, C, D]) { pos.push(q[0], q[1], q[2]); col.push(q[3], q[4], q[5]); uv.push(q[0] * UV, q[2] * UV); }
         }
       }
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
       geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+      geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
       geo.computeVertexNormals();
       const mesh = new THREE.Mesh(geo, mat);
       mesh.receiveShadow = true;
