@@ -908,9 +908,13 @@ export class Town {
       if (u2) this.u2Poly = poly;
       const wc = new THREE.Color(station ? '#efede6' : u2 ? '#5a6068' : templeHall ? ['#5a3e2c', '#4e3626', '#634430'][Math.floor(r() * 3)] : walls[Math.floor(r() * walls.length)]);
       roofTile = templeHall ? new THREE.Color(['#353a42', '#3c4148', '#2f343b'][Math.floor(r() * 3)]) : roofTiles[Math.floor(r() * roofTiles.length)];
+      let wu = 0;
       for (let i = 0; i < poly.length; i++) {
         const [ax, az] = poly[i], [bx, bz] = poly[(i + 1) % poly.length];
-        tb.quad([ax, base, az], [bx, base, bz], [bx, top, bz], [ax, top, az], wc);
+        // 壁の質感（しっくいのむらと、うっすらとした板の目地）：u は壁にそって、v は高さ（m）
+        const wl = Math.hypot(bx - ax, bz - az);
+        tb.quad([ax, base, az], [bx, base, bz], [bx, top, bz], [ax, top, az], wc, [wu / 3, base / 3, (wu + wl) / 3, base / 3, (wu + wl) / 3, top / 3, wu / 3, top / 3]);
+        wu += wl;
         if (templeHall) {
           // 白い小壁（軒の下）と、石の基壇（足もと）
           const mx = (ax + bx) / 2 - pcx, mz = (az + bz) / 2 - pcz, ml = Math.hypot(mx, mz) || 1, ox = (mx / ml) * 0.05, oz = (mz / ml) * 0.05;
@@ -1099,8 +1103,20 @@ export class Town {
       rm.castShadow = rm.receiveShadow = true;
       this.group.add(rm);
     }
+    // 壁：しっくいのむら、雨だれのうすい筋、ときどき板の目地（3m 四方でくり返す）。屋根や窓などは、まん中の無地のところを使う
+    const wallTex = canvasTexture(128, 128, (g, w, h) => {
+      g.fillStyle = '#f0f0f0'; g.fillRect(0, 0, w, h);
+      speckle(g, w, h, 1800, 0.07, seededRandom('wall-tex'));
+      const rr = seededRandom('wall-tex2');
+      for (let k = 0; k < 10; k++) { g.fillStyle = `rgba(0,0,0,${0.03 + rr() * 0.04})`; g.fillRect(rr() * w, rr() * h * 0.5, 1 + rr() * 2, h * (0.3 + rr() * 0.5)); }   // 雨だれ
+      g.fillStyle = 'rgba(0,0,0,0.07)';
+      for (let y = 0; y < h; y += 16) g.fillRect(0, y, w, 1);                       // 目地
+      g.fillStyle = 'rgba(0,0,0,0.12)'; g.fillRect(0, h - 4, w, 4);                  // 足もとの汚れ（1枚ごと）
+      g.fillStyle = '#f0f0f0'; for (const [cx, cy] of [[0, 0], [w - 3, 0], [0, h - 3], [w - 3, h - 3]]) g.fillRect(cx, cy, 3, 3);   // 四すみ（uv (0,0) のあたり）は無地
+    });
+    wallTex.wrapS = wallTex.wrapT = THREE.RepeatWrapping;
     for (const batch of [tbTown, tbStation]) {
-      const mesh = new THREE.Mesh(batch.build(), lam(0xffffff, { vertexColors: true, side: THREE.DoubleSide }));
+      const mesh = new THREE.Mesh(batch.build(), lam(0xffffff, { vertexColors: true, side: THREE.DoubleSide, map: wallTex }));
       mesh.castShadow = mesh.receiveShadow = true;
       this.group.add(mesh);
       if (batch === tbStation) this.stationSimple = mesh;
