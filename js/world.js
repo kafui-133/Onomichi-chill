@@ -1,7 +1,7 @@
 // 遠景：向島の造船所クレーン・尾道大橋・瀬戸内の島影。
 // 尾道と向島の地形・道・建物は実データから town.js が作る。
 import * as THREE from 'three';
-import { seededRandom, glowTexture } from './util.js';
+import { seededRandom, glowTexture, canvasTexture } from './util.js';
 import { SEA_Y, BOUNDS, straitAt, demAt } from './townMap.js';
 
 export const SEA_LEVEL = SEA_Y;
@@ -36,7 +36,16 @@ export class World {
     roofGeo.rotateZ(Math.PI / 2);
     roofGeo.rotateX(-Math.PI / 2);
     const bodies = new THREE.InstancedMesh(bodyGeo, this.mat(0xffffff), list.length);
-    const roofs = new THREE.InstancedMesh(roofGeo, this.mat(0xffffff), list.length);
+    // 瓦の列（棟にそって並ぶ）。三角柱の UV は、u が屋根をまわる向き、v が棟の向き
+    if (!this.roofTile) {
+      this.roofTile = canvasTexture(64, 64, (g, w, h) => {
+        g.fillStyle = '#d8d8d8'; g.fillRect(0, 0, w, h);
+        for (let y = 0; y < h; y += 8) { const grd = g.createLinearGradient(0, y, 0, y + 8); grd.addColorStop(0, '#a0a0a0'); grd.addColorStop(0.5, '#f2f2f2'); grd.addColorStop(1, '#a8a8a8'); g.fillStyle = grd; g.fillRect(0, y, w, 8); }
+        g.fillStyle = 'rgba(0,0,0,0.45)'; g.fillRect(w - 7, 0, 7, h);
+      });
+      this.roofTile.repeat.set(24, 22);
+    }
+    const roofs = new THREE.InstancedMesh(roofGeo, this.mat(0xffffff, { map: this.roofTile }), list.length);
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const c = new THREE.Color();

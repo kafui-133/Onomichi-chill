@@ -849,6 +849,7 @@ export class Town {
     const tbTown = new TriBatch(), tbStation = new TriBatch();
     const facadeWin = [], facadeSlab = [];
     const houseWin = [], houseFrame = [], houseDoor = [], shopFront = [];
+    const roofTb = new TriBatch();   // 瓦屋根（瓦の列のテクスチャをくり返して貼る）
     const maxHouseWin = Math.round(14000 * quality.s.people);
     const maxFacade = Math.round(16000 * quality.s.people);
     let tb = tbTown;
@@ -989,10 +990,16 @@ export class Town {
         });
         for (let i = 0; i < poly.length; i++) {
           const j = (i + 1) % poly.length;
-          tb.quad([outer[i][0], top - 0.2, outer[i][1]], [outer[j][0], top - 0.2, outer[j][1]], [inner[j][0], top + rh, inner[j][1]], [inner[i][0], top + rh, inner[i][1]], roofTile);
+          // 瓦の列：u は軒にそって（m）、v は軒から棟へ（m）。瓦のテクスチャをくり返す
+          const eL = Math.hypot(outer[j][0] - outer[i][0], outer[j][1] - outer[i][1]);
+          const mo = [(outer[i][0] + outer[j][0]) / 2, (outer[i][1] + outer[j][1]) / 2], mi = [(inner[i][0] + inner[j][0]) / 2, (inner[i][1] + inner[j][1]) / 2];
+          const sL = Math.hypot(Math.hypot(mi[0] - mo[0], mi[1] - mo[1]), rh + 0.2);
+          const iL = Math.hypot(inner[j][0] - inner[i][0], inner[j][1] - inner[i][1]), off = (eL - iL) / 2;
+          (station ? tb : roofTb).quad([outer[i][0], top - 0.2, outer[i][1]], [outer[j][0], top - 0.2, outer[j][1]], [inner[j][0], top + rh, inner[j][1]], [inner[i][0], top + rh, inner[i][1]], roofTile,
+            [0, 0, eL / 2, 0, (off + iL) / 2, sL / 0.55, off / 2, sL / 0.55]);
         }
         const tris = THREE.ShapeUtils.triangulateShape(inner.map(([x, z]) => new THREE.Vector2(x, z)), []);
-        for (const [a, bb, c] of tris) tb.tri([inner[a][0], top + rh, inner[a][1]], [inner[bb][0], top + rh, inner[bb][1]], [inner[c][0], top + rh, inner[c][1]], roofTile);
+        for (const [a, bb, c] of tris) (station ? tb : roofTb).tri([inner[a][0], top + rh, inner[a][1]], [inner[bb][0], top + rh, inner[bb][1]], [inner[c][0], top + rh, inner[c][1]], roofTile.clone().multiplyScalar(0.8), [0, 0.02, 0, 0.02, 0, 0.02]);
       } else {
         const tris = THREE.ShapeUtils.triangulateShape(contour, []);
         for (const [a, bb, c] of tris) tb.tri([poly[a][0], top, poly[a][1]], [poly[bb][0], top, poly[bb][1]], [poly[c][0], top, poly[c][1]], roofFlat);
@@ -1078,6 +1085,19 @@ export class Town {
       this.group.add(instancedChunks(houseWin, lam(0x3e4a54), { detail: 170, cast: false, receive: false, geo: new THREE.PlaneGeometry(1, 1) }));
       this.group.add(instancedChunks(houseFrame, lam(0xffffff), { detail: 130, cast: false }));
       this.group.add(instancedChunks(houseDoor, lam(0xffffff), { detail: 150, cast: false, geo: new THREE.PlaneGeometry(1, 1) }));
+    }
+    {
+      // 瓦：横の列ごとに、丸みの明暗と、列のあいだの影。色は頂点の色（紺・灰・赤茶）を掛ける
+      const tile = canvasTexture(64, 64, (g, w, h) => {
+        g.fillStyle = '#d8d8d8'; g.fillRect(0, 0, w, h);
+        for (let x = 0; x < w; x += 8) { const grd = g.createLinearGradient(x, 0, x + 8, 0); grd.addColorStop(0, '#9a9a9a'); grd.addColorStop(0.5, '#f4f4f4'); grd.addColorStop(1, '#a8a8a8'); g.fillStyle = grd; g.fillRect(x, 0, 8, h); }
+        g.fillStyle = 'rgba(0,0,0,0.45)'; g.fillRect(0, h - 7, w, 7);
+        g.fillStyle = 'rgba(255,255,255,0.25)'; g.fillRect(0, 0, w, 3);
+      }, { srgb: true });
+      tile.wrapS = tile.wrapT = THREE.RepeatWrapping;
+      const rm = new THREE.Mesh(roofTb.build(), lam(0xffffff, { vertexColors: true, side: THREE.DoubleSide, map: tile }));
+      rm.castShadow = rm.receiveShadow = true;
+      this.group.add(rm);
     }
     for (const batch of [tbTown, tbStation]) {
       const mesh = new THREE.Mesh(batch.build(), lam(0xffffff, { vertexColors: true, side: THREE.DoubleSide }));
