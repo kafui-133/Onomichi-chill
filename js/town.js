@@ -4454,11 +4454,10 @@ export class Town {
     if (hulls.length) {
       // 舟の形：上から見て、へさきのとがった形を、縦にのばしたもの（底は少しすぼめる）
       const sh = new THREE.Shape();
-      sh.moveTo(-0.5, -0.42); sh.lineTo(0.12, -0.5); sh.quadraticCurveTo(0.42, -0.42, 0.5, 0); sh.quadraticCurveTo(0.42, 0.42, 0.12, 0.5); sh.lineTo(-0.5, 0.42); sh.lineTo(-0.5, -0.42);
+      sh.moveTo(-0.5, -0.42); sh.lineTo(0.12, -0.5); sh.quadraticCurveTo(0.42, -0.42, 0.5, 0); sh.quadraticCurveTo(0.42, 0.42, 0.12, 0.5); sh.lineTo(-0.5, 0.42);
       const hullGeo = new THREE.ExtrudeGeometry(sh, { depth: 1, bevelEnabled: false, curveSegments: 6 });
       hullGeo.rotateX(-Math.PI / 2);
       hullGeo.translate(0, -0.5, 0);
-      hullGeo.scale(1, 1, -1);   // 面の向き（表）を外側に（左右対称なので形は変わらない）
       const hp = hullGeo.attributes.position;
       for (let i = 0; i < hp.count; i++) if (hp.getY(i) < 0) { hp.setX(i, hp.getX(i) * 0.9); hp.setZ(i, hp.getZ(i) * 0.7); }
       hullGeo.computeVertexNormals();
