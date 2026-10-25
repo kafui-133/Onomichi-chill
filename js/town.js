@@ -1442,7 +1442,7 @@ export class Town {
     // 秋（10〜11月）は、ところどころ赤や橙、黄色に色づく
     const month = new Date().getMonth() + 1;
     const autumn = month === 10 ? 0.12 : month === 11 ? 0.28 : 0;
-    const AUTUMN = [[0.0, 0.55, 0.32], [0.03, 0.6, 0.36], [0.07, 0.6, 0.4], [0.11, 0.55, 0.42], [0.98, 0.45, 0.3]];
+    const AUTUMN = [[0.02, 0.46, 0.32], [0.04, 0.5, 0.35], [0.07, 0.5, 0.38], [0.11, 0.48, 0.4], [0.14, 0.42, 0.38], [0.98, 0.38, 0.3]];
     const leaf = () => {
       if (r() < autumn) { const [h, sat, l] = AUTUMN[Math.floor(r() * AUTUMN.length)]; return new THREE.Color().setHSL(h, sat, l * (0.8 + r() * 0.3)); }
       return new THREE.Color().setHSL(0.24 + r() * 0.09, 0.3 + r() * 0.18, 0.15 + r() * 0.11);
