@@ -1368,10 +1368,11 @@ export class Town {
           const h = 5 + r() * 4;
           const lean = -sd * 0.12;   // 道のほうへ少しかたむける
           trunks.push({ x, y: y + h / 2, z, sx: 0.32, sy: h, sz: 0.32, rx: lean * nz, rz: -lean * nx, color: '#4e3e30' });
-          const maple = autumn && r() < 0.45;
+          // もみじは11月が見ごろ。10月は色づきはじめ（少なめで、橙や黄色）
+          const maple = autumn && r() < (month === 11 ? 0.45 : 0.18);
           const cx = x - nx * sd * 1.4, cz = z - nz * sd * 1.4;
           for (let k = 0; k < 3; k++) {
-            const c = maple ? ['#c84a2a', '#d8702a', '#b8382a'][k % 3] : ['#3e5a34', '#4a6a3a', '#36502e'][k % 3];
+            const c = maple ? (month === 11 ? ['#c84a2a', '#d8702a', '#b8382a'] : ['#c8803a', '#b89a3e', '#5a6a34'])[k % 3] : ['#3e5a34', '#4a6a3a', '#36502e'][k % 3];
             crowns.push({ x: cx + (r() - 0.5) * 2.4, y: y + h - 0.6 + k * 0.7, z: cz + (r() - 0.5) * 2.4, sx: 2.8 + r() * 1.4, sy: 1.6 + r() * 0.8, sz: 2.8 + r() * 1.4, ry: r() * 6, color: c });
           }
           addSolid(x, z, 0.8, 0.8, 0);
@@ -1521,7 +1522,18 @@ export class Town {
     const lobes = (list) => mergeGeometries(list.map(([x, y, z, rad]) => new THREE.IcosahedronGeometry(rad, 0).translate(x, y, z)));
     const clumpGeo = shade(lobes([[0, -0.05, 0, 0.82], [0.5, 0.1, 0.25, 0.58], [-0.42, 0.05, 0.38, 0.6], [-0.1, 0.05, -0.52, 0.58], [0.08, 0.5, 0.02, 0.6]]));
     const simpleGeo = shade(new THREE.IcosahedronGeometry(1, 0), 0.62);
-    const vmat = lam(0xffffff, { flatShading: true, vertexColors: true });
+    // 葉のきめ：明るい葉と暗いすき間の、細かいまだら
+    const leafTex = canvasTexture(128, 128, (g, w, h) => {
+      g.fillStyle = '#c8c8c8'; g.fillRect(0, 0, w, h);
+      const rr = seededRandom('leaf-tex');
+      for (let k = 0; k < 900; k++) {
+        const x = rr() * w, y = rr() * h, rad = 1.5 + rr() * 3.5, v = rr() < 0.35 ? 90 + rr() * 40 : 200 + rr() * 55;
+        g.fillStyle = `rgb(${v},${v},${v})`;
+        g.beginPath(); g.ellipse(x, y, rad, rad * 0.6, rr() * 3, 0, Math.PI * 2); g.fill();
+      }
+    });
+    leafTex.repeat.set(3, 3);
+    const vmat = lam(0xffffff, { flatShading: true, vertexColors: true, map: leafTex });
     const mat = lam(0xffffff, { flatShading: true });
     // 町なかと坂の木（海から50mまで）は、でこぼこの樹冠と幹。上の森は、軽い丸のまま
     const townTrees = broad.filter((b) => b.y - SEA_Y < 50), forestTrees = broad.filter((b) => b.y - SEA_Y >= 50);
