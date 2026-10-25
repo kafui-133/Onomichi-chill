@@ -1,7 +1,7 @@
 // 遠景：向島の造船所クレーン・尾道大橋・瀬戸内の島影。
 // 尾道と向島の地形・道・建物は実データから town.js が作る。
 import * as THREE from 'three';
-import { seededRandom, glowTexture } from './util.js';
+import { seededRandom, glowTexture, canvasTexture } from './util.js';
 import { SEA_Y, BOUNDS, straitAt, demAt } from './townMap.js';
 
 export const SEA_LEVEL = SEA_Y;
@@ -35,12 +35,22 @@ export class World {
     // 三角柱：長さ方向を x に、頂点（棟）を上に向ける
     roofGeo.rotateZ(Math.PI / 2);
     roofGeo.rotateX(-Math.PI / 2);
-    const bodies = new THREE.InstancedMesh(bodyGeo, this.mat(0xffffff), list.length);
-    const roofs = new THREE.InstancedMesh(roofGeo, this.mat(0xffffff), list.length);
+    const bodies = new THREE.InstancedMesh(bodyGeo, this.houseWallMap ? this.mat(0xffffff, { map: this.houseWallMap }) : this.mat(0xffffff), list.length);
+    // 瓦の列（棟にそって並ぶ）。三角柱の UV は、u が屋根をまわる向き、v が棟の向き
+    if (!this.roofTile) {
+      this.roofTile = canvasTexture(64, 64, (g, w, h) => {
+        g.fillStyle = '#d8d8d8'; g.fillRect(0, 0, w, h);
+        for (let y = 0; y < h; y += 8) { const grd = g.createLinearGradient(0, y, 0, y + 8); grd.addColorStop(0, '#a0a0a0'); grd.addColorStop(0.5, '#f2f2f2'); grd.addColorStop(1, '#a8a8a8'); g.fillStyle = grd; g.fillRect(0, y, w, 8); }
+        g.fillStyle = 'rgba(0,0,0,0.45)'; g.fillRect(w - 7, 0, 7, h);
+      });
+      this.roofTile.repeat.set(24, 22);
+    }
+    const roofs = new THREE.InstancedMesh(roofGeo, this.mat(0xffffff, { map: this.roofTile }), list.length);
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const c = new THREE.Color();
     const windows = [];
+    const glass = [], frames = [];   // 昼も見える窓（暗いガラスに白い枠）
     list.forEach((h, i) => {
       q.setFromEuler(new THREE.Euler(0, h.rot, 0));
       m.compose(new THREE.Vector3(h.x, h.y, h.z), q, new THREE.Vector3(h.w, h.h, h.d));
@@ -49,6 +59,21 @@ export class World {
       m.compose(new THREE.Vector3(h.x, h.y + h.h + h.roofH * 0.25, h.z), q, new THREE.Vector3(h.w * 1.08, h.roofH, h.d * 1.15));
       roofs.setMatrixAt(i, m);
       roofs.setColorAt(i, c.set(h.roof));
+      // 昼の窓：家の表と裏に、各階1〜3枚（家は地面より3m低いところから建てている）
+      {
+        const floors = Math.max(1, Math.round((h.h - 3) / 3.2));
+        const n = Math.max(1, Math.min(3, Math.floor(h.w / 2.6)));
+        const cr = Math.cos(h.rot), sr = Math.sin(h.rot);
+        for (const side of [1, -1]) for (let f = 0; f < floors; f++) for (let k = 0; k < n; k++) {
+          if (this.r() < 0.2) continue;
+          const lx = ((k + 0.5) / n - 0.5) * h.w * 0.8, lz = side * (h.d / 2 + 0.04);
+          const wx = h.x + lx * cr + lz * sr, wz = h.z - lx * sr + lz * cr, wy = h.y + 4.4 + f * 3.1;
+          if (wy > h.y + h.h - 0.6) continue;
+          const ry = h.rot + (side < 0 ? Math.PI : 0);
+          frames.push([wx - Math.sin(ry) * 0.01, wy, wz - Math.cos(ry) * 0.01, ry]);
+          glass.push([wx, wy, wz, ry]);
+        }
+      }
       // 夜に灯る窓（点くかどうかは、日と時間で決める）
       if (this.r() < 0.9) {
         // 家は地面より3m低いところから建てている（坂で浮かないように）ので、窓はその上から
@@ -66,6 +91,17 @@ export class World {
     bodies.castShadow = bodies.receiveShadow = true;
     roofs.castShadow = true;
     this.group.add(bodies, roofs);
+    if (glass.length) {
+      const plane = new THREE.PlaneGeometry(1, 1);
+      const put = (arr, mat, sx, sy) => {
+        const mesh = new THREE.InstancedMesh(plane, mat, arr.length);
+        const e = new THREE.Euler();
+        arr.forEach(([x, y, z, ry], k) => { q.setFromEuler(e.set(0, ry, 0)); m.compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(sx, sy, 1)); mesh.setMatrixAt(k, m); });
+        this.group.add(mesh);
+      };
+      put(frames, this.mat(0xe6e2d8), 1.12, 1.0);
+      put(glass, this.mat(0x3e4a54), 0.95, 0.84);
+    }
     return windows;
   }
 
