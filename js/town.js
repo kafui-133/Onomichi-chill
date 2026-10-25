@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { canvasTexture, glowTexture, seededRandom, speckle } from './util.js';
 import { quality } from './quality.js';
+import { buildPerson, geos as personGeos } from './people.js';
 import { lam, buildSignAtlas, buildRetroSignAtlas, buildShopInteriorAtlas, SHOP_INTERIOR_KINDS, labelTexture, QuadBatch, instancedBoxes, instancedChunks } from './townKit.js';
 import {
   DATA, SEA_Y, BOUNDS, terrainY, groundY, surfaceY, addTread, addSolid, inSolid, walkable, ROADS, OTHER_ROADS, ARCADE_ROADS, nearAnyRoad, samplePath, roadLength, pointAlong,
@@ -228,6 +229,50 @@ class TriBatch {
     g.computeVertexNormals();
     return g;
   }
+}
+
+/**
+ * ブロンズ像の人：町の人と同じ体つきを、ブロンズ一色で。pose = 'stand'（遠くを指す）| 'sit'（腰かける）| 'crouch'（しゃがんで頬杖）
+ * 足もと（立ち）や座面（座り・しゃがみ）が原点。正面は +Z
+ */
+function bronzeFigure(mat, pose, seed) {
+  const p = buildPerson('stroller', seededRandom(seed));
+  const { root, parts } = p;
+  const body = parts.torso.parent;
+  root.traverse((o) => { if (o.isMesh) { o.material = mat; o.castShadow = true; } });
+  // 帽子などの小物は外す（髪はのこす）
+  parts.head.children.filter((c) => c.isGroup).forEach((c) => parts.head.remove(c));
+  const shin = (L, ang) => {
+    // ひざから下：もも（脚の上半分）を前へ、すねを下へ
+    const leg = L.children[0];
+    leg.scale.y = 0.55;
+    const sh = new THREE.Mesh(personGeos().leg, mat);
+    sh.castShadow = true;
+    sh.scale.y = 0.55;
+    sh.position.set(0, -0.43, 0);
+    sh.rotation.x = ang;
+    L.add(sh);
+    const shoe = L.children[1];
+    shoe.position.set(0, -0.43 - Math.cos(ang) * 0.44, Math.sin(ang) * 0.44 + 0.04);
+    shoe.rotation.x = ang;
+  };
+  if (pose === 'stand') {
+    parts.armR.rotation.x = -1.35; parts.armR.rotation.z = -0.15;   // 海の向こうを指す
+    parts.head.rotation.y = -0.15;
+  } else if (pose === 'sit') {
+    body.position.y = -0.86;
+    for (const L of [parts.legL, parts.legR]) { L.rotation.x = -1.5; shin(L, 1.5); }
+    parts.armL.rotation.x = -0.5; parts.armR.rotation.x = -0.6;
+    parts.head.rotation.x = 0.1;
+  } else {
+    body.position.y = -0.62;
+    for (const L of [parts.legL, parts.legR]) { L.rotation.x = -2.2; shin(L, 2.6); }
+    parts.torso.rotation.x = 0.3;
+    parts.head.position.z = 0.12;
+    parts.armR.rotation.x = -2.2;   // 頬杖
+    parts.armL.rotation.x = -0.9;
+  }
+  return root;
 }
 
 export class Town {
@@ -4752,13 +4797,11 @@ export class Town {
     const make = (kind, g) => {
       const add = (geo, mat, x, y, z, rx = 0, ry = 0, rz = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.set(rx, ry, rz); m.castShadow = true; g.add(m); return m; };
       if (kind === 0) {
-        // 海を見て立つ人（ブロンズ）
-        add(new THREE.CylinderGeometry(0.11, 0.09, 0.85, 8), bronze, -0.12, 1.5, 0);
-        add(new THREE.CylinderGeometry(0.11, 0.09, 0.85, 8), bronze, 0.12, 1.5, 0.05);
-        add(new THREE.CylinderGeometry(0.2, 0.15, 0.75, 10), bronze, 0, 2.25, 0);
-        add(new THREE.SphereGeometry(0.15, 12, 10), bronze, 0, 2.78, 0.02);
-        add(new THREE.CylinderGeometry(0.06, 0.05, 0.7, 6), bronze, -0.26, 2.2, 0.08, 0.3, 0, 0.15);
-        add(new THREE.CylinderGeometry(0.06, 0.05, 0.7, 6), bronze, 0.27, 2.35, 0.2, -1.1, 0, -0.2);   // 遠くを指す腕
+        // 海を見て立つ人（ブロンズ）。遠くを指さす
+        const fig = bronzeFigure(bronze, 'stand', 'sc-stand');
+        fig.position.y = 1.1;
+        fig.scale.setScalar(1.08);
+        g.add(fig);
       } else if (kind === 1) {
         // ステンレスのねじれた輪
         add(new THREE.TorusKnotGeometry(0.8, 0.14, 80, 10, 2, 3), steel, 0, 2.2, 0, 0.2, 0, 0.3);
@@ -4775,10 +4818,10 @@ export class Town {
         // ベンチに座る人（ブロンズ）。となりに座れそうな空き
         add(new THREE.BoxGeometry(1.8, 0.08, 0.45), bronze, 0, 1.45, 0);
         for (const sd of [-0.75, 0.75]) add(new THREE.BoxGeometry(0.08, 0.45, 0.4), bronze, sd, 1.2, 0);
-        add(new THREE.BoxGeometry(0.3, 0.12, 0.45), bronze, -0.45, 1.56, 0.12);
-        add(new THREE.CylinderGeometry(0.17, 0.15, 0.6, 10), bronze, -0.45, 1.9, -0.05);
-        add(new THREE.SphereGeometry(0.13, 12, 10), bronze, -0.45, 2.33, -0.02);
-        for (const sd of [-0.55, -0.35]) add(new THREE.CylinderGeometry(0.06, 0.05, 0.45, 6), bronze, sd, 1.3, 0.32);
+        add(new THREE.BoxGeometry(1.8, 0.4, 0.06), bronze, 0, 1.72, -0.2);   // 背もたれ
+        const fig = bronzeFigure(bronze, 'sit', 'sc-sit');
+        fig.position.set(-0.45, 1.49, -0.02);
+        g.add(fig);
       }
     };
     const names = ['海をのぞむ', '潮のかたち', '石のことば', '帆', '待ちびと', '風', '舟出', '凪'];
@@ -4822,9 +4865,9 @@ export class Town {
       g.add(base);
       const add = (geo, x, yy, z, rx = 0, rz = 0) => { const m = new THREE.Mesh(geo, bronze); m.position.set(x, yy, z); m.rotation.set(rx, 0, rz); m.castShadow = true; g.add(m); };
       add(new THREE.BoxGeometry(0.55, 0.38, 0.25), 0.45, 0.7, 0.05);                 // 旅行かばん
-      add(new THREE.CylinderGeometry(0.2, 0.25, 0.55, 10), -0.1, 0.85, 0, 0.35);       // しゃがんだ体
-      add(new THREE.SphereGeometry(0.13, 12, 10), -0.08, 1.25, 0.12);                  // 頭
-      add(new THREE.CylinderGeometry(0.05, 0.05, 0.4, 6), -0.05, 1.05, 0.25, 0.9);      // 頬杖の腕
+      const fig = bronzeFigure(bronze, 'crouch', 'fumiko');   // しゃがんで頬杖をつく
+      fig.position.set(-0.15, 0.5, 0);
+      g.add(fig);
       const tex = labelTexture('林芙美子', { w: 256, h: 96, size: 52, bg: '#a49e92', fg: '#2e2a26' });
       const plate = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.26), new THREE.MeshLambertMaterial({ map: tex }));
       plate.position.set(0, 0.26, 0.61);
