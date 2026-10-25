@@ -96,7 +96,9 @@ export class Sky {
                 float dd = length((o + h - fp) * vec2(1.0, 1.3));
                 puff = max(puff, (1.0 - smoothstep(size * 0.15, size, dd + (noise(q * 3.0) - 0.5) * 0.15)) * (0.6 + 0.4 * hash(ip + o + 9.7)));
               }
-              float band = smoothstep(0.5, 0.72, fbm(uv * 0.5 + vec2(3.0, 1.0)) + fbm(uv * 2.2) * 0.15);
+              // 帯は空の一部だけ（ところどころに、うろこの群れ）。帯のふちほど、つぶは小さくまばらに
+              float band = smoothstep(0.5, 0.7, fbm(uv * 1.6 + vec2(3.0, 1.0)) + fbm(uv * 4.0) * 0.1);
+              puff *= smoothstep(0.0, 0.5, band + hash(ip) * 0.3);
               float sky = smoothstep(0.08, 0.3, d.y);
               c = max(c, puff * band * sky * uUroko * 0.8);
             }

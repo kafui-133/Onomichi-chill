@@ -115,7 +115,8 @@ function dress(person, top, bottom, hairColor) {
   parts.torso.material = mat(top);
   for (const a of [parts.armL, parts.armR]) a.children[0].material = mat(top);
   for (const l of [parts.legL, parts.legR]) l.children[0].material = mat(bottom);
-  if (hairColor) parts.head.children[1].material = mat(hairColor);
+  parts.torso.parent.children.forEach((o) => { if (o.userData.bottom) o.material = mat(bottom); });
+  if (hairColor) parts.head.children.forEach((o) => { if (o.userData.hair) o.material = mat(hairColor); });
 }
 function yukata(r) {
   const p = buildPerson('stroller', r);

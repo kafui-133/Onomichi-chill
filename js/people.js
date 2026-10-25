@@ -68,16 +68,27 @@ const PAL = {
 let G = null;
 export function geos() {
   if (G) return G;
-  const leg = new THREE.CapsuleGeometry(0.068, 0.66, 3, 8); leg.translate(0, -0.4, 0);
-  const arm = new THREE.CapsuleGeometry(0.05, 0.46, 3, 8); arm.translate(0, -0.27, 0);
-  const torso = new THREE.CapsuleGeometry(0.155, 0.4, 4, 10); torso.scale(1.05, 1, 0.68);
+  // 脚：もも（太い）から足首へ細くなる。上は腰の中まで入れて、胴とのすき間をなくす
+  const lathe = (pts, seg = 10) => new THREE.LatheGeometry(pts.map(([r, y]) => new THREE.Vector2(r, y)), seg);
+  const leg = lathe([[0, 0.1], [0.06, 0.09], [0.088, 0.02], [0.08, -0.25], [0.062, -0.42], [0.058, -0.5], [0.048, -0.74], [0.042, -0.8], [0, -0.81]]);
+  const arm = lathe([[0, 0.05], [0.05, 0.04], [0.056, -0.02], [0.048, -0.24], [0.04, -0.3], [0.036, -0.48], [0, -0.5]], 8);
+  // 胴：肩はばがあって、腰で少しくびれ、下は腰まわり。首へ向かってすぼまる
+  const torso = lathe([[0, -0.37], [0.13, -0.36], [0.155, -0.3], [0.148, -0.12], [0.16, 0.05], [0.18, 0.2], [0.17, 0.27], [0.11, 0.32], [0.05, 0.34], [0, 0.345]], 14);
+  torso.scale(1.08, 1, 0.66);
   const hair = new THREE.SphereGeometry(0.125, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.55);
   const hat = new THREE.CylinderGeometry(0.2, 0.2, 0.02, 14); hat.translate(0, 0.07, 0);
   const crown = new THREE.CylinderGeometry(0.11, 0.12, 0.1, 12); crown.translate(0, 0.12, 0);
   const pack = new THREE.BoxGeometry(0.3, 0.38, 0.16);
   const wheel = new THREE.TorusGeometry(0.33, 0.022, 6, 20); wheel.rotateY(Math.PI / 2);
   const bar = new THREE.CylinderGeometry(0.018, 0.018, 1, 6);
-  G = { leg, arm, torso, hair, hat, crown, pack, wheel, bar,
+  const neck = new THREE.CylinderGeometry(0.045, 0.05, 0.12, 8);
+  const skirt = lathe([[0.15, 0], [0.17, -0.1], [0.23, -0.42], [0, -0.42]], 14); skirt.scale(1.05, 1, 0.8);
+  const longHair = new THREE.SphereGeometry(0.13, 10, 8, Math.PI * 0.15, Math.PI * 0.7, 0, Math.PI * 0.75); longHair.rotateY(Math.PI); longHair.scale(1, 1.6, 0.9);
+  const bun = new THREE.SphereGeometry(0.055, 8, 6);
+  const nose = new THREE.SphereGeometry(0.018, 6, 4);
+  const brow = new THREE.BoxGeometry(0.04, 0.008, 0.01);
+  const collar = new THREE.TorusGeometry(0.07, 0.018, 4, 12); collar.rotateX(Math.PI / 2);
+  G = { leg, arm, torso, hair, hat, crown, pack, wheel, bar, neck, skirt, longHair, bun, nose, brow, collar,
     head: new THREE.SphereGeometry(0.118, 14, 10), eye: new THREE.SphereGeometry(0.014, 6, 4), shoe: new THREE.BoxGeometry(0.11, 0.07, 0.22),
     rod: new THREE.CylinderGeometry(0.008, 0.014, 3.2, 5), item: new THREE.BoxGeometry(0.08, 0.06, 0.12) };
   return G;
@@ -100,19 +111,25 @@ export function buildPerson(kind, r) {
   if (kind === 'student') { top = r() < 0.5 ? '#f4f2ec' : '#2a3048'; bottom = '#262a36'; }
   if (kind === 'roadbike') { top = pick(['#d83a2a', '#2a7ad8', '#f0c020']); bottom = '#1a1a1e'; }
   const parts = {};
+  const shoeC = pick(['#2a2622', '#2a2622', '#f0eee8', '#6a4a32', '#3a4a6a']);
+  const woman = r() < 0.5;
+  const skirtOn = woman && kind !== 'student' && !KINDS[kind].bike && kind !== 'fisher' && r() < 0.45;
   for (const side of [-1, 1]) {
     const L = new THREE.Group();
-    L.position.set(side * 0.1, 0.86, 0);
+    L.position.set(side * 0.085, 0.86, 0);
     const leg = new THREE.Mesh(g.leg, mat(bottom));
-    const shoe = new THREE.Mesh(g.shoe, mat('#2a2622'));
+    leg.castShadow = true;
+    const shoe = new THREE.Mesh(g.shoe, mat(shoeC));
     shoe.position.set(0, -0.82, 0.04);
     L.add(leg, shoe);
     body.add(L);
     parts[side < 0 ? 'legL' : 'legR'] = L;
     const A = new THREE.Group();
-    A.position.set(side * 0.205, 1.42, 0);
-    A.rotation.z = side * 0.06;
-    A.add(new THREE.Mesh(g.arm, mat(top)));
+    A.position.set(side * 0.2, 1.41, 0);
+    A.rotation.z = side * 0.07;
+    const armM = new THREE.Mesh(g.arm, mat(top));
+    armM.castShadow = true;
+    A.add(armM);
     const hand = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6), skin);
     hand.position.y = -0.52;
     A.add(hand);
@@ -124,13 +141,29 @@ export function buildPerson(kind, r) {
   torso.castShadow = true;
   const head = new THREE.Group();
   head.position.y = 1.56;
-  head.add(new THREE.Mesh(g.head, skin));
-  const hairM = new THREE.Mesh(g.hair, mat(elder ? pick(['#8a8580', '#d8d4cc']) : pick(PAL.hair.slice(0, 3))));
+  const headM = new THREE.Mesh(g.head, skin);
+  headM.scale.set(0.95, 1.05, 1);
+  head.add(headM);
+  const hairC = mat(elder ? pick(['#8a8580', '#d8d4cc']) : pick(PAL.hair.slice(0, 3)));
+  const hairM = new THREE.Mesh(g.hair, hairC);
   hairM.position.set(0, 0.015, -0.018);
   hairM.rotation.x = -0.55;   // 前髪は額の上まで。顔は見えるように
+  hairM.userData.hair = true;
   head.add(hairM);
-  for (const sx of [-1, 1]) { const eye = new THREE.Mesh(g.eye, mat('#1e1a18')); eye.position.set(sx * 0.04, -0.005, 0.105); head.add(eye); }
-  body.add(torso, head);
+  // 髪型：長い髪（肩まで）、おだんご、短いまま
+  if (woman && !elder && r() < 0.6) { const lh = new THREE.Mesh(g.longHair, hairC); lh.position.set(0, -0.05, -0.02); lh.userData.hair = true; head.add(lh); }
+  else if (woman && elder && r() < 0.6) { const bn = new THREE.Mesh(g.bun, hairC); bn.position.set(0, 0.06, -0.11); bn.userData.hair = true; head.add(bn); }
+  // 顔：目、まゆ、鼻
+  for (const sx of [-1, 1]) {
+    const eye = new THREE.Mesh(g.eye, mat('#1e1a18')); eye.position.set(sx * 0.038, -0.005, 0.106); head.add(eye);
+    const br = new THREE.Mesh(g.brow, hairC); br.position.set(sx * 0.04, 0.034, 0.106); br.rotation.z = sx * 0.04; br.userData.hair = true; head.add(br);
+  }
+  const nose = new THREE.Mesh(g.nose, skin); nose.position.set(0, -0.03, 0.115); nose.scale.set(0.8, 1.1, 0.9); head.add(nose);
+  const neck = new THREE.Mesh(g.neck, skin); neck.position.y = -0.12; head.add(neck);
+  // えり（白いシャツのえりか、服と同じ色）
+  const collar = new THREE.Mesh(g.collar, mat(r() < 0.4 ? '#f2f0ea' : top)); collar.position.y = 1.505; collar.scale.z = 0.8;
+  body.add(torso, head, collar);
+  if (skirtOn) { const sk = new THREE.Mesh(g.skirt, mat(bottom)); sk.position.y = 0.86; sk.userData.bottom = true; sk.castShadow = true; body.add(sk); }
   parts.head = head;
   parts.torso = torso;
   // 持ち物・帽子
