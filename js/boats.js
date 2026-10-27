@@ -175,7 +175,7 @@ export class Boats {
   /** 水道の中心線にそって東西に横切る船 */
   _spawnTraverse(b) {
     const dir = Math.random() < 0.5 ? 1 : -1;
-    b.lane = b.type === 'cargo' ? rand(-15, 15) : rand(-70, 70);
+    b.lane = b.type === 'cargo' ? rand(-15, 15) : rand(-45, 45);   // 岸近くには、ブイにつないだ舟がいる
     b.dir = dir;
     b.group.position.x = dir > 0 ? BOUNDS.x0 - 250 : BOUNDS.x1 + 250;
     b.speed = b.type === 'cargo' ? rand(5, 7) : rand(7, 11);
