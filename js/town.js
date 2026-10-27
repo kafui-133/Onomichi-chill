@@ -4562,8 +4562,27 @@ export class Town {
       const hp = hullGeo.attributes.position;
       for (let i = 0; i < hp.count; i++) if (hp.getY(i) < 0) { hp.setX(i, hp.getX(i) * 0.9); hp.setZ(i, hp.getZ(i) * 0.7); }
       hullGeo.computeVertexNormals();
-      this.group.add(instancedChunks(hulls, lam(0xffffff), { geo: hullGeo }));
-      if (cabins.length) this.group.add(instancedChunks(cabins, lam(0xffffff)));
+      // つないだ舟は、うねりに合わせて、ゆっくり上下にゆれる（場所ごとに少しずつずれて、舟がかたむく）
+      this.bobTime = { value: 0 };
+      const bobbing = () => {
+        const m = new THREE.MeshLambertMaterial({ color: 0xffffff });
+        m.onBeforeCompile = (sh) => {
+          sh.uniforms.uBob = this.bobTime;
+          sh.vertexShader = 'uniform float uBob;\n' + sh.vertexShader.replace('#include <project_vertex>', `
+            vec4 mvPosition = vec4(transformed, 1.0);
+            #ifdef USE_INSTANCING
+              mvPosition = instanceMatrix * mvPosition;
+            #endif
+            vec4 bw = modelMatrix * mvPosition;
+            bw.y += sin(uBob * 1.15 + bw.x * 0.23 + bw.z * 0.17) * 0.06 + sin(uBob * 0.71 + bw.x * 0.08 - bw.z * 0.12) * 0.05;
+            mvPosition = viewMatrix * bw;
+            gl_Position = projectionMatrix * mvPosition;`);
+        };
+        m.customProgramCacheKey = () => 'bob';
+        return m;
+      };
+      this.group.add(instancedChunks(hulls, bobbing(), { geo: hullGeo }));
+      if (cabins.length) this.group.add(instancedChunks(cabins, bobbing()));
     }
     if (fenders.length) this.group.add(instancedChunks(fenders, lam(0xffffff), { detail: 80, geo: new THREE.TorusGeometry(0.36, 0.13, 6, 12) }));
     if (ropes.length) this.group.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(ropes), new THREE.LineBasicMaterial({ color: 0xd8cfb0 })));
@@ -5798,6 +5817,7 @@ export class Town {
   /** 毎フレーム。電車が近づいて鳴りはじめた踏切を返す */
   update(time, elapsed, dt) {
     const night = time.p.night;
+    if (this.bobTime) this.bobTime.value = elapsed;
     this.nightMats.forEach(({ mat, max }) => { mat.opacity = Math.min(max, night * 1.2); });
     this.glowMats.forEach(({ mat, base, add }) => { mat.emissiveIntensity = base + night * add; });
     this.lampMat.opacity = Math.min(1, night * 1.3);
