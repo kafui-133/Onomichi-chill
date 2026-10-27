@@ -319,6 +319,7 @@ export class Town {
     this._lamps();
     this._seaside();
     this._streetDetails();
+    this._parkedCars();
     this._sculptures();
     this._takedaPlaza();
     this._mihara();
@@ -4904,6 +4905,91 @@ export class Town {
         this.group.add(g);
       }
     }
+  }
+
+  /**
+   * とめてある車：平地の細い道のわきの空き地や家の前に、軽自動車がところどころ。駅前にはタクシーの列。
+   * 走る車は置かない（歩く町なので、静かに）
+   */
+  _parkedCars() {
+    const r = seededRandom('cars');
+    const kei = [], keiGlass = [], sedan = [], sedanGlass = [], wheels = [], lights = [], roofSigns = [];
+    const COLORS = ['#f2f2ee', '#f2f2ee', '#c8ccd0', '#2a2c30', '#e8d8b0', '#a8c8d8', '#d8a0a8', '#8a9aa0', '#b03a2e', '#e8e0c8'];
+    // 車の形：横から見た輪郭（長さ1・高さ1）を、幅の向きにのばす。窓は、輪郭の内側の台形
+    const profile = (pts, depth = 1) => {
+      const sh = new THREE.Shape(pts.map(([x, y]) => new THREE.Vector2(x, y)));
+      const g = new THREE.ExtrudeGeometry(sh, { depth, bevelEnabled: false });
+      g.translate(0, 0, -depth / 2);
+      return g;
+    };
+    const KEI = { body: profile([[-0.5, 0.18], [0.5, 0.18], [0.5, 0.45], [0.42, 0.53], [0.3, 0.57], [0.16, 0.95], [-0.43, 0.98], [-0.5, 0.88]]),
+      glass: profile([[0.27, 0.6], [0.15, 0.9], [-0.41, 0.92], [-0.47, 0.62]], 1.02) };
+    const SEDAN = { body: profile([[-0.5, 0.2], [0.5, 0.2], [0.5, 0.45], [0.24, 0.52], [0.08, 0.86], [-0.22, 0.88], [-0.37, 0.56], [-0.5, 0.53]]),
+      glass: profile([[0.21, 0.55], [0.07, 0.82], [-0.21, 0.84], [-0.33, 0.56]], 1.02) };
+    const addCar = (x, z, ang, color, taxi = false) => {
+      const y = groundY(x, z), tx = Math.cos(ang), tz = Math.sin(ang), nx = -tz, nz = tx, ry = -ang;
+      const L = taxi ? 4.6 : 3.4, W = taxi ? 1.7 : 1.48, H = taxi ? 1.5 : 1.65;
+      (taxi ? sedan : kei).push({ x, y, z, sx: L, sy: H, sz: W, ry, color });
+      (taxi ? sedanGlass : keiGlass).push({ x, y, z, sx: L * 0.999, sy: H, sz: W, ry, color: '#26303a' });
+      for (const u of [-0.32, 0.32]) for (const v of [-1, 1]) wheels.push({ x: x + tx * L * u + nx * v * (W / 2 - 0.12), y: y + 0.3, z: z + tz * L * u + nz * v * (W / 2 - 0.12), sx: 0.6, sy: 0.22, sz: 0.6, rx: Math.PI / 2, ry: ry, color: '#1e1e20' });
+      for (const v of [-1, 1]) {
+        lights.push({ x: x + tx * (L / 2 + 0.01) + nx * v * (W / 2 - 0.25), y: y + 0.6, z: z + tz * (L / 2 + 0.01) + nz * v * (W / 2 - 0.25), sx: 0.04, sy: 0.14, sz: 0.3, ry, color: '#f4f0e0' });
+        lights.push({ x: x - tx * (L / 2 + 0.01) + nx * v * (W / 2 - 0.2), y: y + (taxi ? 0.68 : 0.75), z: z - tz * (L / 2 + 0.01) + nz * v * (W / 2 - 0.2), sx: 0.04, sy: 0.18, sz: 0.22, ry, color: '#b8302a' });
+      }
+      if (taxi) roofSigns.push({ x: x - tx * L * 0.07, y: y + H * 0.88 + 0.09, z: z - tz * L * 0.07, sx: 0.22, sy: 0.18, sz: 0.5, ry, color: '#f0d040' });
+      addSolid(x, z, L, W, -ang);
+    };
+    // 平地の細い道のわき（道と建物のあいだの空き地）
+    let n = 0;
+    for (const road of ROADS) {
+      if (road.surface !== 'asphalt' || road.kind === 'trunk' || road.width > 7 || road.covered || roadLength(road.pts) < 30) continue;
+      for (const p of samplePath(road.pts, 9)) {
+        if (n > 70 || r() > 0.16) continue;
+        const above = terrainY(p.x, p.z) - SEA_Y;
+        if (above < 1.2 || above > 14 || Math.hypot(p.x, p.z) > 900 || !onOnomichiSide(p.x, p.z) || this.inStationArea?.(p.x, p.z) || distToCoast(p.x, p.z) < 8) continue;
+        const nx = -Math.sin(p.angle), nz = Math.cos(p.angle), sd = r() < 0.5 ? -1 : 1;
+        const off = road.width / 2 + 1.15;
+        const x = p.x + nx * sd * off, z = p.z + nz * sd * off;
+        const free = [-1.9, 0, 1.9].every((u) => [-0.8, 0.8].every((v) => {
+          const qx = x + Math.cos(p.angle) * u + nx * v, qz = z + Math.sin(p.angle) * u + nz * v;
+          return !nearAnyRoad(qx, qz, 0.05) && !inBuilding(qx, qz) && !inSolid(qx, qz) && !nearRail(qx, qz, 4) && Math.abs(terrainY(qx, qz) - terrainY(x, z)) < 0.5;
+        }));
+        if (!free) continue;
+        addCar(x, z, p.angle + (r() < 0.5 ? 0 : Math.PI), COLORS[Math.floor(r() * COLORS.length)]);
+        n++;
+      }
+    }
+    // 駅前のタクシーのりば：駅のいちばん近くの広い道ぞいに、3台
+    const st = POIS.find((q) => q.n === 'JR尾道駅');
+    if (st) {
+      let best = null;
+      for (const road of ROADS) {
+        if (road.surface !== 'asphalt' || road.width < 6) continue;
+        for (const p of samplePath(road.pts, 3)) {
+          const d = Math.hypot(p.x - st.x, p.z - st.z);
+          if (d > 25 && d < 60 && (!best || d < best.d)) best = { p, d, road };
+        }
+      }
+      if (best) {
+        const { p, road } = best, nx = -Math.sin(p.angle), nz = Math.cos(p.angle);
+        // 駅の側の車線（道のはしに寄せる）
+        const sd = (st.x - p.x) * nx + (st.z - p.z) * nz > 0 ? 1 : -1;
+        for (let k = 0; k < 3; k++) {
+          const x = p.x + nx * sd * (road.width / 2 - 1.1) + Math.cos(p.angle) * (k - 1) * 5.4, z = p.z + nz * sd * (road.width / 2 - 1.1) + Math.sin(p.angle) * (k - 1) * 5.4;
+          addCar(x, z, p.angle, ['#2a2c30', '#e8c040', '#f2f2ee'][k], true);
+        }
+      }
+    }
+    if (!kei.length && !sedan.length) return;
+    const bodyG = new THREE.Group();
+    bodyG.name = 'cars';
+    if (kei.length) bodyG.add(instancedChunks(kei, lam(0xffffff), { detail: 160, geo: KEI.body }), instancedChunks(keiGlass, lam(0xffffff), { detail: 160, cast: false, geo: KEI.glass }));
+    if (sedan.length) bodyG.add(instancedChunks(sedan, lam(0xffffff), { detail: 160, geo: SEDAN.body }), instancedChunks(sedanGlass, lam(0xffffff), { detail: 160, cast: false, geo: SEDAN.glass }));
+    this.group.add(bodyG);
+    this.group.add(instancedChunks(wheels, lam(0xffffff), { detail: 110, cast: false, geo: new THREE.CylinderGeometry(0.5, 0.5, 1, 10) }));
+    this.group.add(instancedChunks(lights, lam(0xffffff), { detail: 90, cast: false }));
+    if (roofSigns.length) this.group.add(instancedChunks(roofSigns, lam(0xffffff), { detail: 120 }));
+    this.parkedCarCount = n;
   }
 
   /**
