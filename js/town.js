@@ -4373,7 +4373,7 @@ export class Town {
       let last = -99, run = 0;
       for (const p of samplePath(road.pts, 2)) {
         run += 2;
-        if (!this.inStationArea(p.x, p.z) || run - last < 13) continue;
+        if (!this.inStationArea(p.x, p.z) || run - last < 24 || curbs.length >= 90) continue;
         const nx = -Math.sin(p.angle), nz = Math.cos(p.angle);
         for (const sd of [-1, 1]) {
           const off = road.width / 2 + 1.1, x = p.x + nx * sd * off, z = p.z + nz * sd * off;
@@ -4398,7 +4398,7 @@ export class Town {
     }
     if (curbs.length) {
       this.group.add(instancedChunks(curbs, lam(0xffffff), { detail: 140 }));
-      this.group.add(instancedChunks(hedges, lam(0xffffff, { flatShading: true }), { detail: 120, geo: new THREE.IcosahedronGeometry(0.6, 1) }));
+      this.group.add(instancedChunks(hedges, lam(0xffffff, { flatShading: true }), { detail: 120, geo: new THREE.IcosahedronGeometry(0.6, 0) }));
     }
     // バスのりば：駅前の広い道ぞいに、屋根とベンチと、のりばの標識
     const stops = [];
