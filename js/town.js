@@ -1574,12 +1574,12 @@ export class Town {
       g.fillStyle = '#c8c8c8'; g.fillRect(0, 0, w, h);
       const rr = seededRandom('leaf-tex');
       for (let k = 0; k < 900; k++) {
-        const x = rr() * w, y = rr() * h, rad = 1.5 + rr() * 3.5, v = rr() < 0.35 ? 90 + rr() * 40 : 200 + rr() * 55;
+        const x = rr() * w, y = rr() * h, rad = 1.2 + rr() * 2.4, v = rr() < 0.35 ? 135 + rr() * 35 : 205 + rr() * 50;
         g.fillStyle = `rgb(${v},${v},${v})`;
         g.beginPath(); g.ellipse(x, y, rad, rad * 0.6, rr() * 3, 0, Math.PI * 2); g.fill();
       }
     });
-    leafTex.repeat.set(3, 3);
+    leafTex.repeat.set(7, 7);
     const vmat = lam(0xffffff, { flatShading: true, vertexColors: true, map: leafTex });
     const mat = lam(0xffffff, { flatShading: true });
     // 町なかと坂の木（海から50mまで）は、でこぼこの樹冠と幹。上の森は、軽い丸のまま
