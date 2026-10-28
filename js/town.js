@@ -2556,14 +2556,39 @@ export class Town {
     const { base, top } = ROPEWAY;
     const by = terrainY(base.x, base.z), ty = terrainY(top.x, top.z);
     // 駅舎そのものは OpenStreetMap の建物で立っているので、ここではゴンドラの乗り場の屋根だけ
-    const st = (p, y) => {
-      const roof = new THREE.Mesh(new THREE.BoxGeometry(6, 0.3, 5), lam(0x7a2a22));
-      roof.position.set(p.x, y + 6.2, p.z);
-      roof.castShadow = true;
-      this.group.add(roof);
+    // 乗り場：赤い屋根を4本の柱でささえ、下に乗り場の床と手すり、屋根の下にケーブルをまわす大きな車輪
+    const cableAng = Math.atan2(top.z - base.z, top.x - base.x);
+    const st = (p, y, name) => {
+      const g = new THREE.Group();
+      g.position.set(p.x, y, p.z);
+      g.rotation.y = -cableAng;
+      const box = (w, h, d, m, x, yy, z) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, yy, z); o.castShadow = true; o.receiveShadow = true; g.add(o); return o; };
+      const red = lam(0x7a2a22), grey = lam(0x8a8e90), conc = lam(0xb8b4aa), dark = lam(0x2a2e33);
+      box(6.4, 0.3, 7.2, red, 0, 6.2, 0);                          // 屋根
+      box(6.6, 0.5, 7.4, red, 0, 5.9, 0).scale.set(1, 1, 1);
+      for (const [x, z] of [[-2.9, -3.2], [2.9, -3.2], [-2.9, 3.2], [2.9, 3.2]]) box(0.3, 5.7, 0.3, grey, x, 2.85, z);   // 柱
+      box(6, 5, 7, conc, 0, -2.2, 0);                               // 乗り場の床（坂の下まで、コンクリートの土台）
+      for (const z of [-3.4, 3.4]) { box(6, 0.06, 0.06, grey, 0, 1.0, z); box(6, 0.06, 0.06, grey, 0, 0.6, z); }
+      // ケーブルをまわす車輪（屋根の下、水平に）
+      const wheel = new THREE.Mesh(new THREE.TorusGeometry(2.6, 0.12, 6, 28), dark);
+      wheel.rotation.x = Math.PI / 2;
+      wheel.position.set(0, 5.4, 0);
+      g.add(wheel);
+      box(0.4, 0.8, 0.4, dark, 0, 5.6, 0);
+      // 駅名の札（屋根のふち、両面）
+      const sign = new THREE.MeshBasicMaterial({ map: labelTexture(name, { w: 512, h: 112, size: 60, bg: '#f4efe4', fg: '#7a2a22' }) });
+      for (const sd of [-1, 1]) {
+        const m = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 0.8), sign);
+        m.position.set(0, 6.6, sd * 3.75);
+        m.rotation.y = sd > 0 ? 0 : Math.PI;
+        g.add(m);
+      }
+      box(3.8, 0.9, 0.08, red, 0, 6.6, 3.7);
+      box(3.8, 0.9, 0.08, red, 0, 6.6, -3.7);
+      this.group.add(g);
     };
-    st(base, by);
-    st(top, ty);
+    st(base, by, '山麓駅');
+    st(top, ty, '山頂駅');
     // 山麓駅の看板と入口：駅舎（OpenStreetMap の建物）は乗り場から西へのびている。通りに面した東と南の壁に、赤い看板
     const signMat = new THREE.MeshBasicMaterial({ map: labelTexture('千光寺山ロープウェイ', { w: 768, h: 128, size: 64, bg: '#7a2a22', fg: '#f6ead8' }) });
     const east = new THREE.Mesh(new THREE.PlaneGeometry(6, 1), signMat);
@@ -2628,17 +2653,50 @@ export class Town {
     const towerTs = [0.33, 0.66];
     const peak = this.cableLift.indexOf(Math.max(...this.cableLift)) / N;
     if (Math.max(...this.cableLift) > 1 && towerTs.every((t) => Math.abs(t - peak) > 0.12)) towerTs.push(peak);
-    const steel = lam(0x8a8a88);
+    const steel = lam(0x8a8a88), dark = lam(0x3a3e42), concrete = lam(0xb0aca2);
+    // 支柱：鉄骨の格子の塔（4本の脚が上へすぼまり、横の輪と、すじかい）。上に腕木と、ケーブルをのせる滑車
     for (const t of towerTs) {
       const p = this.cablePoint(t, 0);
-      const gy = terrainY(p.x, p.z);
-      const tower = new THREE.Mesh(new THREE.BoxGeometry(0.8, Math.max(1, p.y - gy + 1.2), 0.8), steel);
-      tower.position.set(p.x, (p.y + 0.6 + gy) / 2, p.z);
-      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 7), steel);
-      arm.position.set(p.x, p.y + 0.6, p.z);
-      arm.rotation.y = Math.atan2(this.ropeSide.x, this.ropeSide.z);
-      tower.castShadow = true;
-      this.group.add(tower, arm);
+      const gy = terrainY(p.x, p.z), H = Math.max(2, p.y - gy + 0.6);
+      const g = new THREE.Group();
+      g.position.set(p.x, gy, p.z);
+      g.rotation.y = Math.atan2(this.ropeSide.x, this.ropeSide.z);
+      const beam = (a, b, w = 0.18) => {
+        const va = new THREE.Vector3(...a), vb = new THREE.Vector3(...b);
+        const m = new THREE.Mesh(new THREE.BoxGeometry(w, va.distanceTo(vb), w), steel);
+        m.position.copy(va).add(vb).multiplyScalar(0.5);
+        m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), vb.clone().sub(va).normalize());
+        m.castShadow = true;
+        g.add(m);
+      };
+      const half = (y) => 1.6 - (y / H) * 0.9;   // 脚の開き（下が広い）
+      const corner = (y, i) => [((i & 1) ? 1 : -1) * half(y), y, ((i & 2) ? 1 : -1) * half(y)];
+      for (let i = 0; i < 4; i++) beam(corner(0, i), corner(H, i), 0.22);
+      const seg = Math.max(2, Math.round(H / 3));
+      for (let k = 0; k <= seg; k++) {
+        const y = (k / seg) * H;
+        const ring = [0, 1, 3, 2];
+        for (let i = 0; i < 4; i++) beam(corner(y, ring[i]), corner(y, ring[(i + 1) % 4]), 0.12);
+        if (k < seg) {
+          const y2 = ((k + 1) / seg) * H;
+          for (let i = 0; i < 4; i++) beam(corner(y, ring[i]), corner(y2, ring[(i + 1) % 4]), 0.08);
+        }
+      }
+      const conc = new THREE.Mesh(new THREE.BoxGeometry(4, 0.8, 4), concrete);
+      conc.position.y = 0.1;
+      conc.receiveShadow = true;
+      g.add(conc);
+      // 腕木と滑車（ケーブルの通るところ）
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.45, 7), steel);
+      arm.position.y = H;
+      arm.castShadow = true;
+      g.add(arm);
+      for (const sd of [-1, 1]) {
+        const sheave = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.3, 0.3), dark);
+        sheave.position.set(0, H - 0.25, sd * 2.8);
+        g.add(sheave);
+      }
+      this.group.add(g);
     }
     this.gondolas = [0, 0.5].map((phase) => {
       const g = new THREE.Group();
