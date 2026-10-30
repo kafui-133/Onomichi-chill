@@ -1536,6 +1536,22 @@ export class Town {
         else broad.push({ x: tx, y: ground + sz * 0.55, z: tz, sx: sz, sy: sz * (0.75 + r() * 0.4), sz, color: r() < autumn * 0.6 ? leaf() : new THREE.Color().setHSL(0.25 + r() * 0.08, 0.32 + r() * 0.15, 0.13 + r() * 0.09) });
       }
     }
+    // 向島の丘：家並みの上の斜面は、ほとんど木におおわれている（尾道側から見える、こんもりした島）
+    {
+      const st2 = 8.5 / Math.sqrt(amount);
+      for (let x = BOUNDS.x0; x < BOUNDS.x1; x += st2) {
+        for (let z = BOUNDS.z0; z < BOUNDS.z1; z += st2) {
+          const tx = x + (r() - 0.5) * st2, tz = z + (r() - 0.5) * st2;
+          if (onOnomichiSide(tx, tz)) continue;
+          const ground = terrainY(tx, tz), above = ground - SEA_Y;
+          if (above < 9 || above >= 40 || r() > Math.min(0.85, (above - 9) / 12)) continue;   // 40m より上は、上の森でおおう
+          const sz = 2.6 + r() * 2.6;
+          if (!okAt(tx, tz, sz * 0.8)) continue;
+          if (r() < 0.12) pines.push({ x: tx, y: ground + sz * 1.1, z: tz, sx: sz * 0.75, sy: sz * 0.45, sz: sz * 0.75, color: new THREE.Color().setHSL(0.3, 0.32, 0.13 + r() * 0.05) });
+          else broad.push({ x: tx, y: ground + sz * 0.55, z: tz, sx: sz, sy: sz * (0.75 + r() * 0.4), sz, far: true, color: r() < autumn * 0.6 ? leaf() : new THREE.Color().setHSL(0.25 + r() * 0.08, 0.32 + r() * 0.15, 0.14 + r() * 0.09) });
+        }
+      }
+    }
     // 石段や坂道のわきの植え込み・草むら（細い道を歩いている感じに）
     const shrubCap = Math.round(5200 * amount);
     for (const road of ROADS) {
@@ -1583,7 +1599,8 @@ export class Town {
     const vmat = lam(0xffffff, { flatShading: true, vertexColors: true, map: leafTex });
     const mat = lam(0xffffff, { flatShading: true });
     // 町なかと坂の木（海から50mまで）は、でこぼこの樹冠と幹。上の森は、軽い丸のまま
-    const townTrees = broad.filter((b) => b.y - SEA_Y < 50), forestTrees = broad.filter((b) => b.y - SEA_Y >= 50);
+    // 向島の木（far）は遠くからしか見ないので、軽い丸のまま
+    const townTrees = broad.filter((b) => !b.far && b.y - SEA_Y < 50), forestTrees = broad.filter((b) => b.far || b.y - SEA_Y >= 50);
     // 町の木は、幹が見えるくらい樹冠を持ち上げる（窓からの眺めをふさがない範囲で）
     for (const b of townTrees) b.y += Math.max(0, Math.min(b.sx * 0.22, viewCap(b.x, b.z) - (b.y + b.sy) - 0.3));
     this.group.add(instancedChunks(townTrees, vmat, { geo: clumpGeo }));
