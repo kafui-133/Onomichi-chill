@@ -299,6 +299,7 @@ export class Town {
     this._infill();
     this._sando();
     this._trees();
+    this._groundCover();
     this._house();
     this._arcade();
     this._streetShops();
@@ -1614,6 +1615,46 @@ export class Town {
     this.group.add(instancedChunks(pines, mat, { geo: pineGeo }));
     this.group.add(instancedChunks(pines.map((p) => ({ x: p.x, y: p.y - p.sy * 1.6, z: p.z, sx: 0.12, sy: p.sy * 2.6, sz: 0.12, color: new THREE.Color(0x4a3a2c) })), lam(0xffffff), { geo: new THREE.CylinderGeometry(1, 1, 1, 5) }));
     this.group.add(instancedChunks(shrubs, vmat, { geo: shade(lobes([[0, 0, 0, 0.8], [0.45, -0.1, 0.2, 0.55], [-0.4, -0.1, -0.25, 0.55]]), 0.6), cast: false }));
+  }
+
+  /**
+   * 坂の草地の下草：草のかたまりと、ところどころ小さな花やシダ。近くだけ描く（遠くは地面の色とまだらで十分）
+   */
+  _groundCover() {
+    const r = seededRandom('ground-cover');
+    const month = new Date().getMonth() + 1;
+    const tufts = [], flowers = [];
+    const step = 1.9 / Math.sqrt(0.55 + 0.45 * quality.s.people);
+    for (let x = -700; x < 650; x += step) {
+      for (let z = -760; z < 260; z += step) {
+        if (r() > 0.6) continue;
+        const tx = x + (r() - 0.5) * step, tz = z + (r() - 0.5) * step;
+        if (!onOnomichiSide(tx, tz)) continue;
+        const g = terrainY(tx, tz), above = g - SEA_Y;
+        if (above < 7 || above > 170) continue;
+        if (this.occupied.has(Math.floor(tx / 4) * 100003 + Math.floor(tz / 4)) || nearAnyRoad(tx, tz, 0.4) || inBuilding(tx, tz) || inSolid(tx, tz) || inPrecinct(tx, tz, 0) || nearRail(tx, tz, 3)) continue;
+        const s2 = 0.35 + r() * 0.4;
+        tufts.push({ x: tx, y: g - 0.05, z: tz, sx: s2, sy: s2 * (0.8 + r() * 0.6), sz: s2, ry: r() * 6, color: new THREE.Color().setHSL(0.2 + r() * 0.09, 0.3 + r() * 0.15, 0.22 + r() * 0.09) });
+        if (r() < 0.12) {
+          const fc = (month >= 9 && month <= 11 ? ['#e8d8a0', '#d8c060', '#c8a0c8', '#f0eef0'] : ['#f0eef0', '#e8c040', '#d890b0', '#a0b0e0'])[Math.floor(r() * 4)];
+          for (let k = 0; k < 3; k++) flowers.push({ x: tx + (r() - 0.5) * s2 * 0.6, y: g + s2 * 0.55 + r() * 0.1, z: tz + (r() - 0.5) * s2 * 0.6, sx: 0.07, sy: 0.05, sz: 0.07, color: fc });
+        }
+      }
+    }
+    // 草のかたまり：細い葉（とがった三角柱）を、まわりへ少しずつかたむけて束ねる
+    const blades = [];
+    for (let k = 0; k < 7; k++) {
+      const b = new THREE.ConeGeometry(0.07, 1, 3, 1);
+      b.translate(0, 0.5, 0);
+      b.rotateZ((Math.random() - 0.5) * 0.9);
+      b.rotateY((k / 7) * Math.PI * 2);
+      b.translate(Math.cos(k * 2.4) * 0.18, 0, Math.sin(k * 2.4) * 0.18);
+      blades.push(b.toNonIndexed());
+    }
+    const grassGeo = mergeGeometries(blades);
+    grassGeo.computeVertexNormals();
+    if (tufts.length) this.group.add(instancedChunks(tufts, lam(0xffffff, { side: THREE.DoubleSide }), { detail: 70, cast: false, receive: true, geo: grassGeo }, 60));
+    if (flowers.length) this.group.add(instancedChunks(flowers, lam(0xffffff), { detail: 50, cast: false, receive: false, geo: new THREE.IcosahedronGeometry(1, 0) }, 60));
   }
 
   /** 空き家の外観：石垣の土台、瓦屋根、戸口 */
