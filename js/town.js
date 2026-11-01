@@ -10,7 +10,7 @@ import { lam, buildSignAtlas, buildRetroSignAtlas, buildShopInteriorAtlas, SHOP_
 import {
   DATA, SEA_Y, BOUNDS, terrainY, groundY, surfaceY, addTread, addSolid, inSolid, walkable, ROADS, OTHER_ROADS, ARCADE_ROADS, nearAnyRoad, samplePath, roadLength, pointAlong,
   STREET_SHOPS, demAt, ALLEYS, COAST, distToCoast, straitAt, RAILS, CROSSINGS, TRAIN_TRACKS, ROPEWAY, SUMMIT, BENCHES, FERRY_ROUTES, POIS, onOnomichiSide, nearestRoad, inBuilding,
-  ROOFS, DECKS, addUpper, SANDO, KOJI, walkRoute, TAKEDA_PLAZA, FUJI_BEND, UNDERPASSES, railGroundY, inUnderpassCut,
+  ROOFS, DECKS, addUpper, SANDO, KOJI, walkRoute, TAKEDA_PLAZA, FUJI_BEND, UNDERPASSES, railGroundY, inUnderpassCut, SCHOOL, inSchoolYard, schoolLocal,
 } from './townMap.js';
 
 const SURFACE_LIFT = { asphalt: 0.05, tile: 0.07, stone: 0.09 };
@@ -107,7 +107,9 @@ const STATION_FRONT = (() => { const p = POIS.find((q) => q.n === 'JR尾道駅')
 const inStationFront = (x, z) => !!STATION_FRONT && Math.hypot(x - STATION_FRONT.x, z - STATION_FRONT.z) < STATION_FRONT.r && terrainY(x, z) - SEA_Y < 8;
 // 尾道市立美術館（千光寺公園の中）
 const MUSEUM = POIS.find((q) => q.n === '尾道市立美術館') || null;
-const inPrecinct = (x, z, m = 0) => PRECINCTS.some((p) => Math.hypot(p.x - x, p.z - z) < p.r + m);
+const inPrecinct = (x, z, m = 0) => PRECINCTS.some((p) => Math.hypot(p.x - x, p.z - z) < p.r + m) || inSchoolYard(x, z, m + 1);
+// 土堂小学校の校舎（校庭のとなりの、学校の建物と、そのとなりの大きな建物）
+const isSchoolBuilding = (b, cx, cz, area) => b.k === 'school' || (area > 300 && Math.hypot(cx - (SCHOOL.x - SCHOOL.ux * 0 - SCHOOL.vx * 30), cz - (SCHOOL.z - SCHOOL.vz * 30)) < 45);
 
 // 線路のまわり（4mのマスごとに線路の点をおぼえておく）。埋める家や木が線路の上に建たないように
 const RAIL_CELL = 4;
@@ -315,6 +317,7 @@ export class Town {
     this._vendingMachines();
     this._summitDeck();
     this._stationFront();
+    this._school();
     this._canopies();
     this._deck();
     this._lamps();
@@ -961,6 +964,9 @@ export class Town {
       const pcx = poly.reduce((s2, q) => s2 + q[0], 0) / poly.length, pcz = poly.reduce((s2, q) => s2 + q[1], 0) / poly.length;
       const templeHall = area >= 30 && area < 900 && !b.h && KOJI.some((t) => Math.hypot(t.x - pcx, t.z - pcz) < 26);
       if (templeHall) h = Math.min(6.5, 3.6 + Math.sqrt(area) * 0.12);
+      // 土堂小学校の校舎：白い鉄筋コンクリートの3階建て、教室の大きな窓の列
+      const schoolB = isSchoolBuilding(b, pcx, pcz, area);
+      if (schoolB) h = 11.2;
       const base = yMin - 2.5;
       let top = (yMin + yMax) / 2 + h;
       const cx0 = poly.reduce((s, p) => s + p[0], 0) / poly.length, cz0 = poly.reduce((s, p) => s + p[1], 0) / poly.length;
@@ -973,7 +979,7 @@ export class Town {
       if (station) top = Math.min(top, yMin + 8.5);
       const u2 = b.n === 'ONOMICHI U2';
       if (u2) this.u2Poly = poly;
-      const wc = new THREE.Color(station ? '#efede6' : u2 ? '#5a6068' : templeHall ? ['#5a3e2c', '#4e3626', '#634430'][Math.floor(r() * 3)] : walls[Math.floor(r() * walls.length)]);
+      const wc = new THREE.Color(schoolB ? '#ecebe4' : station ? '#efede6' : u2 ? '#5a6068' : templeHall ? ['#5a3e2c', '#4e3626', '#634430'][Math.floor(r() * 3)] : walls[Math.floor(r() * walls.length)]);
       roofTile = templeHall ? new THREE.Color(['#353a42', '#3c4148', '#2f343b'][Math.floor(r() * 3)]) : roofTiles[Math.floor(r() * roofTiles.length)];
       let wu = 0;
       for (let i = 0; i < poly.length; i++) {
@@ -998,7 +1004,8 @@ export class Town {
         }
       }
       // 3階以上の建物（海沿いのマンションやビル）：各階の窓の列と、海側のベランダ
-      if (!station && !templeHall && top - yMin >= 7.5 && area >= 60 && facadeWin.length < maxFacade) {
+      if (schoolB) (this.schoolBlds = this.schoolBlds || []).push({ poly, yMin, top });
+      if (!station && !templeHall && !schoolB && top - yMin >= 7.5 && area >= 60 && facadeWin.length < maxFacade) {
         const ccw = signedArea(poly) > 0;
         const balcony = r() < 0.5;
         for (let i = 0; i < poly.length; i++) {
@@ -1084,7 +1091,7 @@ export class Town {
       }
       // 低い家（1〜2階）：昼も見える窓（白い枠に暗いガラス、ときどき格子）と、いちばん長い壁に玄関の戸。
       // 夜は、そのうちのいくつかが灯る
-      const lowHouse = !station && !templeHall && !u2 && (top - yMin < 7.5 || area < 60);
+      const lowHouse = !station && !templeHall && !u2 && !schoolB && (top - yMin < 7.5 || area < 60);
       if (lowHouse && houseWin.length < maxHouseWin) {
         const ccw = signedArea(poly) > 0;
         let best = 0, bi = 0;
@@ -5021,6 +5028,173 @@ export class Town {
         this.group.add(g);
       }
     }
+  }
+
+  /**
+   * 土堂小学校：校舎（白い3階建て）に教室の窓の列、屋上のフェンス、時計。となりの校庭（砂の地面に白線のトラック）、
+   * サッカーのゴール、鉄棒、朝礼台、旗のポール、まわりの緑のフェンスと桜の木、道に面した校門と校名の札。
+   * 2025年に閉校して、いまは子どもの声はしない（静かな校庭）
+   */
+  _school() {
+    const S = SCHOOL, r = seededRandom('school');
+    const Y = SEA_Y + S.above;
+    const W = (a, b) => ({ x: S.x + S.ux * a + S.vx * b, z: S.z + S.uz * a + S.vz * b });
+    const ryU = Math.atan2(S.vx, S.vz);   // ローカル +Z を v（幅の向き）へ向ける回転
+    const box = [], dark = [];
+    // ---- 校庭の地面：砂（こまかいまだら）と、白線のトラック ----
+    const sand = canvasTexture(256, 256, (g, w, h) => {
+      g.fillStyle = '#d8c8a8'; g.fillRect(0, 0, w, h);
+      speckle(g, w, h, 9000, 0.14, seededRandom('sand'));
+      const rr = seededRandom('sand2');
+      for (let k = 0; k < 30; k++) { const grd = g.createRadialGradient(rr() * w, rr() * h, 0, rr() * w, rr() * h, 30); grd.addColorStop(0, 'rgba(120,100,70,0.08)'); grd.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = grd; g.fillRect(0, 0, w, h); }
+    });
+    sand.wrapS = sand.wrapT = THREE.RepeatWrapping;
+    const tb = new TriBatch(), white = new THREE.Color(1, 1, 1), lines = new TriBatch(), lineC = new THREE.Color(0.95, 0.95, 0.92);
+    const G = 2;
+    for (let a = -S.hl; a < S.hl; a += G) for (let b = -S.hw; b < S.hw; b += G) {
+      const P = (aa, bb) => { const p = W(aa, bb); return [p.x, Y + 0.04, p.z]; };
+      tb.quad(P(a, b), P(a + G, b), P(a + G, b + G), P(a, b + G), white, [a / 8, b / 8, (a + G) / 8, b / 8, (a + G) / 8, (b + G) / 8, a / 8, (b + G) / 8]);
+    }
+    const gm = new THREE.Mesh(tb.build(), lam(0xffffff, { vertexColors: true, map: sand, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }));
+    gm.receiveShadow = true;
+    this.group.add(gm);
+    // トラック：まっすぐな2本と、両はしの半円（白線、2本）
+    const R = S.hw - 3.5, Lh = S.hl - R - 3;
+    for (const rr of [R, R - 1.2]) {
+      const pts = [];
+      for (let k = 0; k <= 24; k++) { const t = -Math.PI / 2 + (k / 24) * Math.PI; pts.push([Lh + Math.cos(t) * rr, Math.sin(t) * rr]); }
+      for (let k = 0; k <= 24; k++) { const t = Math.PI / 2 + (k / 24) * Math.PI; pts.push([-Lh + Math.cos(t) * rr, Math.sin(t) * rr]); }
+      pts.push(pts[0]);
+      for (let k = 0; k < pts.length - 1; k++) {
+        const [a0, b0] = pts[k], [a1, b1] = pts[k + 1], l = Math.hypot(a1 - a0, b1 - b0) || 1, na = -(b1 - b0) / l * 0.06, nb = (a1 - a0) / l * 0.06;
+        const P = (aa, bb) => { const p = W(aa, bb); return [p.x, Y + 0.07, p.z]; };
+        lines.quad(P(a0 - na, b0 - nb), P(a1 - na, b1 - nb), P(a1 + na, b1 + nb), P(a0 + na, b0 + nb), lineC);
+      }
+    }
+    this.group.add(new THREE.Mesh(lines.build(), lam(0xffffff, { vertexColors: true, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 })));
+    // ---- サッカーのゴール（校庭の両はし） ----
+    for (const sd of [-1, 1]) {
+      const a = sd * (S.hl - 1.2);
+      for (const bb of [-2.5, 2.5]) { const p = W(a, bb); box.push({ x: p.x, y: Y + 1.1, z: p.z, sx: 0.1, sy: 2.2, sz: 0.1, color: '#f2f2ee' }); const q = W(a + sd * 1.4, bb); box.push({ x: q.x, y: Y + 0.05, z: q.z, sx: 0.06, sy: 0.06, sz: 0.06, color: '#f2f2ee' }); }
+      const c = W(a, 0); box.push({ x: c.x, y: Y + 2.2, z: c.z, sx: 5.1, sy: 0.1, sz: 0.1, ry: ryU, color: '#f2f2ee' });
+      // ネット（うすい灰色の面）
+      const n = W(a + sd * 0.75, 0); dark.push({ x: n.x, y: Y + 1.1, z: n.z, sx: 5, sy: 2.2, sz: 0.02, ry: ryU, color: '#c8ccd0', net: true });
+    }
+    // ---- 鉄棒（高さのちがう4つ）と、朝礼台、旗のポール ----
+    for (let k = 0; k < 4; k++) {
+      const h = 0.9 + k * 0.25, p = W(-S.hl + 5 + k * 1.6, S.hw - 1.6);
+      box.push({ x: p.x, y: Y + h / 2, z: p.z, sx: 0.07, sy: h, sz: 0.07, color: '#5a7a9a' });
+      const q = W(-S.hl + 5 + k * 1.6 + 1.6, S.hw - 1.6);
+      box.push({ x: q.x, y: Y + h / 2, z: q.z, sx: 0.07, sy: h, sz: 0.07, color: '#5a7a9a' });
+      const m = W(-S.hl + 5 + k * 1.6 + 0.8, S.hw - 1.6);
+      box.push({ x: m.x, y: Y + h, z: m.z, sx: 1.6, sy: 0.04, sz: 0.04, ry: ryU + Math.PI / 2, color: '#c8ccd0' });
+    }
+    const stage = W(0, -S.hw + 2.2);   // 朝礼台（校舎の側）
+    box.push({ x: stage.x, y: Y + 0.5, z: stage.z, sx: 2.6, sy: 0.08, sz: 1.8, ry: ryU + Math.PI / 2, color: '#8a9aa0' });
+    for (const [da, db] of [[-1.2, -0.8], [1.2, -0.8], [-1.2, 0.8], [1.2, 0.8]]) { const p = W(da, -S.hw + 2.2 + db); box.push({ x: p.x, y: Y + 0.25, z: p.z, sx: 0.08, sy: 0.5, sz: 0.08, color: '#6a7a80' }); }
+    const fp = W(4, -S.hw + 1.4);
+    box.push({ x: fp.x, y: Y + 4.5, z: fp.z, sx: 0.09, sy: 9, sz: 0.09, color: '#d8d8d4' });
+    box.push({ x: fp.x, y: Y + 0.15, z: fp.z, sx: 0.6, sy: 0.3, sz: 0.6, color: '#a8a49a' });
+    // ---- まわりの緑のフェンス（校舎の側と、校門のところはあける）と、桜の木 ----
+    const fence = [];
+    const gateA = S.hl;   // 校門は +u のはし（道に面している）
+    const trunks = [], crowns = [];
+    const spring = [3, 4].includes(new Date().getMonth() + 1);
+    const addFenceLine = (a0, b0, a1, b1, gap) => {
+      const L = Math.hypot(a1 - a0, b1 - b0), n = Math.ceil(L / 2.5);
+      for (let k = 0; k < n; k++) {
+        const t0 = k / n, t1 = (k + 1) / n, am = a0 + (a1 - a0) * (t0 + t1) / 2, bm = b0 + (b1 - b0) * (t0 + t1) / 2;
+        if (gap && gap(am, bm)) continue;
+        const p = W(a0 + (a1 - a0) * t0, b0 + (b1 - b0) * t0), m = W(am, bm);
+        const ang = Math.atan2((S.uz * (a1 - a0) + S.vz * (b1 - b0)), (S.ux * (a1 - a0) + S.vx * (b1 - b0)));
+        box.push({ x: p.x, y: Y + 1.5, z: p.z, sx: 0.07, sy: 3, sz: 0.07, color: '#3e6a4a' });
+        fence.push({ x: m.x, y: Y + 1.5, z: m.z, sx: L / n, sy: 2.9, sz: 0.02, ry: -ang, color: '#5a8a6a', net: true });
+        box.push({ x: m.x, y: Y + 3, z: m.z, sx: L / n, sy: 0.05, sz: 0.05, ry: -ang, color: '#3e6a4a' });
+        addSolid(m.x, m.z, L / n, 0.3, -ang);
+      }
+    };
+    addFenceLine(-S.hl, S.hw, S.hl, S.hw);                                      // 校舎と反対の長い辺
+    addFenceLine(S.hl, -S.hw, S.hl, S.hw, (a, b) => Math.abs(b) < 3);          // 校門の辺（まん中をあける）
+    addFenceLine(-S.hl, -S.hw, -S.hl, S.hw);
+    for (let a = -S.hl + 3; a < S.hl - 2; a += 7) {
+      const p = W(a, S.hw - 0.9 + 1.6), y = terrainY(p.x, p.z);
+      if (inBuilding(p.x, p.z) || nearAnyRoad(p.x, p.z, 0.5)) continue;
+      trunks.push({ x: p.x, y: y + 1.6, z: p.z, sx: 0.32, sy: 3.2, sz: 0.32, color: '#4a3a30' });
+      for (let k = 0; k < 4; k++) crowns.push({ x: p.x + (r() - 0.5) * 2.4, y: y + 3.6 + r() * 1.2, z: p.z + (r() - 0.5) * 2.4, sx: 2.4 + r(), sy: 1.6 + r() * 0.6, sz: 2.4 + r(), ry: r() * 6, color: spring ? ['#f0c8d4', '#f4d4dc', '#e8b8c8'][k % 3] : ['#4a6a3a', '#56763e', '#3e5e34'][k % 3] });
+    }
+    // ---- 校門：門柱2本と、校名の札（道から見える） ----
+    const gateMat = lam(0xb8b4aa);
+    for (const sd of [-1, 1]) { const p = W(gateA + 0.2, sd * 3.2); box.push({ x: p.x, y: Y + 0.9, z: p.z, sx: 0.6, sy: 1.8, sz: 0.6, color: '#a8a296' }); }
+    void gateMat;
+    const plate = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 1.3), new THREE.MeshLambertMaterial({ map: canvasTexture(64, 200, (g, w, h) => {
+      g.fillStyle = '#e8e0cc'; g.fillRect(0, 0, w, h); g.strokeStyle = '#6a5a44'; g.lineWidth = 3; g.strokeRect(2, 2, w - 4, h - 4);
+      g.fillStyle = '#2a2420'; g.font = '600 22px "Shippori Mincho", serif'; g.textAlign = 'center';
+      [...'尾道市立土堂小学校'].forEach((c, i) => g.fillText(c, w / 2, 24 + i * 20.5));
+    }) }));
+    { const p = W(gateA + 0.52, 3.2); plate.position.set(p.x, Y + 1.0, p.z); plate.rotation.y = Math.atan2(S.ux, S.uz); this.group.add(plate); }
+    // ---- 校舎：教室の窓の列（各階）、ひさし、屋上のフェンス、時計 ----
+    const win = [], frame = [];
+    let clockAt = null;
+    for (const B of this.schoolBlds || []) {
+      const { poly, yMin, top } = B;
+      const ccw = signedArea(poly) > 0;
+      const floors = Math.max(2, Math.floor((top - yMin) / 3.5));
+      for (let i = 0; i < poly.length; i++) {
+        const [ax, az] = poly[i], [bx, bz] = poly[(i + 1) % poly.length];
+        const L = Math.hypot(bx - ax, bz - az);
+        if (L < 6) continue;
+        const dx = (bx - ax) / L, dz = (bz - az) / L, ox = ccw ? dz : -dz, oz = ccw ? -dx : dx, ry = Math.atan2(ox, oz);
+        const n = Math.floor((L - 1) / 2.1);
+        for (let f = 0; f < floors; f++) {
+          const fy = yMin + 1.7 + f * 3.5;
+          if (fy + 0.9 > top) continue;
+          for (let k = 0; k < n; k++) {
+            const t = (k + 0.5) / n, wx = ax + (bx - ax) * t, wz = az + (bz - az) * t;
+            win.push({ x: wx + ox * 0.05, y: fy, z: wz + oz * 0.05, sx: 1.7, sy: 1.5, sz: 1, ry });
+            frame.push({ x: wx + ox * 0.06, y: fy, z: wz + oz * 0.06, sx: 0.06, sy: 1.5, sz: 0.04, ry, color: '#f4f4f0' });
+          }
+          // 各階のひさし（窓の上の白い帯）
+          const mx = (ax + bx) / 2, mz = (az + bz) / 2;
+          frame.push({ x: mx + ox * 0.35, y: fy + 1.05, z: mz + oz * 0.35, sx: L - 0.4, sy: 0.12, sz: 0.7, ry, color: '#f2f2ee' });
+        }
+        // 屋上のフェンス
+        const mx = (ax + bx) / 2, mz = (az + bz) / 2;
+        frame.push({ x: mx - ox * 0.3, y: top + 0.6, z: mz - oz * 0.3, sx: L - 0.4, sy: 1.2, sz: 0.03, ry, color: '#7a8a80', net: true });
+        // 時計：校庭に面した、いちばん長い壁の上のほう
+        const toYard = Math.hypot(mx + ox * 10 - S.x, mz + oz * 10 - S.z) < Math.hypot(mx - S.x, mz - S.z);
+        if (toYard && (!clockAt || L > clockAt.L)) clockAt = { x: mx + ox * 0.12, y: top - 1.4, z: mz + oz * 0.12, ry, L };
+      }
+    }
+    if (win.length) this.group.add(instancedChunks(win, lam(0x4a5a66), { detail: 220, cast: false, geo: new THREE.PlaneGeometry(1, 1) }));
+    const nets = [...frame.filter((f) => f.net), ...fence, ...dark];
+    const solid = [...frame.filter((f) => !f.net), ...box, ...dark.filter(() => false)];
+    if (solid.length) this.group.add(instancedChunks(solid, lam(0xffffff), { detail: 200 }));
+    if (nets.length) this.group.add(instancedChunks(nets, new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false }), { detail: 160, cast: false }));
+    if (trunks.length) {
+      this.group.add(instancedChunks(trunks, lam(0xffffff), { geo: new THREE.CylinderGeometry(0.4, 0.5, 1, 6) }));
+      this.group.add(instancedChunks(crowns, lam(0xffffff, { flatShading: true }), { geo: new THREE.IcosahedronGeometry(0.6, 1) }));
+    }
+    if (clockAt) {
+      const g = new THREE.Group();
+      g.position.set(clockAt.x, clockAt.y, clockAt.z);
+      g.rotation.y = clockAt.ry;
+      const face = canvasTexture(128, 128, (c, w, h) => {
+        c.fillStyle = '#f8f6ee'; c.beginPath(); c.arc(64, 64, 60, 0, Math.PI * 2); c.fill();
+        c.strokeStyle = '#2a2e30'; c.lineWidth = 6; c.stroke();
+        for (let k = 0; k < 12; k++) { const a = (k / 12) * Math.PI * 2; c.lineWidth = 4; c.beginPath(); c.moveTo(64 + Math.cos(a) * 46, 64 + Math.sin(a) * 46); c.lineTo(64 + Math.cos(a) * 54, 64 + Math.sin(a) * 54); c.stroke(); }
+        c.lineWidth = 6; c.beginPath(); c.moveTo(64, 64); c.lineTo(64, 30); c.stroke();
+        c.lineWidth = 4; c.beginPath(); c.moveTo(64, 64); c.lineTo(92, 78); c.stroke();
+      });
+      const m = new THREE.Mesh(new THREE.CircleGeometry(0.75, 28), new THREE.MeshLambertMaterial({ map: face }));
+      m.position.z = 0.03;
+      const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.82, 0.82, 0.08, 28), lam(0x2a2e30));
+      rim.rotation.x = Math.PI / 2;
+      g.add(rim, m);
+      this.group.add(g);
+    }
+    // 朝礼台・旗のポール・鉄棒は、ぶつかるように
+    addSolid(stage.x, stage.z, 2.6, 1.8, -ryU);
+    addSolid(fp.x, fp.z, 0.6, 0.6, 0);
   }
 
   /**

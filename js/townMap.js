@@ -112,6 +112,21 @@ let UNDER = [];
 
 // 空き家から石段を少し上ったところの広場：田能村竹田之像（OpenStreetMap の artwork）のまわりを平らにならす
 export const TAKEDA_PLAZA = { x: 19, z: 16, r: 6.5, blend: 4, y: 3.0, statue: { x: 22, z: 11.6 } };
+// 土堂小学校（西土堂町）：校舎（OpenStreetMap の建物）のとなりの、標高でも平らに出ている段が校庭。
+// 校庭は校舎の長い向き（u）にそった長方形。hl・hw は半分の長さと幅、y は海からの高さ
+export const SCHOOL = (() => {
+  const ang = -1.6707, ux = Math.cos(ang), uz = Math.sin(ang);
+  return { x: 387.8, z: -324.2, ux, uz, vx: -uz, vz: ux, hl: 20, hw: 13, blend: 3, above: 23.4, name: '土堂小学校' };
+})();
+/** 校庭の中か（m だけ外側までふくめる）。戻り値は校庭の座標 a（長い向き）・b（幅の向き） */
+export function schoolLocal(x, z) {
+  const dx = x - SCHOOL.x, dz = z - SCHOOL.z;
+  return { a: dx * SCHOOL.ux + dz * SCHOOL.uz, b: dx * SCHOOL.vx + dz * SCHOOL.vz };
+}
+export function inSchoolYard(x, z, m = 0) {
+  const { a, b } = schoolLocal(x, z);
+  return Math.abs(a) < SCHOOL.hl + m && Math.abs(b) < SCHOOL.hw + m;
+}
 
 /** 地形の高さ。空き家のまわりと、竹田像の広場は平らにならしてある。線路の下をくぐる道（ガード下）は掘り下げてある */
 export function terrainY(x, z) {
@@ -124,6 +139,15 @@ export function railGroundY(x, z) {
 }
 function baseTerrainY(x, z) {
   const y = demAt(x, z);
+  // 校庭は平らにならしてある（ふちはなめらかに、まわりの地面へ）
+  if (inSchoolYard(x, z, SCHOOL.blend)) {
+    const { a, b } = schoolLocal(x, z);
+    const out = Math.max(Math.abs(a) - SCHOOL.hl, Math.abs(b) - SCHOOL.hw, 0);
+    const fy = SEA_Y + SCHOOL.above;
+    if (out <= 0) return fy;
+    const t = out / SCHOOL.blend;
+    return fy + (y - fy) * t * t * (3 - 2 * t);
+  }
   const P = TAKEDA_PLAZA, dp = Math.hypot(x - P.x, z - P.z);
   if (dp < P.r + P.blend) {
     if (dp < P.r) return P.y;
@@ -833,6 +857,8 @@ export function walkable(x, z) {
   if (n.road.covered) return false;
   // 竹田像の広場の中は、どこでも歩ける（像・ベンチ・塀のところをのぞく）
   if (Math.hypot(x - TAKEDA_PLAZA.x, z - TAKEDA_PLAZA.z) < TAKEDA_PLAZA.r - 0.3) return !inSolid(x, z);
+  // 校庭の中も、どこでも歩ける（フェンス・遊具のところをのぞく）
+  if (inSchoolYard(x, z, -0.3)) return !inSolid(x, z) && !inBuilding(x, z);
   // 道から離れていても、岸壁ぞい（突堤・桟橋の先まで）は歩ける
   if (n.inside > FREE_REACH && distToCoast(x, z) > 12) return false;
   if (terrainY(x, z) - SEA_Y > FREE_HEIGHT) return false;
@@ -1077,6 +1103,8 @@ function placeNear(label, poiName, dist = 15) {
 export const PLACES = [
   { ...placeAt('坂の上の空き家', -6.5, -0.6, -60, -300), id: 'house' },
   placeAt('竹田の像の広場', TAKEDA_PLAZA.x + 2, TAKEDA_PLAZA.z + 2.5, TAKEDA_PLAZA.statue.x, TAKEDA_PLAZA.statue.z),
+  // 校門の前（校庭の長い向きの端の道）から、校庭と校舎を見る
+  placeAt('土堂小学校', SCHOOL.x + SCHOOL.ux * (SCHOOL.hl + 6), SCHOOL.z + SCHOOL.uz * (SCHOOL.hl + 6), SCHOOL.x - SCHOOL.ux * 10, SCHOOL.z - SCHOOL.uz * 10),
   placeNear('千光寺', '千光寺'),
   placeAt('ロープウェイ山頂駅', ROPEWAY_STOPS.top.x, ROPEWAY_STOPS.top.z, ROPEWAY.top.x, ROPEWAY.top.z),
   { ...placeAt('千光寺山 頂上（展望台）', SUMMIT.x, SUMMIT.z, 0, -600), id: 'summit' },
@@ -1102,6 +1130,7 @@ export const PLACES = [
 export function placeName(x, z) {
   if (Math.hypot(x - HOUSE_DOOR.x, z - HOUSE_DOOR.z) < 7) return '坂の上の空き家';
   if (Math.hypot(x - TAKEDA_PLAZA.x, z - TAKEDA_PLAZA.z) < TAKEDA_PLAZA.r + 1) return '竹田の像の広場';
+  if (inSchoolYard(x, z, 2)) return '土堂小学校';
   const n = nearestRoad(x, z);
   if (n.road.covered) return `本通り商店街　${n.road.name}`;
   if (FERRY_PIERS.some((p) => Math.hypot(p.x - x, p.z - z) < 25)) return '渡船のりば';
