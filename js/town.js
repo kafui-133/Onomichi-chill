@@ -1424,7 +1424,7 @@ export class Town {
           const lean = -sd * 0.12;   // 道のほうへ少しかたむける
           trunks.push({ x, y: y + h / 2, z, sx: 0.32, sy: h, sz: 0.32, rx: lean * nz, rz: -lean * nx, color: '#4e3e30' });
           // もみじは11月が見ごろ。10月は色づきはじめ（少なめで、橙や黄色）
-          const maple = autumn && r() < (month === 11 ? 0.45 : 0.18);
+          const maple = autumn && r() < (month === 11 ? 0.3 : 0.15);
           const cx = x - nx * sd * 1.4, cz = z - nz * sd * 1.4;
           for (let k = 0; k < 3; k++) {
             const c = maple ? (month === 11 ? ['#c84a2a', '#d8702a', '#b8382a'] : ['#c8803a', '#b89a3e', '#5a6a34'])[k % 3] : ['#3e5a34', '#4a6a3a', '#36502e'][k % 3];
@@ -1497,8 +1497,8 @@ export class Town {
     const pv = downhillYaw(TAKEDA_PLAZA.x, TAKEDA_PLAZA.z, TAKEDA_PLAZA.r + 6), plazaView = { x: Math.sin(pv), z: Math.cos(pv) };
     // 秋（10〜11月）は、ところどころ赤や橙、黄色に色づく
     const month = new Date().getMonth() + 1;
-    const autumn = month === 10 ? 0.12 : month === 11 ? 0.28 : 0;
-    const AUTUMN = [[0.02, 0.46, 0.32], [0.04, 0.5, 0.35], [0.07, 0.5, 0.38], [0.11, 0.48, 0.4], [0.14, 0.42, 0.38], [0.98, 0.38, 0.3]];
+    const autumn = month === 10 ? 0.1 : month === 11 ? 0.18 : 0;   // 尾道の山は常緑の木が多いので、色づくのは一部
+    const AUTUMN = [[0.02, 0.4, 0.3], [0.04, 0.42, 0.33], [0.07, 0.42, 0.36], [0.11, 0.42, 0.38], [0.14, 0.38, 0.36], [0.98, 0.34, 0.28]];
     const leaf = () => {
       if (r() < autumn) { const [h, sat, l] = AUTUMN[Math.floor(r() * AUTUMN.length)]; return new THREE.Color().setHSL(h, sat, l * (0.8 + r() * 0.3)); }
       return new THREE.Color().setHSL(0.24 + r() * 0.09, 0.3 + r() * 0.18, 0.15 + r() * 0.11);
