@@ -966,7 +966,8 @@ export class Town {
       if (templeHall) h = Math.min(6.5, 3.6 + Math.sqrt(area) * 0.12);
       // 土堂小学校の校舎：白い鉄筋コンクリートの3階建て、教室の大きな窓の列
       const schoolB = isSchoolBuilding(b, pcx, pcz, area);
-      if (schoolB) h = 11.2;
+      const gym = schoolB && b.k !== 'school';   // 校舎のとなりの大きな建物は、体育館（丸い屋根）
+      if (schoolB) h = gym ? 7.5 : 11.2;
       const base = yMin - 2.5;
       let top = (yMin + yMax) / 2 + h;
       const cx0 = poly.reduce((s, p) => s + p[0], 0) / poly.length, cz0 = poly.reduce((s, p) => s + p[1], 0) / poly.length;
@@ -1004,7 +1005,7 @@ export class Town {
         }
       }
       // 3階以上の建物（海沿いのマンションやビル）：各階の窓の列と、海側のベランダ
-      if (schoolB) (this.schoolBlds = this.schoolBlds || []).push({ poly, yMin, top });
+      if (schoolB) (this.schoolBlds = this.schoolBlds || []).push({ poly, yMin, top, gym });
       if (!station && !templeHall && !schoolB && top - yMin >= 7.5 && area >= 60 && facadeWin.length < maxFacade) {
         const ccw = signedArea(poly) > 0;
         const balcony = r() < 0.5;
@@ -1638,7 +1639,7 @@ export class Town {
         const tx = x + (r() - 0.5) * step, tz = z + (r() - 0.5) * step;
         if (!onOnomichiSide(tx, tz)) continue;
         const g = terrainY(tx, tz), above = g - SEA_Y;
-        if (above < 7 || above > 170) continue;
+        if (above < 7 || above > 170 || Math.hypot(tx, tz) < 12) continue;   // 空き家（床の下から生えないように）
         if (this.occupied.has(Math.floor(tx / 4) * 100003 + Math.floor(tz / 4)) || nearAnyRoad(tx, tz, 0.4) || inBuilding(tx, tz) || inSolid(tx, tz) || inPrecinct(tx, tz, 0) || nearRail(tx, tz, 3)) continue;
         const s2 = 0.35 + r() * 0.4;
         tufts.push({ x: tx, y: g - 0.05, z: tz, sx: s2, sy: s2 * (0.8 + r() * 0.6), sz: s2, ry: r() * 6, color: new THREE.Color().setHSL(0.2 + r() * 0.09, 0.3 + r() * 0.15, 0.22 + r() * 0.09) });
@@ -5136,7 +5137,39 @@ export class Town {
     const win = [], frame = [];
     let clockAt = null;
     for (const B of this.schoolBlds || []) {
-      const { poly, yMin, top } = B;
+      const { poly, yMin, top, gym } = B;
+      if (gym) {
+        // 体育館：ゆるい弧の屋根（いちばん長い辺の向きに）と、壁の上のほうの横長の窓
+        let best = 0, bi = 0;
+        for (let i = 0; i < poly.length; i++) { const L = Math.hypot(poly[(i + 1) % poly.length][0] - poly[i][0], poly[(i + 1) % poly.length][1] - poly[i][1]); if (L > best) { best = L; bi = i; } }
+        const [ax, az] = poly[bi], [bx, bz] = poly[(bi + 1) % poly.length];
+        const ang = Math.atan2(bz - az, bx - ax), dx = Math.cos(ang), dz = Math.sin(ang), nx = -dz, nz = dx;
+        let a0 = Infinity, a1 = -Infinity, c0 = Infinity, c1 = -Infinity;
+        for (const [px, pz] of poly) { const a = px * dx + pz * dz, c = px * nx + pz * nz; a0 = Math.min(a0, a); a1 = Math.max(a1, a); c0 = Math.min(c0, c); c1 = Math.max(c1, c); }
+        const am = (a0 + a1) / 2, cm = (c0 + c1) / 2, len = a1 - a0, wid = c1 - c0;
+        const cx = dx * am + nx * cm, cz = dz * am + nz * cm;
+        const span = 0.9, rad = (wid / 2) / Math.sin(span / 2);
+        const arc = new THREE.CylinderGeometry(rad, rad, len + 0.6, 24, 1, true, -span / 2, span);
+        arc.rotateZ(Math.PI / 2);
+        arc.rotateX(-Math.PI / 2);   // 弧の頂を上へ
+        const roof = new THREE.Mesh(arc, lam(0x5a7a8a, { side: THREE.DoubleSide }));
+        roof.position.set(cx, top - rad * Math.cos(span / 2), cz);
+        roof.rotation.y = -ang;
+        roof.castShadow = roof.receiveShadow = true;
+        this.group.add(roof);
+        for (let i = 0; i < poly.length; i++) {
+          const [px, pz] = poly[i], [qx, qz] = poly[(i + 1) % poly.length];
+          const L = Math.hypot(qx - px, qz - pz);
+          if (L < 6) continue;
+          const ex = (qx - px) / L, ez = (qz - pz) / L, ox = (signedArea(poly) > 0 ? ez : -ez), oz = (signedArea(poly) > 0 ? -ex : ex);
+          const n = Math.floor(L / 3);
+          for (let k = 0; k < n; k++) {
+            const t = (k + 0.5) / n;
+            win.push({ x: px + (qx - px) * t + ox * 0.05, y: top - 1.6, z: pz + (qz - pz) * t + oz * 0.05, sx: 2.4, sy: 1.1, sz: 1, ry: Math.atan2(ox, oz) });
+          }
+        }
+        continue;
+      }
       const ccw = signedArea(poly) > 0;
       const floors = Math.max(2, Math.floor((top - yMin) / 3.5));
       for (let i = 0; i < poly.length; i++) {
