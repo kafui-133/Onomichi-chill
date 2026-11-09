@@ -300,6 +300,7 @@ export class Town {
     this._buildings();
     this._infill();
     this._sando();
+    this._gardens();
     this._trees();
     this._groundCover();
     this._house();
@@ -966,7 +967,8 @@ export class Town {
       if (templeHall) h = Math.min(6.5, 3.6 + Math.sqrt(area) * 0.12);
       // 土堂小学校の校舎：白い鉄筋コンクリートの3階建て、教室の大きな窓の列
       const schoolB = isSchoolBuilding(b, pcx, pcz, area);
-      if (schoolB) h = 11.2;
+      const gym = schoolB && b.k !== 'school';   // 校舎のとなりの大きな建物は、体育館（丸い屋根）
+      if (schoolB) h = gym ? 7.5 : 11.2;
       const base = yMin - 2.5;
       let top = (yMin + yMax) / 2 + h;
       const cx0 = poly.reduce((s, p) => s + p[0], 0) / poly.length, cz0 = poly.reduce((s, p) => s + p[1], 0) / poly.length;
@@ -1004,7 +1006,7 @@ export class Town {
         }
       }
       // 3階以上の建物（海沿いのマンションやビル）：各階の窓の列と、海側のベランダ
-      if (schoolB) (this.schoolBlds = this.schoolBlds || []).push({ poly, yMin, top });
+      if (schoolB) (this.schoolBlds = this.schoolBlds || []).push({ poly, yMin, top, gym });
       if (!station && !templeHall && !schoolB && top - yMin >= 7.5 && area >= 60 && facadeWin.length < maxFacade) {
         const ccw = signedArea(poly) > 0;
         const balcony = r() < 0.5;
@@ -1423,7 +1425,7 @@ export class Town {
           const lean = -sd * 0.12;   // 道のほうへ少しかたむける
           trunks.push({ x, y: y + h / 2, z, sx: 0.32, sy: h, sz: 0.32, rx: lean * nz, rz: -lean * nx, color: '#4e3e30' });
           // もみじは11月が見ごろ。10月は色づきはじめ（少なめで、橙や黄色）
-          const maple = autumn && r() < (month === 11 ? 0.45 : 0.18);
+          const maple = autumn && r() < (month === 11 ? 0.3 : 0.15);
           const cx = x - nx * sd * 1.4, cz = z - nz * sd * 1.4;
           for (let k = 0; k < 3; k++) {
             const c = maple ? (month === 11 ? ['#c84a2a', '#d8702a', '#b8382a'] : ['#c8803a', '#b89a3e', '#5a6a34'])[k % 3] : ['#3e5a34', '#4a6a3a', '#36502e'][k % 3];
@@ -1496,8 +1498,8 @@ export class Town {
     const pv = downhillYaw(TAKEDA_PLAZA.x, TAKEDA_PLAZA.z, TAKEDA_PLAZA.r + 6), plazaView = { x: Math.sin(pv), z: Math.cos(pv) };
     // 秋（10〜11月）は、ところどころ赤や橙、黄色に色づく
     const month = new Date().getMonth() + 1;
-    const autumn = month === 10 ? 0.12 : month === 11 ? 0.28 : 0;
-    const AUTUMN = [[0.02, 0.46, 0.32], [0.04, 0.5, 0.35], [0.07, 0.5, 0.38], [0.11, 0.48, 0.4], [0.14, 0.42, 0.38], [0.98, 0.38, 0.3]];
+    const autumn = month === 10 ? 0.1 : month === 11 ? 0.18 : 0;   // 尾道の山は常緑の木が多いので、色づくのは一部
+    const AUTUMN = [[0.02, 0.4, 0.3], [0.04, 0.42, 0.33], [0.07, 0.42, 0.36], [0.11, 0.42, 0.38], [0.14, 0.38, 0.36], [0.98, 0.34, 0.28]];
     const leaf = () => {
       if (r() < autumn) { const [h, sat, l] = AUTUMN[Math.floor(r() * AUTUMN.length)]; return new THREE.Color().setHSL(h, sat, l * (0.8 + r() * 0.3)); }
       return new THREE.Color().setHSL(0.24 + r() * 0.09, 0.3 + r() * 0.18, 0.15 + r() * 0.11);
@@ -1625,6 +1627,86 @@ export class Town {
   }
 
   /**
+   * 坂の段々畑：家と家のあいだの斜面に、小さな畑。上の地面の高さで平らにならした土に、うねと野菜の列、
+   * 下り側に低い石垣、ときどき支柱や、ネット、ブリキのバケツ。季節で野菜が変わる（冬は大根や葉もの、夏はトマトの支柱）
+   */
+  _gardens() {
+    const r = seededRandom('gardens');
+    const month = new Date().getMonth() + 1;
+    const summer = month >= 5 && month <= 9;
+    const soil = new TriBatch(), wall = new TriBatch();
+    const crops = [], stakes = [], extras = [];
+    const soilC = new THREE.Color('#6a5040'), ridgeC = new THREE.Color('#7a5e48'), wallC = new THREE.Color('#8e887c');
+    const poiNear = (x, z) => POIS.some((p) => Math.hypot(p.x - x, p.z - z) < 22);
+    const gardenSpots = [];
+    let count = 0;
+    for (let x = -650; x < 620; x += 9) {
+      for (let z = -720; z < 240; z += 9) {
+        if (count > 220 || r() > 0.42) continue;
+        const cx = x + (r() - 0.5) * 5, cz = z + (r() - 0.5) * 5;
+        if (!onOnomichiSide(cx, cz)) continue;
+        const above = terrainY(cx, cz) - SEA_Y;
+        if (above < 10 || above > 75 || Math.hypot(cx, cz) < 16) continue;
+        const down = downhillYaw(cx, cz, 4);
+        const fx = Math.sin(down), fz = Math.cos(down);   // 下り（谷）の向き
+        const ax = fz, az = -fx;                           // 等高線の向き（畑の長い向き）
+        const L = 5 + r() * 3, D = 2.6 + r() * 1.2;
+        const corners = [[-L / 2, -D / 2], [L / 2, -D / 2], [L / 2, D / 2], [-L / 2, D / 2]].map(([u, v]) => [cx + ax * u + fx * v, cz + az * u + fz * v]);
+        const pts = [...corners, [cx, cz]];
+        if (pts.some(([px, pz]) => this.occupied.has(Math.floor(px / 4) * 100003 + Math.floor(pz / 4)) || nearAnyRoad(px, pz, 0.6) || inBuilding(px, pz) || inSolid(px, pz) || inPrecinct(px, pz, 2) || nearRail(px, pz, 4))) continue;
+        if (poiNear(cx, cz)) continue;
+        const ys = corners.map(([px, pz]) => terrainY(px, pz));
+        const hi = Math.max(...ys), lo = Math.min(...ys);
+        if (hi - lo > 2.2) continue;   // 急すぎるところは畑にしない
+        count++;
+        const top = hi + 0.12;
+        gardenSpots.push({ x: cx, z: cz, y: top, down });
+        // 土の面（平らに）と、まわり4辺の石垣（地面から土の高さまで。上り側はほとんど埋まる）
+        soil.quad([corners[0][0], top, corners[0][1]], [corners[1][0], top, corners[1][1]], [corners[2][0], top, corners[2][1]], [corners[3][0], top, corners[3][1]], soilC);
+        let wu = 0;
+        for (let i = 0; i < 4; i++) {
+          const [px, pz] = corners[i], [qx, qz] = corners[(i + 1) % 4], wl = Math.hypot(qx - px, qz - pz);
+          const bp = terrainY(px, pz) - 0.4, bq = terrainY(qx, qz) - 0.4;
+          wall.quad([px, bp, pz], [qx, bq, qz], [qx, top + 0.15, qz], [px, top + 0.15, pz], wallC, [wu / 1.5, bp, (wu + wl) / 1.5, bq, (wu + wl) / 1.5, top + 0.15, wu / 1.5, top + 0.15]);
+          wu += wl;
+        }
+        // うね（土を盛った列）と、野菜
+        const rows = Math.max(2, Math.floor(D / 0.85));
+        const kind = summer ? (r() < 0.4 ? 'tomato' : r() < 0.6 ? 'leaf' : 'potato') : (r() < 0.45 ? 'daikon' : r() < 0.7 ? 'leaf' : 'onion');
+        for (let k = 0; k < rows; k++) {
+          const v = -D / 2 + (k + 0.5) * (D / rows);
+          const rx = cx + fx * v, rz = cz + fz * v;
+          extras.push({ x: rx, y: top + 0.05, z: rz, sx: L - 0.5, sy: 0.12, sz: 0.38, ry: -Math.atan2(az, ax), color: ridgeC });
+          for (let u = -L / 2 + 0.4; u < L / 2 - 0.3; u += 0.45 + r() * 0.15) {
+            const px = rx + ax * u, pz = rz + az * u;
+            if (r() < 0.12) continue;
+            if (kind === 'onion') crops.push({ x: px, y: top + 0.28, z: pz, sx: 0.08, sy: 0.4, sz: 0.08, color: new THREE.Color().setHSL(0.25, 0.4, 0.32 + r() * 0.08) });
+            else if (kind === 'daikon') { crops.push({ x: px, y: top + 0.25, z: pz, sx: 0.42, sy: 0.32, sz: 0.42, color: new THREE.Color().setHSL(0.27, 0.45, 0.3 + r() * 0.08) }); if (r() < 0.4) extras.push({ x: px, y: top + 0.14, z: pz, sx: 0.09, sy: 0.12, sz: 0.09, color: '#f0eee6' }); }
+            else if (kind === 'tomato') { crops.push({ x: px, y: top + 0.55, z: pz, sx: 0.36, sy: 0.8, sz: 0.36, color: new THREE.Color().setHSL(0.27, 0.42, 0.26 + r() * 0.06) }); stakes.push({ x: px, y: top + 0.75, z: pz, sx: 0.025, sy: 1.5, sz: 0.025, color: '#9a8a6a' }); if (r() < 0.5) extras.push({ x: px + 0.1, y: top + 0.5 + r() * 0.4, z: pz, sx: 0.08, sy: 0.08, sz: 0.08, color: '#c8382a' }); }
+            else crops.push({ x: px, y: top + 0.18, z: pz, sx: 0.36, sy: 0.24, sz: 0.36, color: new THREE.Color().setHSL(0.24 + r() * 0.05, 0.42, 0.3 + r() * 0.1) });
+          }
+        }
+        // ときどき：ブリキのバケツ、肥料の袋、竹の柵
+        if (r() < 0.35) { const [px, pz] = corners[Math.floor(r() * 4)]; extras.push({ x: px * 0.85 + cx * 0.15, y: top + 0.18, z: pz * 0.85 + cz * 0.15, sx: 0.3, sy: 0.32, sz: 0.3, color: r() < 0.5 ? '#9aa0a4' : '#3a6aa8' }); }
+        if (r() < 0.3) for (let u = -L / 2; u <= L / 2; u += 1) { const px = cx + ax * u - fx * (D / 2 + 0.05), pz = cz + az * u - fz * (D / 2 + 0.05); stakes.push({ x: px, y: top + 0.45, z: pz, sx: 0.035, sy: 0.9, sz: 0.035, color: '#b8a878' }); }
+        // 畑のまわり（木の葉がかぶさらないくらい）も、家や木を置かないことにする
+        for (let gx = -8; gx <= 8; gx += 4) for (let gz = -8; gz <= 8; gz += 4) this.occupied.add(Math.floor((cx + gx) / 4) * 100003 + Math.floor((cz + gz) / 4));
+      }
+    }
+    if (!count) return;
+    const sm = new THREE.Mesh(soil.build(), lam(0xffffff, { vertexColors: true, map: this._texture('granite'), polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }));
+    sm.receiveShadow = true;
+    const wm = new THREE.Mesh(wall.build(), lam(0xffffff, { vertexColors: true, side: THREE.DoubleSide, map: this._texture('wall') }));
+    wm.castShadow = wm.receiveShadow = true;
+    this.group.add(sm, wm);
+    this.group.add(instancedChunks(crops, lam(0xffffff, { flatShading: true }), { detail: 120, geo: new THREE.IcosahedronGeometry(0.5, 0) }));
+    this.group.add(instancedChunks(extras, lam(0xffffff), { detail: 100, cast: false }));
+    if (stakes.length) this.group.add(instancedChunks(stakes, lam(0xffffff), { detail: 90, cast: false }));
+    this.gardenCount = count;
+    this.gardenSpots = gardenSpots;
+  }
+
+  /**
    * 坂の草地の下草：草のかたまりと、ところどころ小さな花やシダ。近くだけ描く（遠くは地面の色とまだらで十分）
    */
   _groundCover() {
@@ -1638,7 +1720,7 @@ export class Town {
         const tx = x + (r() - 0.5) * step, tz = z + (r() - 0.5) * step;
         if (!onOnomichiSide(tx, tz)) continue;
         const g = terrainY(tx, tz), above = g - SEA_Y;
-        if (above < 7 || above > 170) continue;
+        if (above < 7 || above > 170 || Math.hypot(tx, tz) < 12) continue;   // 空き家（床の下から生えないように）
         if (this.occupied.has(Math.floor(tx / 4) * 100003 + Math.floor(tz / 4)) || nearAnyRoad(tx, tz, 0.4) || inBuilding(tx, tz) || inSolid(tx, tz) || inPrecinct(tx, tz, 0) || nearRail(tx, tz, 3)) continue;
         const s2 = 0.35 + r() * 0.4;
         tufts.push({ x: tx, y: g - 0.05, z: tz, sx: s2, sy: s2 * (0.8 + r() * 0.6), sz: s2, ry: r() * 6, color: new THREE.Color().setHSL(0.2 + r() * 0.09, 0.3 + r() * 0.15, 0.22 + r() * 0.09) });
@@ -5136,7 +5218,39 @@ export class Town {
     const win = [], frame = [];
     let clockAt = null;
     for (const B of this.schoolBlds || []) {
-      const { poly, yMin, top } = B;
+      const { poly, yMin, top, gym } = B;
+      if (gym) {
+        // 体育館：ゆるい弧の屋根（いちばん長い辺の向きに）と、壁の上のほうの横長の窓
+        let best = 0, bi = 0;
+        for (let i = 0; i < poly.length; i++) { const L = Math.hypot(poly[(i + 1) % poly.length][0] - poly[i][0], poly[(i + 1) % poly.length][1] - poly[i][1]); if (L > best) { best = L; bi = i; } }
+        const [ax, az] = poly[bi], [bx, bz] = poly[(bi + 1) % poly.length];
+        const ang = Math.atan2(bz - az, bx - ax), dx = Math.cos(ang), dz = Math.sin(ang), nx = -dz, nz = dx;
+        let a0 = Infinity, a1 = -Infinity, c0 = Infinity, c1 = -Infinity;
+        for (const [px, pz] of poly) { const a = px * dx + pz * dz, c = px * nx + pz * nz; a0 = Math.min(a0, a); a1 = Math.max(a1, a); c0 = Math.min(c0, c); c1 = Math.max(c1, c); }
+        const am = (a0 + a1) / 2, cm = (c0 + c1) / 2, len = a1 - a0, wid = c1 - c0;
+        const cx = dx * am + nx * cm, cz = dz * am + nz * cm;
+        const span = 0.9, rad = (wid / 2) / Math.sin(span / 2);
+        const arc = new THREE.CylinderGeometry(rad, rad, len + 0.6, 24, 1, true, -span / 2, span);
+        arc.rotateZ(Math.PI / 2);
+        arc.rotateX(-Math.PI / 2);   // 弧の頂を上へ
+        const roof = new THREE.Mesh(arc, lam(0x5a7a8a, { side: THREE.DoubleSide }));
+        roof.position.set(cx, top - rad * Math.cos(span / 2), cz);
+        roof.rotation.y = -ang;
+        roof.castShadow = roof.receiveShadow = true;
+        this.group.add(roof);
+        for (let i = 0; i < poly.length; i++) {
+          const [px, pz] = poly[i], [qx, qz] = poly[(i + 1) % poly.length];
+          const L = Math.hypot(qx - px, qz - pz);
+          if (L < 6) continue;
+          const ex = (qx - px) / L, ez = (qz - pz) / L, ox = (signedArea(poly) > 0 ? ez : -ez), oz = (signedArea(poly) > 0 ? -ex : ex);
+          const n = Math.floor(L / 3);
+          for (let k = 0; k < n; k++) {
+            const t = (k + 0.5) / n;
+            win.push({ x: px + (qx - px) * t + ox * 0.05, y: top - 1.6, z: pz + (qz - pz) * t + oz * 0.05, sx: 2.4, sy: 1.1, sz: 1, ry: Math.atan2(ox, oz) });
+          }
+        }
+        continue;
+      }
       const ccw = signedArea(poly) > 0;
       const floors = Math.max(2, Math.floor((top - yMin) / 3.5));
       for (let i = 0; i < poly.length; i++) {
