@@ -58,7 +58,7 @@ float toonStep( float x ) {
 
 /** 輪郭線と色調補正を、1枚の画面にまとめてかける */
 class InkGradePass extends Pass {
-  constructor(camera, { outline }) {
+  constructor(camera, { outline, ao }) {
     super();
     this.camera = camera;
     this.material = new THREE.ShaderMaterial({
@@ -67,6 +67,7 @@ class InkGradePass extends Pass {
         uResolution: { value: new THREE.Vector2(1, 1) },
         uNear: { value: camera.near }, uFar: { value: camera.far },
         uOutline: { value: outline ? 1 : 0 },
+        uAO: { value: ao || 0 }, uProj: { value: 1 }, uAspect: { value: 1 },
         uInk: { value: new THREE.Color(0x24202a) },
         uNight: { value: 0 },
       },
@@ -77,7 +78,7 @@ class InkGradePass extends Pass {
         #include <packing>
         uniform sampler2D tDiffuse, tDepth;
         uniform vec2 uResolution;
-        uniform float uNear, uFar, uOutline, uNight;
+        uniform float uNear, uFar, uOutline, uNight, uAO, uProj, uAspect;
         uniform vec3 uInk;
         varying vec2 vUv;
         float lin(vec2 uv) {
@@ -87,6 +88,37 @@ class InkGradePass extends Pass {
         void main() {
           vec4 c = texture2D(tDiffuse, vUv);
           vec3 col = c.rgb;
+          // すみの陰（アンビエントオクルージョン）：壁と地面のきわ、軒の下、物のつけ根など、へこんだところを少し暗くする。
+          // 奥行きだけから求める：点をはさんだ両側がどちらも手前にあれば「へこみ」。平らな面は両側の平均がちょうど自分の奥行きになる
+          if (uAO > 0.0) {
+            float d0a = lin(vUv);
+            if (d0a < uFar * 0.6) {
+              float fade = 1.0 - smoothstep(90.0, 220.0, d0a);
+              if (fade > 0.0) {
+                float occ = 0.0;
+                // 画面上の半径：およそ 0.9m と 0.35m（近くのものほど大きく見える）。大きくなりすぎないよう上限つき
+                for (int ring = 0; ring < 2; ring++) {
+                  if (ring == 1 && uAO < 0.9) break;   // 画質「中」は、大きい半径の1周だけ（軽く）
+                  float R = ring == 0 ? 0.9 : 0.35;
+                  float ry = min(R * uProj * 0.5 / d0a, 0.06);
+                  vec2 rad = vec2(ry / uAspect, ry);
+                  for (int k = 0; k < 4; k++) {
+                    float a = float(k) * 0.7854 + float(ring) * 0.3927;
+                    vec2 o = vec2(cos(a), sin(a)) * rad;
+                    float da = lin(vUv + o), db = lin(vUv - o);
+                    // 手前の別の物（遠く離れた奥行き）は数えない
+                    float wa = 1.0 - smoothstep(R * 1.2, R * 2.4, abs(d0a - da));
+                    float wb = 1.0 - smoothstep(R * 1.2, R * 2.4, abs(d0a - db));
+                    float bendIn = (2.0 * d0a - da - db) / R;
+                    occ += clamp(bendIn * 1.6 - 0.06, 0.0, 1.0) * wa * wb;
+                  }
+                }
+                float ao = clamp(occ / (uAO < 0.9 ? 4.0 : 8.0) * 2.4, 0.0, 1.0) * fade * uAO;
+                // 陰は、まっ黒でなく、少し青みのある暗さへ
+                col *= mix(vec3(1.0), vec3(0.52, 0.55, 0.66), ao);
+              }
+            }
+          }
           // 輪郭線：まわりより手前にある（奥行きが急に変わる）ところに、細い墨の線
           if (uOutline > 0.5) {
             vec2 px = 1.0 / uResolution;
@@ -126,6 +158,8 @@ class InkGradePass extends Pass {
     const u = this.material.uniforms;
     u.tDiffuse.value = readBuffer.texture;
     u.tDepth.value = readBuffer.depthTexture;
+    u.uProj.value = this.camera.projectionMatrix.elements[5];
+    u.uAspect.value = this.camera.aspect;
     u.uNear.value = this.camera.near;
     u.uFar.value = this.camera.far;
     renderer.setRenderTarget(this.renderToScreen ? null : writeBuffer);
@@ -158,7 +192,7 @@ export class Look {
     this.composer.renderTarget2.dispose();
     this.composer.renderTarget2 = makeTarget();
     this.composer.addPass(new RenderPass(scene, camera));
-    this.ink = new InkGradePass(camera, { outline: q.outline });
+    this.ink = new InkGradePass(camera, { outline: q.outline, ao: q.ao });
     this.composer.addPass(this.ink);
     if (q.bloom) {
       this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x * q.bloom, size.y * q.bloom), 0.3, 0.5, 0.88);
