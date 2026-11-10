@@ -223,9 +223,11 @@ function setShadowRange(range, dist) {
   // そのままだと地面に縞模様の影＝シャドウアクネが出る。スマホは計算の細かさも低く、出やすい）
   const texel = (range * 2) / sun.shadow.mapSize.x;
   sun.shadow.normalBias = Math.max(0.02, texel * 1.6);
-  sun.shadow.bias = range > 10 ? -0.0008 : -0.0004;
+  // ずらす量は「距離」で決める（奥行きの幅 far が広いほど、同じ距離でも数値は小さくなる）
+  sun.shadow.bias = range > 10 ? -0.09 / c.far : -0.0004;
 }
 sun.userData.dist = 12;
+const shadowQ = new THREE.Quaternion(), shadowQi = new THREE.Quaternion(), shadowM = new THREE.Matrix4(), shadowV = new THREE.Vector3(), shadowZero = new THREE.Vector3(), shadowUp = new THREE.Vector3(0, 1, 0);
 
 let lastPlace = '';
 function enterTown(place) {
@@ -233,7 +235,8 @@ function enterTown(place) {
   document.body.classList.add('walking');
   walker.enter(place.x, place.z, place.yaw, place.pitch);
   controls.targetFov = 60;
-  setShadowRange(28, 45);
+  // 影の届く範囲：画質「高」（2048）は自分のまわり55m、「中」（1024）は38m。遠くの家並みにも影が落ちて、町に奥行きが出る
+  if (quality.s.shadowSize >= 2048) setShadowRange(55, 95); else setShadowRange(38, 70);
   setNear(0.12);
   lastPlace = '';
 }
@@ -753,7 +756,16 @@ function frame(fixedDt) {
   hemi.intensity = p.hemi;
   sun.color.copy(time.sunUp ? p.sun : new THREE.Color(0x9fb4e0));
   sun.intensity = p.light;
-  if (mode === 'walk') sun.target.position.set(controls.basePos.x, controls.basePos.y - 1.5, controls.basePos.z);
+  if (mode === 'walk') {
+    sun.target.position.set(controls.basePos.x, controls.basePos.y - 1.5, controls.basePos.z);
+    // 影のマス目に合わせて、光の中心を少しずつ動かす（歩くたびに影のふちがちらつかないように）
+    const texel = (sun.shadow.camera.right * 2) / sun.shadow.mapSize.x;
+    shadowQ.setFromRotationMatrix(shadowM.lookAt(time.lightDir, shadowZero, shadowUp));
+    shadowV.copy(sun.target.position).applyQuaternion(shadowQi.copy(shadowQ).invert());
+    shadowV.x = Math.round(shadowV.x / texel) * texel;
+    shadowV.y = Math.round(shadowV.y / texel) * texel;
+    sun.target.position.copy(shadowV.applyQuaternion(shadowQ));
+  }
   sun.position.copy(sun.target.position).addScaledVector(time.lightDir, sun.userData.dist);
   scene.fog.color.copy(p.horizon).lerp(p.mid, 0.2);
 
