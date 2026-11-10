@@ -277,6 +277,14 @@ function bronzeFigure(mat, pose, seed) {
   return root;
 }
 
+/** 軽い丸（20面）。陰影の向きだけ球のようになめらかにして、面の角を見せない */
+function roundIco(r) {
+  const g = new THREE.IcosahedronGeometry(r, 0);
+  const p = g.attributes.position, n = g.attributes.normal, v = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) { v.fromBufferAttribute(p, i).normalize(); n.setXYZ(i, v.x, v.y, v.z); }
+  return g;
+}
+
 export class Town {
   constructor(scene, world) {
     this.scene = scene;
@@ -293,6 +301,7 @@ export class Town {
     this.specialSignMats = [];
     this.vendingMats = [];
 
+    this._leafKit();
     this._terrain();
     this._coastWalls();
     this._roads();
@@ -441,6 +450,102 @@ export class Town {
       const d = m.userData.detail;
       m.visible = Math.hypot(cam.x - d.x, cam.z - d.z) - d.r < d.d;
     }
+  }
+
+  /**
+   * 木の葉の道具：角ばりのない、ふんわりした樹冠を作るための、共通の素材と形。
+   * ・素材：左半分が葉のまだら（丸い樹冠に貼る）、右半分が葉の房（すきまが透ける）の1枚の絵
+   * ・形：なめらかな丸（陰影は樹冠の中心からの向きで決めて、面の角を見せない）＋輪郭から飛び出す葉の房の板
+   * 葉の房が輪郭をぎざぎざに崩すので、多面体のかたちが見えなくなる
+   */
+  _leafKit() {
+    const tex = canvasTexture(512, 256, (g, w, h) => {
+      const rr = seededRandom('leaf-atlas');
+      // 左：葉のまだら（すき間なし）
+      g.fillStyle = '#d2d2d2'; g.fillRect(0, 0, w / 2, h);
+      for (let k = 0; k < 2600; k++) {
+        const x = rr() * (w / 2), y = rr() * h, rad = 2 + rr() * 4, v = rr() < 0.3 ? 150 + rr() * 35 : 210 + rr() * 45;
+        g.fillStyle = `rgb(${v},${v},${v})`;
+        g.beginPath(); g.ellipse(Math.min(w / 2 - rad, Math.max(rad, x)), y, rad, rad * 0.55, rr() * 3, 0, Math.PI * 2); g.fill();
+      }
+      // 右：葉の房（まわりは透明）。小さな葉を、まん中ほど密に
+      g.clearRect(w / 2, 0, w / 2, h);
+      const cx = w * 0.75, cy = h / 2;
+      for (let k = 0; k < 520; k++) {
+        const a = rr() * Math.PI * 2, d = Math.pow(rr(), 0.7) * (h * 0.46), x = cx + Math.cos(a) * d, y = cy + Math.sin(a) * d * 0.92;
+        const rad = 5 + rr() * 7, v = rr() < 0.3 ? 150 + rr() * 40 : 205 + rr() * 50;
+        g.fillStyle = `rgb(${v},${v},${v})`;
+        g.beginPath(); g.ellipse(x, y, rad, rad * 0.5, a + (rr() - 0.5), 0, Math.PI * 2); g.fill();
+      }
+    });
+    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+    tex.repeat.set(1, 1);
+    this.leafMat = lam(0xffffff, { vertexColors: true, map: tex, alphaTest: 0.45 });
+    // 影も、葉の房のかたちで落とす
+    this.leafDepth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: tex, alphaTest: 0.45 });
+    this._leafGeos = new Map();
+  }
+
+  /**
+   * ふんわりした葉のかたまりの形。lobes: [x, y, z, 半径, 細かさ] の丸。cards: 葉の房の板の数、size: 板の大きさ。
+   * lo: いちばん下の暗さ（上が1）
+   */
+  _fluffGeo(key, lobes, cards, size, lo = 0.6) {
+    if (this._leafGeos.has(key)) return this._leafGeos.get(key);
+    const rr = seededRandom('fluff-' + key);
+    const pos = [], nor = [], uv = [], col = [];
+    let yMin = Infinity, yMax = -Infinity;
+    for (const [, y, , rad] of lobes) { yMin = Math.min(yMin, y - rad); yMax = Math.max(yMax, y + rad); }
+    const shadeAt = (y, boost = 1) => { const t = (y - yMin) / (yMax - yMin || 1); const v = (lo + (1 - lo) * Math.min(1, t * 1.25)) * boost; return [v * 0.97, v, v * 0.92]; };
+    const v3 = new THREE.Vector3(), n3 = new THREE.Vector3();
+    for (const [lx, ly, lz, rad, detail = 1] of lobes) {
+      const g = new THREE.IcosahedronGeometry(rad, detail);
+      const gp = g.attributes.position, gu = g.attributes.uv;
+      for (let i = 0; i < gp.count; i++) {
+        v3.fromBufferAttribute(gp, i);
+        // 陰影の向き：その丸の外向きと、樹冠ぜんたいの外向きを半分ずつ（こんもり、やわらかく見える）
+        n3.copy(v3).normalize();
+        v3.x += lx; v3.y += ly; v3.z += lz;
+        n3.add(new THREE.Vector3(v3.x, v3.y - (yMin + yMax) / 2, v3.z).normalize()).normalize();
+        pos.push(v3.x, v3.y, v3.z); nor.push(n3.x, n3.y, n3.z);
+        uv.push(0.01 + gu.getX(i) * 0.48, 0.01 + gu.getY(i) * 0.98);
+        col.push(...shadeAt(v3.y));
+      }
+      g.dispose();
+    }
+    // 葉の房の板：丸の表面から外へ、いろいろな向きで（裏からも見えるよう、表と裏の2枚）
+    const d = new THREE.Vector3(), a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+    for (let k = 0; k < cards; k++) {
+      const [lx, ly, lz, rad] = lobes[k % lobes.length];
+      d.set(rr() - 0.5, rr() * 0.9 - 0.3, rr() - 0.5).normalize();
+      c.set(lx + d.x * rad * 0.92, ly + d.y * rad * 0.92, lz + d.z * rad * 0.92);
+      // 板の向き：外向き d を少しふくむ、でたらめな2本の軸
+      a.set(rr() - 0.5, rr() - 0.5, rr() - 0.5).cross(d).normalize();
+      b.copy(d).multiplyScalar(0.75).addScaledVector(new THREE.Vector3().crossVectors(d, a), 0.65).normalize();
+      const s2 = size * (0.75 + rr() * 0.5);
+      const P = (u, v) => [c.x + a.x * u * s2 + b.x * v * s2, c.y + a.y * u * s2 + b.y * v * s2, c.z + a.z * u * s2 + b.z * v * s2];
+      const q = [P(-0.5, -0.35), P(0.5, -0.35), P(0.5, 0.65), P(-0.5, 0.65)], t = [[0.52, 0.02], [0.98, 0.02], [0.98, 0.98], [0.52, 0.98]];
+      for (const idx of [[0, 1, 2], [0, 2, 3], [0, 2, 1], [0, 3, 2]]) for (const i of idx) {
+        pos.push(...q[i]); nor.push(d.x, d.y, d.z); uv.push(...t[i]); col.push(...shadeAt(q[i][1], 1.06));
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    this._leafGeos.set(key, geo);
+    return geo;
+  }
+
+  /** 葉のかたまりを並べる（instancedChunks と同じ使い方）。kind: 'crown'（木の樹冠）| 'bush'（植え込み）| 'ball'（小さな丸い株） */
+  _leafy(list, kind = 'crown', opts = {}) {
+    const geo = kind === 'crown' ? this._fluffGeo('crown', [[0, 0, 0, 0.58, 1]], 10, 0.55, 0.58)
+      : kind === 'bush' ? this._fluffGeo('bush', [[0, 0, 0, 0.5, 0]], 6, 0.5, 0.62)
+        : this._fluffGeo('ball', [[0, 0, 0, 0.5, 0]], 4, 0.45, 0.66);
+    const grp = instancedChunks(list, this.leafMat, { ...opts, geo });
+    grp.traverse((o) => { if (o.isInstancedMesh) o.customDepthMaterial = this.leafDepth; });
+    return grp;
   }
 
   // ---------- 地形（5m メッシュ） ----------
@@ -1470,13 +1575,13 @@ export class Town {
       this.sandoFireMat = new THREE.MeshLambertMaterial({ color: 0xb8b2a4, emissive: 0xffa040, emissiveIntensity: 0 });
       this.group.add(instancedChunks(fire, this.sandoFireMat, { detail: 80, cast: false }));
     }
-    if (rocks.length) this.group.add(instancedChunks(rocks, lam(0xffffff, { flatShading: true }), { geo: new THREE.DodecahedronGeometry(0.6, 0) }));
+    if (rocks.length) this.group.add(instancedChunks(rocks, lam(0xffffff), { geo: new THREE.IcosahedronGeometry(0.6, 1) }));
     if (poles.length) this.group.add(instancedChunks(poles, lam(0xffffff), { detail: 80, receive: false }));
     if (cloth.length) this.group.add(instancedChunks(cloth, lam(0xffffff, { side: THREE.DoubleSide }), { detail: 80, receive: false }));
     if (heads.length) this.group.add(instancedChunks(heads, lam(0xffffff), { detail: 60, geo: new THREE.SphereGeometry(0.5, 10, 8) }));
     if (trunks.length) {
       this.group.add(instancedChunks(trunks, lam(0xffffff), { geo: new THREE.CylinderGeometry(0.4, 0.55, 1, 6) }));
-      this.group.add(instancedChunks(crowns, lam(0xffffff, { flatShading: true }), { geo: new THREE.IcosahedronGeometry(0.6, 1) }));
+      this.group.add(this._leafy(crowns, 'crown'));
     }
   }
 
@@ -1580,50 +1685,26 @@ export class Town {
         shrubs.push({ x, y: ground + s * 0.45, z, sx: s * 1.2, sy: s, sz: s * 1.2, color: leaf() });
       }
     }
-    // 葉のかたまり：いくつかの丸を寄せた、でこぼこの樹冠。下ほど暗く、上ほど明るく（頂点の色を、木ごとの色に掛ける）
-    const shade = (g, lo = 0.55) => {
-      g.computeBoundingBox();
-      const { min, max } = g.boundingBox, pos = g.attributes.position, col = new Float32Array(pos.count * 3);
-      for (let i = 0; i < pos.count; i++) {
-        const t = (pos.getY(i) - min.y) / (max.y - min.y || 1);
-        const v = lo + (1 - lo) * Math.min(1, t * 1.25);
-        col[i * 3] = v * 0.97; col[i * 3 + 1] = v; col[i * 3 + 2] = v * 0.92;
-      }
-      g.setAttribute('color', new THREE.BufferAttribute(col, 3));
-      return g;
-    };
-    const lobes = (list) => mergeGeometries(list.map(([x, y, z, rad]) => new THREE.IcosahedronGeometry(rad, 0).translate(x, y, z)));
-    const clumpGeo = shade(lobes([[0, -0.05, 0, 0.82], [0.5, 0.1, 0.25, 0.58], [-0.42, 0.05, 0.38, 0.6], [-0.1, 0.05, -0.52, 0.58], [0.08, 0.5, 0.02, 0.6]]));
-    const simpleGeo = shade(new THREE.IcosahedronGeometry(1, 0), 0.62);
-    // 葉のきめ：明るい葉と暗いすき間の、細かいまだら
-    const leafTex = canvasTexture(128, 128, (g, w, h) => {
-      g.fillStyle = '#c8c8c8'; g.fillRect(0, 0, w, h);
-      const rr = seededRandom('leaf-tex');
-      for (let k = 0; k < 900; k++) {
-        const x = rr() * w, y = rr() * h, rad = 1.2 + rr() * 2.4, v = rr() < 0.35 ? 135 + rr() * 35 : 205 + rr() * 50;
-        g.fillStyle = `rgb(${v},${v},${v})`;
-        g.beginPath(); g.ellipse(x, y, rad, rad * 0.6, rr() * 3, 0, Math.PI * 2); g.fill();
-      }
-    });
-    leafTex.repeat.set(7, 7);
-    const vmat = lam(0xffffff, { flatShading: true, vertexColors: true, map: leafTex });
-    const mat = lam(0xffffff, { flatShading: true });
-    // 町なかと坂の木（海から50mまで）は、でこぼこの樹冠と幹。上の森は、軽い丸のまま
-    // 向島の木（far）は遠くからしか見ないので、軽い丸のまま
+    // 町なかと坂の木（海から50mまで）は、ふんわりした樹冠（丸をいくつか寄せて、輪郭から葉の房が飛び出す）と幹。
+    // 上の森と向島の木（far）は遠くからしか見ないので、軽い丸のまま（陰影だけ、なめらかに）
+    const clumpGeo = this._fluffGeo('town-tree', [[0, -0.05, 0, 0.82, 1], [0.5, 0.1, 0.25, 0.58, 0], [-0.42, 0.05, 0.38, 0.6, 0], [-0.1, 0.05, -0.52, 0.58, 0], [0.08, 0.5, 0.02, 0.6, 0]], 12, 0.66, 0.55);
+    const simpleGeo = this._fluffGeo('far-tree', [[0, 0, 0, 1, 0]], 0, 0, 0.62);
+    const leafy = (list, geo, opts = {}) => { const g = instancedChunks(list, this.leafMat, { ...opts, geo }); g.traverse((o) => { if (o.isInstancedMesh) o.customDepthMaterial = this.leafDepth; }); return g; };
+    const mat = lam(0xffffff);
     const townTrees = broad.filter((b) => !b.far && b.y - SEA_Y < 50), forestTrees = broad.filter((b) => b.far || b.y - SEA_Y >= 50);
     // 町の木は、幹が見えるくらい樹冠を持ち上げる（窓からの眺めをふさがない範囲で）
     for (const b of townTrees) b.y += Math.max(0, Math.min(b.sx * 0.22, viewCap(b.x, b.z) - (b.y + b.sy) - 0.3));
-    this.group.add(instancedChunks(townTrees, vmat, { geo: clumpGeo }));
-    this.group.add(instancedChunks(forestTrees, vmat, { geo: simpleGeo }));
+    this.group.add(leafy(townTrees, clumpGeo));
+    this.group.add(leafy(forestTrees, simpleGeo));
     this.group.add(instancedChunks(townTrees.map((b) => {
       const g = terrainY(b.x, b.z), top = b.y - b.sy * 0.35;
       return { x: b.x, y: (g + top) / 2 - 0.2, z: b.z, sx: 0.15 * b.sx + 0.08, sy: top - g + 0.4, sz: 0.15 * b.sx + 0.08, color: new THREE.Color().setHSL(0.07, 0.18, 0.2 + ((b.x * 7.1 + b.z) % 1 + 1) % 1 * 0.08) };
-    }), lam(0xffffff), { geo: new THREE.CylinderGeometry(0.7, 1, 1, 5), receive: false }));
-    // 松：葉の段（つぶした円錐）
-    const pineGeo = new THREE.ConeGeometry(1, 1, 7);
+    }), lam(0xffffff), { geo: new THREE.CylinderGeometry(0.7, 1, 1, 8), receive: false }));
+    // 松：葉の段（つぶした円錐、なめらかに）
+    const pineGeo = new THREE.ConeGeometry(1, 1, 10);
     this.group.add(instancedChunks(pines, mat, { geo: pineGeo }));
-    this.group.add(instancedChunks(pines.map((p) => ({ x: p.x, y: p.y - p.sy * 1.6, z: p.z, sx: 0.12, sy: p.sy * 2.6, sz: 0.12, color: new THREE.Color(0x4a3a2c) })), lam(0xffffff), { geo: new THREE.CylinderGeometry(1, 1, 1, 5) }));
-    this.group.add(instancedChunks(shrubs, vmat, { geo: shade(lobes([[0, 0, 0, 0.8], [0.45, -0.1, 0.2, 0.55], [-0.4, -0.1, -0.25, 0.55]]), 0.6), cast: false }));
+    this.group.add(instancedChunks(pines.map((p) => ({ x: p.x, y: p.y - p.sy * 1.6, z: p.z, sx: 0.12, sy: p.sy * 2.6, sz: 0.12, color: new THREE.Color(0x4a3a2c) })), lam(0xffffff), { geo: new THREE.CylinderGeometry(1, 1, 1, 6) }));
+    this.group.add(leafy(shrubs, this._fluffGeo('shrub', [[0, 0, 0, 0.8, 0], [0.45, -0.1, 0.2, 0.55, 0], [-0.4, -0.1, -0.25, 0.55, 0]], 6, 0.62, 0.6), { cast: false }));
   }
 
   /**
@@ -1699,7 +1780,7 @@ export class Town {
     const wm = new THREE.Mesh(wall.build(), lam(0xffffff, { vertexColors: true, side: THREE.DoubleSide, map: this._texture('wall') }));
     wm.castShadow = wm.receiveShadow = true;
     this.group.add(sm, wm);
-    this.group.add(instancedChunks(crops, lam(0xffffff, { flatShading: true }), { detail: 120, geo: new THREE.IcosahedronGeometry(0.5, 0) }));
+    this.group.add(instancedChunks(crops, lam(0xffffff), { detail: 120, geo: roundIco(0.5) }));
     this.group.add(instancedChunks(extras, lam(0xffffff), { detail: 100, cast: false }));
     if (stakes.length) this.group.add(instancedChunks(stakes, lam(0xffffff), { detail: 90, cast: false }));
     this.gardenCount = count;
@@ -2037,7 +2118,7 @@ export class Town {
     if (wheels.length) this.group.add(instancedBoxes(wheels, lam(0xffffff), { receive: false, geo: new THREE.TorusGeometry(0.5, 0.06, 6, 14) }));
     this.group.add(instancedBoxes(pipes, lam(0xffffff), { receive: false, geo: new THREE.CylinderGeometry(0.07, 0.07, 1, 8) }));
     this.group.add(instancedBoxes(pots, lam(0xffffff), { geo: new THREE.CylinderGeometry(0.5, 0.38, 1, 10) }));
-    this.group.add(instancedBoxes(plants, lam(0xffffff, { flatShading: true }), { geo: new THREE.IcosahedronGeometry(0.6, 0) }));
+    this.group.add(instancedBoxes(plants, lam(0xffffff), { geo: roundIco(0.6) }));
     this.group.add(new THREE.Mesh(tin.build(), lam(0xffffff, { vertexColors: true, map: tinTex })));
     this.group.add(new THREE.Mesh(shutters.build(), lam(0xffffff, { vertexColors: true, map: shutterTex })));
     // 店の中は電灯で明るいので、日陰のアーケードでも少し光って見える
@@ -3250,10 +3331,10 @@ export class Town {
     }
     this.parkSpots = parks;
     if (boxes.length) this.group.add(instancedChunks(boxes, lam(0xffffff), { detail: 80 }));
-    if (rocks.length) this.group.add(instancedChunks(rocks, lam(0xffffff, { flatShading: true }), { detail: 80, geo: new THREE.DodecahedronGeometry(0.6, 0) }));
+    if (rocks.length) this.group.add(instancedChunks(rocks, lam(0xffffff), { detail: 80, geo: new THREE.IcosahedronGeometry(0.6, 1) }));
     if (trunks.length) {
       this.group.add(instancedChunks(trunks, lam(0xffffff), { geo: new THREE.CylinderGeometry(0.4, 0.55, 1, 6) }));
-      this.group.add(instancedChunks(crowns, lam(0xffffff, { flatShading: true }), { geo: new THREE.IcosahedronGeometry(0.6, 1) }));
+      this.group.add(this._leafy(crowns, 'crown'));
     }
   }
 
@@ -3752,7 +3833,7 @@ export class Town {
     this.group.add(instancedChunks(parts, lam(0xffffff), { detail: 80 }));
     if (trunks.length) {
       this.group.add(instancedChunks(trunks, lam(0xffffff), { geo: new THREE.CylinderGeometry(0.4, 0.55, 1, 6) }));
-      this.group.add(instancedChunks(crowns, lam(0xffffff, { flatShading: true }), { geo: new THREE.IcosahedronGeometry(0.6, 1) }));
+      this.group.add(this._leafy(crowns, 'crown'));
     }
   }
 
@@ -3844,7 +3925,7 @@ export class Town {
     trunk.position.y = 4;
     kusu.add(trunk);
     for (let i = 0; i < 6; i++) {
-      const crown = new THREE.Mesh(new THREE.IcosahedronGeometry(3 + this.r() * 1.5, 1), lam(0x2f4a28, { flatShading: true }));
+      const crown = new THREE.Mesh(new THREE.IcosahedronGeometry(3 + this.r() * 1.5, 1), lam(0x2f4a28));
       crown.position.set((this.r() - 0.5) * 6, 8 + this.r() * 4, (this.r() - 0.5) * 6);
       crown.castShadow = true;
       kusu.add(crown);
@@ -3988,7 +4069,7 @@ export class Town {
         }
       }
     });
-    if (crowns.length) this.group.add(instancedChunks(crowns, lam(0xffffff, { flatShading: true }), { geo: new THREE.IcosahedronGeometry(0.5, 1) }));
+    if (crowns.length) this.group.add(this._leafy(crowns, 'crown'));
   }
 
   // ---------- 渡船のりば・ベンチ ----------
@@ -4236,7 +4317,7 @@ export class Town {
     }
     if (pots.length) {
       this.group.add(instancedChunks(pots, lam(0xffffff), { detail: 60, geo: new THREE.CylinderGeometry(0.5, 0.38, 1, 8) }));
-      this.group.add(instancedChunks(plants, lam(0xffffff, { flatShading: true }), { detail: 60, geo: new THREE.IcosahedronGeometry(0.5, 0) }));
+      this.group.add(instancedChunks(plants, lam(0xffffff), { detail: 60, geo: roundIco(0.5) }));
     }
     // 下の入口に、木の案内板「猫の細道」
     const all = roads.flatMap((rd) => [rd.pts[0], rd.pts[rd.pts.length - 1]]);
@@ -4271,7 +4352,7 @@ export class Town {
 
   /** 空き家の窓の左手に見える松 */
   _pine() {
-    const leaf = lam(0x2f4a2a, { flatShading: true });
+    const leaf = lam(0x2f4a2a);
     const geo = new THREE.IcosahedronGeometry(1, 1);
     [[-8, 5.5, -13, 1.6], [-9.5, 4.7, -14.5, 1.9], [-7.2, 6.4, -15, 1.3], [-10.6, 6, -12.5, 1.5]].forEach(([x, dy, z, s]) => {
       const m = new THREE.Mesh(geo, leaf);
@@ -4603,7 +4684,7 @@ export class Town {
     }
     if (curbs.length) {
       this.group.add(instancedChunks(curbs, lam(0xffffff), { detail: 140 }));
-      this.group.add(instancedChunks(hedges, lam(0xffffff, { flatShading: true }), { detail: 120, geo: new THREE.IcosahedronGeometry(0.6, 0) }));
+      this.group.add(this._leafy(hedges, 'ball', { detail: 120 }));
     }
     // バスのりば：駅前の広い道ぞいに、屋根とベンチと、のりばの標識
     const stops = [];
@@ -4828,7 +4909,7 @@ export class Town {
     if (planters.length) {
       this.group.add(instancedChunks(planters, lam(0xffffff), { detail: 90 }));
       this.group.add(instancedChunks(trunks, lam(0xffffff), { geo: new THREE.CylinderGeometry(0.4, 0.5, 1, 6) }));
-      this.group.add(instancedChunks(crowns, lam(0xffffff, { flatShading: true }), { geo: new THREE.IcosahedronGeometry(0.6, 1) }));
+      this.group.add(this._leafy(crowns, 'crown'));
     }
     if (hulls.length) {
       // 舟の形：上から見て、へさきのとがった形を、縦にのばしたもの（底は少しすぼめる）
@@ -5090,9 +5171,9 @@ export class Town {
     if (wires.length) this.group.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(wires), new THREE.LineBasicMaterial({ color: 0x2a2a2a, transparent: true, opacity: 0.7 })));
     if (pots.length) {
       this.group.add(instancedChunks(pots, lam(0xffffff), { detail: 60, geo: new THREE.CylinderGeometry(0.5, 0.38, 1, 8) }));
-      this.group.add(instancedChunks(plants, lam(0xffffff, { flatShading: true }), { detail: 60, geo: new THREE.IcosahedronGeometry(0.5, 0) }));
+      this.group.add(instancedChunks(plants, lam(0xffffff), { detail: 60, geo: roundIco(0.5) }));
     }
-    if (tufts.length) this.group.add(instancedChunks(tufts, lam(0xffffff, { flatShading: true }), { detail: 50, receive: false, geo: new THREE.IcosahedronGeometry(0.5, 0) }));
+    if (tufts.length) this.group.add(instancedChunks(tufts, lam(0xffffff), { detail: 50, receive: false, geo: roundIco(0.5) }));
     if (mirrors.length) {
       const orange = lam(0xe0702a), glass = lam(0xd8e4ea, { emissive: 0x405058, emissiveIntensity: 0.4 });
       for (const m of mirrors) {
@@ -5286,7 +5367,7 @@ export class Town {
     if (nets.length) this.group.add(instancedChunks(nets, new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false }), { detail: 160, cast: false }));
     if (trunks.length) {
       this.group.add(instancedChunks(trunks, lam(0xffffff), { geo: new THREE.CylinderGeometry(0.4, 0.5, 1, 6) }));
-      this.group.add(instancedChunks(crowns, lam(0xffffff, { flatShading: true }), { geo: new THREE.IcosahedronGeometry(0.6, 1) }));
+      this.group.add(this._leafy(crowns, 'crown'));
     }
     if (clockAt) {
       const g = new THREE.Group();
@@ -5571,8 +5652,8 @@ export class Town {
     }
     this.group.add(instancedChunks(boxes, lam(0xffffff), { detail: 90 }));
     this.group.add(instancedChunks(trunks, lam(0xffffff), { geo: new THREE.CylinderGeometry(0.4, 0.55, 1, 6) }));
-    this.group.add(instancedChunks(crowns, lam(0xffffff, { flatShading: true }), { geo: new THREE.IcosahedronGeometry(0.6, 1) }));
-    this.group.add(instancedChunks(shrubs, lam(0xffffff, { flatShading: true }), { detail: 80, geo: new THREE.IcosahedronGeometry(0.5, 0) }));
+    this.group.add(this._leafy(crowns, 'crown'));
+    this.group.add(this._leafy(shrubs, 'bush', { detail: 80 }));
 
     // ---- 田能村竹田の像：二段の御影石の台座に、膝の上に画帖をひろげて座る文人の姿 ----
     const S = P.statue, g = new THREE.Group();
@@ -5795,7 +5876,7 @@ export class Town {
       prev = { x: p.x, z: p.z, y, nx, nz };
     }
     this.group.add(instancedChunks(wood, lam(0xffffff), { detail: 120 }));
-    this.group.add(instancedChunks(leaves, lam(0xffffff, { flatShading: true }), { detail: 120, geo: new THREE.IcosahedronGeometry(0.5, 0) }));
+    this.group.add(instancedChunks(leaves, lam(0xffffff), { detail: 120, geo: roundIco(0.5) }));
     // 花房は、下へ細くなる円すい（さかさま）
     this.group.add(instancedChunks(flowers, lam(0xffffff, { flatShading: true }), { detail: 90, receive: false, geo: new THREE.ConeGeometry(0.5, 1, 6).rotateX(Math.PI) }));
     // 回廊の中ほどに、休めるベンチ（道の外側）
@@ -6024,7 +6105,7 @@ export class Town {
         tr.rotation.z = sea ? (u > 0 ? -0.15 : 0.12) : 0;
         g.add(tr);
         for (let k = 0; k < 4; k++) {
-          const c = new THREE.Mesh(sea ? new THREE.CylinderGeometry(1.4, 1.6, 0.5, 7) : new THREE.IcosahedronGeometry(1.6, 1), lam(sea ? 0x2f4a2e : 0x355c30, { flatShading: true }));
+          const c = new THREE.Mesh(sea ? new THREE.CylinderGeometry(1.4, 1.6, 0.5, 7) : new THREE.IcosahedronGeometry(1.6, 1), lam(sea ? 0x2f4a2e : 0x355c30));
           c.position.set(u + (r() - 0.5) * 1.6, 4.4 + k * (sea ? 0.55 : 0.8), v + (r() - 0.5) * 1.6);
           c.castShadow = true;
           g.add(c);
@@ -6147,7 +6228,7 @@ export class Town {
     for (const [u, v] of [[-20, 18], [20, 18], [-21, -4], [21, -6], [8, 16], [-8, 16]]) {
       const tr = add(new THREE.CylinderGeometry(0.3, 0.45, 6, 7), 0x4e3a2e, u, 3, v);
       tr.rotation.z = (r() - 0.5) * 0.3;
-      for (let k = 0; k < 4; k++) add(new THREE.CylinderGeometry(1.8 - k * 0.2, 2.0 - k * 0.2, 0.6, 8), lam(0x2f4a2e, { flatShading: true }), u + (r() - 0.5) * 1.5, 5.2 + k * 0.7, v + (r() - 0.5) * 1.5);
+      for (let k = 0; k < 4; k++) add(new THREE.CylinderGeometry(1.8 - k * 0.2, 2.0 - k * 0.2, 0.6, 14), lam(0x2f4a2e), u + (r() - 0.5) * 1.5, 5.2 + k * 0.7, v + (r() - 0.5) * 1.5);
     }
     this.group.add(g);
     // 堂と塔のところは歩けない
