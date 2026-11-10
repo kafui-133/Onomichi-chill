@@ -277,6 +277,17 @@ function bronzeFigure(mat, pose, seed) {
   return root;
 }
 
+/** 輪郭を、いちばん長い辺の向きの長方形で囲む。中心 (cx, cz)、長い向きの角度 ang、長さ len、幅 wid */
+function polyOBB(poly) {
+  let best = 0, ang = 0;
+  for (let i = 0; i < poly.length; i++) { const [ax, az] = poly[i], [bx, bz] = poly[(i + 1) % poly.length], L = Math.hypot(bx - ax, bz - az); if (L > best) { best = L; ang = Math.atan2(bz - az, bx - ax); } }
+  const dx = Math.cos(ang), dz = Math.sin(ang), nx = -dz, nz = dx;
+  let a0 = Infinity, a1 = -Infinity, c0 = Infinity, c1 = -Infinity;
+  for (const [x, z] of poly) { const a = x * dx + z * dz, c = x * nx + z * nz; a0 = Math.min(a0, a); a1 = Math.max(a1, a); c0 = Math.min(c0, c); c1 = Math.max(c1, c); }
+  const am = (a0 + a1) / 2, cm = (c0 + c1) / 2;
+  return { cx: dx * am + nx * cm, cz: dz * am + nz * cm, ang, len: a1 - a0, wid: c1 - c0, nx, nz };
+}
+
 /** 軽い丸（20面）。陰影の向きだけ球のようになめらかにして、面の角を見せない */
 function roundIco(r) {
   const g = new THREE.IcosahedronGeometry(r, 0);
@@ -1086,6 +1097,19 @@ export class Town {
       if (station) top = Math.min(top, yMin + 8.5);
       const u2 = b.n === 'ONOMICHI U2';
       if (u2) this.u2Poly = poly;
+      // ONOMICHI U2 と土堂小学校の校舎は、Blender のモデルで建てる（_moreSights・_school）。ここでは壁を作らない
+      const schoolMain = schoolB && b.k === 'school' && area > 350 && Math.hypot(pcx - SCHOOL.x, pcz - SCHOOL.z) < 60;
+      if (USE_MODELS && (u2 || schoolMain)) {
+        if (schoolMain) this.schoolMain = { poly, yMin };
+        // 占有マス（埋める家や木が、校舎や倉庫の中に建たないように。まわり1マスぶんも）
+        const oxs = poly.map((q) => q[0]), ozs = poly.map((q) => q[1]);
+        for (let gx = Math.floor(Math.min(...oxs) / 4) - 1; gx <= Math.floor(Math.max(...oxs) / 4) + 1; gx++) {
+          for (let gz = Math.floor(Math.min(...ozs) / 4) - 1; gz <= Math.floor(Math.max(...ozs) / 4) + 1; gz++) {
+            if ([[2, 2], [0, 0], [4, 0], [0, 4], [4, 4], [-2, 2], [6, 2], [2, -2], [2, 6]].some(([a, c]) => pointInPoly(gx * 4 + a, gz * 4 + c, poly))) this.occupied.add(gx * 100003 + gz);
+          }
+        }
+        continue;
+      }
       const wc = new THREE.Color(schoolB ? '#ecebe4' : station ? '#efede6' : u2 ? '#5a6068' : templeHall ? ['#5a3e2c', '#4e3626', '#634430'][Math.floor(r() * 3)] : walls[Math.floor(r() * walls.length)]);
       roofTile = templeHall ? new THREE.Color(['#353a42', '#3c4148', '#2f343b'][Math.floor(r() * 3)]) : roofTiles[Math.floor(r() * roofTiles.length)];
       let wu = 0;
@@ -2804,16 +2828,30 @@ export class Town {
       g.add(wheel);
       box(0.4, 0.8, 0.4, dark, 0, 5.6, 0);
       // 駅名の札（屋根のふち、両面）
+      // 駅名の札は、模型に差しかえても残るよう、別のまとまりに
+      const sg = new THREE.Group();
+      sg.position.copy(g.position);
+      sg.rotation.y = g.rotation.y;
       const sign = new THREE.MeshBasicMaterial({ map: labelTexture(name, { w: 512, h: 112, size: 60, bg: '#f4efe4', fg: '#7a2a22' }) });
       for (const sd of [-1, 1]) {
         const m = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 0.8), sign);
         m.position.set(0, 6.6, sd * 3.75);
         m.rotation.y = sd > 0 ? 0 : Math.PI;
-        g.add(m);
+        sg.add(m);
       }
       box(3.8, 0.9, 0.08, red, 0, 6.6, 3.7);
       box(3.8, 0.9, 0.08, red, 0, 6.6, -3.7);
-      this.group.add(g);
+      this.group.add(g, sg);
+      // Blender で作った駅（assets/models/ropeway_station.glb：乗り場と、そのうしろの駅舎）が読めたら差しかえる。
+      // 乗り場の口（模型の -X）を、ケーブルののびていくほうへ向ける
+      const atTop = p === top;
+      this._swapModel('ropeway_station', g, (m) => {
+        m.position.set(p.x, y, p.z);
+        m.rotation.y = -cableAng + (atTop ? 0 : Math.PI);
+        for (const c of sg.children) { c.position.y = 6.0; c.position.z = Math.sign(c.position.z) * 4.23; }
+        // 山頂駅の、以前の簡単な駅舎（_moreSights）も片づける
+        if (atTop && this.ropeTopBody) { this.ropeTopBody.parent?.remove(this.ropeTopBody); this.ropeTopBody = null; }
+      });
     };
     st(base, by, '山麓駅');
     st(top, ty, '山頂駅');
@@ -3481,11 +3519,14 @@ export class Town {
         // 大きなガラスの開口（夜は灯る）
         const glassMat = new THREE.MeshLambertMaterial({ color: 0x6a7a84, emissive: 0xffc888, emissiveIntensity: 0.2 });
         this.specialSignMats.push(glassMat);
+        const u2Glass = [];
         for (let u = -dl / 2 + 3; u < dl / 2 - 2; u += 6) {
           const gx = a0.mx + Math.cos(ang) * u + nx * 0.06, gz = a0.mz + Math.sin(ang) * u + nz * 0.06;
           const m = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 3), glassMat);
           m.position.set(gx, y + 1.8, gz);
           m.rotation.y = Math.atan2(nx, nz);
+          m.userData.noMerge = true;
+          u2Glass.push(m);
           this.group.add(m);
           // テーブルと椅子
           const tx = gx + nx * 3.2, tz = gz + nz * 3.2;
@@ -3500,6 +3541,22 @@ export class Town {
           items.push({ x: bx3, y: y + 0.38, z: bz3, sx: 0.04, sy: 0.65, sz: 0.65, ry: -ang + Math.PI / 2, color: '#222' });
         }
         this.group.add(instancedChunks(items, lam(0xffffff)));
+        // Blender で作った倉庫（assets/models/u2.glb）を、地図の輪郭の大きさに合わせて建てる。正面（+Z）を海へ。
+        // 読めないときのために、同じ大きさの簡単な箱を先に置いておく
+        if (USE_MODELS) {
+          const B = polyOBB(poly);
+          const simple = new THREE.Mesh(new THREE.BoxGeometry(B.len, 9, B.wid), lam(0x5a6068));
+          simple.position.set(B.cx, y + 4.5, B.cz);
+          simple.rotation.y = -B.ang;
+          simple.castShadow = simple.receiveShadow = true;
+          this.group.add(simple);
+          this._swapModel('u2', simple, (m) => {
+            m.position.set(B.cx, y, B.cz);
+            m.rotation.y = Math.atan2(nx, nz);
+            m.scale.set(B.len / 100, 1, B.wid / 26);
+            for (const q of u2Glass) q.parent?.remove(q);   // 模型には、ガラスの開口がついている
+          });
+        }
       }
     }
     // ---- ロープウェイ山頂駅：白い駅舎（ガラスの帯）と、ゴンドラの乗り場の大きな滑車 ----
@@ -3527,7 +3584,8 @@ export class Town {
       // 駅舎は、ケーブルの来るほう（-X）に乗り場が向くよう、ケーブルの延長上の奥に
       g.position.set(top.x + ux * 8, ty, top.z + uz * 8);
       g.rotation.y = -Math.atan2(uz, ux);
-      this.group.add(g);
+      g.userData.noMerge = true;   // 模型（ropeway_station）が読めたら片づける
+      if (this.models?.ropeway_station) { /* もう模型になっている */ } else { this.group.add(g); this.ropeTopBody = g; }
     }
   }
 
@@ -3770,10 +3828,20 @@ export class Town {
     const sign = new THREE.Mesh(new THREE.PlaneGeometry(6.4, 1.0), new THREE.MeshLambertMaterial({ map: tex }));
     sign.position.set(along * 0.35, H - 3.2, deep * 0.47 + 0.02);
     g.add(sign);
-    g.position.set(cx, yMin + 0.6, cz);
-    g.rotation.y = face;
-    this.group.add(g);
+    g.remove(sign);
+    const sg = new THREE.Group();   // 館名は、模型に差しかえても残す
+    sg.add(sign);
+    for (const o of [g, sg]) { o.position.set(cx, yMin + 0.6, cz); o.rotation.y = face; }
+    this.group.add(g, sg);
     this.specialSignMats.push(glass);   // 夜はガラスの吹き抜けに灯り
+    // Blender で作った美術館（assets/models/museum.glb、間口46m×奥行34m）を、地図の輪郭の大きさに合わせて建てる
+    this._swapModel('museum', g, (m) => {
+      m.position.set(cx, yMin + 0.6, cz);
+      m.rotation.y = face;
+      m.scale.set(along / 46, 1, deep / 34);
+      sign.position.z = deep * 0.47 + 0.06;
+      sign.position.y = 3.6;
+    });
     addSolid(cx, cz, Math.abs(Math.sin(face)) > 0.5 ? deep : along, Math.abs(Math.sin(face)) > 0.5 ? along : deep, 0);
   }
 
@@ -5367,6 +5435,24 @@ export class Town {
         if (toYard && (!clockAt || L > clockAt.L)) clockAt = { x: mx + ox * 0.12, y: top - 1.4, z: mz + oz * 0.12, ry, L };
       }
     }
+    // 校舎（いちばん長い棟）：Blender で作った模型（assets/models/school.glb、長さ50m×奥行9m）を、地図の輪郭に合わせて建てる。
+    // 正面（玄関と時計）は校庭の側。読めないときのために、同じ大きさの白い箱を先に置いておく
+    if (USE_MODELS && this.schoolMain) {
+      const B = polyOBB(this.schoolMain.poly);
+      let fx = B.nx, fz = B.nz;
+      if ((S.x - B.cx) * fx + (S.z - B.cz) * fz < 0) { fx = -fx; fz = -fz; }
+      const simple = new THREE.Mesh(new THREE.BoxGeometry(B.len, 16, B.wid), lam(0xecebe4));
+      simple.position.set(B.cx, Y + 3.2, B.cz);
+      simple.rotation.y = -B.ang;
+      simple.castShadow = simple.receiveShadow = true;
+      this.group.add(simple);
+      this._swapModel('school', simple, (m) => {
+        m.position.set(B.cx, Y, B.cz);
+        m.rotation.y = Math.atan2(fx, fz);
+        m.scale.set(B.len / 50, 1, B.wid / 9);
+      });
+      clockAt = null;   // 時計は模型についている
+    }
     if (win.length) this.group.add(instancedChunks(win, lam(0x4a5a66), { detail: 220, cast: false, geo: new THREE.PlaneGeometry(1, 1) }));
     const nets = [...frame.filter((f) => f.net), ...fence, ...dark];
     const solid = [...frame.filter((f) => !f.net), ...box, ...dark.filter(() => false)];
@@ -6015,10 +6101,14 @@ export class Town {
       const vermilion = 0xc8442e, roofC = sea ? 0x4e7a6a : 0x3c4148;
       const honden = this._hall(3.2, 3, 2.6, { wall: 0xf2eee4, roof: roofC, plaster: 0xf2eee4, base: 0xa8a296 });
       honden.position.set(0, 0.6, -4);
-      g.add(honden);
+      const halls = new THREE.Group();
+      g.add(halls);
+      halls.add(honden);
       const haiden = this._hall(5.4, 3.6, 2.8, { wall: vermilion, roof: roofC, plaster: 0xf2eee4, base: 0xa8a296 });
       haiden.position.set(0, 0.2, -0.2);
-      g.add(haiden);
+      halls.add(haiden);
+      // 住吉神社は、Blender で作った社殿（assets/models/sumiyoshi.glb：拝殿・幣殿・流造の本殿）に差しかえる
+      if (sea) this._swapModel('sumiyoshi', halls, (m) => { m.position.set(P.x, y0 + 0.12, P.z); m.rotation.y = face; });
       // 拝殿の正面：しめ縄と紙垂、鈴と鈴緒、賽銭箱
       const rope = add(new THREE.CylinderGeometry(0.11, 0.11, 4.2, 8), 0xd8c890, 0, 3.1, 1.75);
       rope.rotation.z = Math.PI / 2;

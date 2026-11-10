@@ -255,3 +255,21 @@ def preview(path, height, dist=1.0, ground='#7a8a5a'):
     sc.render.filepath = path
     bpy.ops.render.render(write_still=True)
     print('preview', path)
+
+
+def disc(r, depth, x, y, z, mat, verts=24):
+    """正面（-Y）を向いた円盤（時計の文字盤など）。中心が (x, y, z)"""
+    bpy.ops.mesh.primitive_cylinder_add(vertices=verts, radius=r, depth=depth, location=(x, y, z), rotation=(math.pi / 2, 0, 0))
+    o = bpy.context.active_object
+    bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
+    return add(o, mat)
+
+
+def main(build, name, filename, argv, dist=1.3):
+    """組み立て → まとめる → 書き出し（--preview a.png があれば、確認用の絵も）"""
+    reset()
+    h = build()
+    o = join_all(name)
+    export(o, filename)
+    if '--preview' in argv:
+        preview(os.path.abspath(argv[argv.index('--preview') + 1]), h, dist=dist)
