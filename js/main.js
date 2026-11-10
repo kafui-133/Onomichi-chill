@@ -235,8 +235,8 @@ function enterTown(place) {
   document.body.classList.add('walking');
   walker.enter(place.x, place.z, place.yaw, place.pitch);
   controls.targetFov = 60;
-  // 影の届く範囲：画質「高」（2048）は自分のまわり55m、「中」（1024）は38m。遠くの家並みにも影が落ちて、町に奥行きが出る
-  if (quality.s.shadowSize >= 2048) setShadowRange(55, 95); else setShadowRange(38, 70);
+  // 影の届く範囲：画質「高」（2048）は自分のまわり42m、「中」（1024）は30m（広げすぎると、影のふちが粗くなる）。遠くの家並みにも影が落ちて、町に奥行きが出る
+  if (quality.s.shadowSize >= 2048) setShadowRange(42, 80); else setShadowRange(30, 60);
   setNear(0.12);
   lastPlace = '';
 }
@@ -564,7 +564,7 @@ $('vol-quality').addEventListener('click', () => {
   showQuality();
   toast(`画質：${quality.s.label}（灯りの数や絵の効果は、次に開いたときに変わります）`, 3200);
 });
-// 絵作り：新しい絵（アニメ調）と元の絵を切りかえる。シェーダーから作りなおすので、ページを読みなおす
+// 絵作り：やわらかい絵・アニメの絵・元の絵を順に切りかえる。シェーダーから作りなおすので、ページを読みなおす
 $('vol-look').textContent = look.label;
 $('vol-look').addEventListener('click', () => {
   look.toggle();

@@ -11,21 +11,23 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 
-const KEY = 'onomichi-look';
-export const LOOKS = { anime: '新しい絵', classic: '元の絵' };
+// 'soft' を足したときに、覚えておく名前を変えた（前に選んだ絵のままにならず、はじめは 'soft' になる）
+const KEY = 'onomichi-look2';
+export const LOOKS = { soft: 'やわらかい絵', anime: 'アニメの絵', classic: '元の絵' };
+const ORDER = ['soft', 'anime', 'classic'];
 
 function initial() {
   const p = new URLSearchParams(location.search).get('look');
   if (p && LOOKS[p]) return p;
   try { const v = localStorage.getItem(KEY); if (LOOKS[v]) return v; } catch { /* ignore */ }
-  return 'anime';
+  return 'soft';
 }
 
 export const look = {
   name: initial(),
   get label() { return LOOKS[this.name]; },
   toggle() {
-    this.name = this.name === 'anime' ? 'classic' : 'anime';
+    this.name = ORDER[(ORDER.indexOf(this.name) + 1) % ORDER.length];
     try { localStorage.setItem(KEY, this.name); } catch { /* ignore */ }
   },
 };
@@ -35,11 +37,17 @@ export const look = {
  * three.js の Lambert（町のほとんど）と Standard（猫など）の直接光の計算だけを差しかえる。
  */
 export function applyToonShading() {
-  if (look.name !== 'anime') return;
-  const fn = `
+  if (look.name === 'classic') return;
+  // 'anime'：光と陰をくっきり2段に。'soft'：陰から光へ、なだらかに移る（面の角が目立たない）。陰もまっ暗にしない
+  const fn = look.name === 'anime' ? `
 float toonStep( float x ) {
   float lit = smoothstep( 0.04, 0.16, x );
   return mix( 0.32, 0.9 + 0.1 * x, lit );
+}
+` : `
+float toonStep( float x ) {
+  float lit = smoothstep( 0.0, 0.75, x );
+  return mix( 0.36, 1.0, lit );
 }
 `;
   // Lambert（町のほとんど）：直接光の当たりぐあいを丸める
@@ -58,7 +66,7 @@ float toonStep( float x ) {
 
 /** 輪郭線と色調補正を、1枚の画面にまとめてかける */
 class InkGradePass extends Pass {
-  constructor(camera, { outline, ao }) {
+  constructor(camera, { outline, ao, ink = 0.78 }) {
     super();
     this.camera = camera;
     this.material = new THREE.ShaderMaterial({
@@ -68,7 +76,7 @@ class InkGradePass extends Pass {
         uNear: { value: camera.near }, uFar: { value: camera.far },
         uOutline: { value: outline ? 1 : 0 },
         uAO: { value: ao || 0 }, uProj: { value: 1 }, uAspect: { value: 1 },
-        uInk: { value: new THREE.Color(0x24202a) },
+        uInk: { value: new THREE.Color(0x24202a) }, uInkAmt: { value: ink },
         uNight: { value: 0 },
       },
       vertexShader: /* glsl */ `
@@ -78,7 +86,7 @@ class InkGradePass extends Pass {
         #include <packing>
         uniform sampler2D tDiffuse, tDepth;
         uniform vec2 uResolution;
-        uniform float uNear, uFar, uOutline, uNight, uAO, uProj, uAspect;
+        uniform float uNear, uFar, uOutline, uNight, uAO, uProj, uAspect, uInkAmt;
         uniform vec3 uInk;
         varying vec2 vUv;
         float lin(vec2 uv) {
@@ -89,34 +97,36 @@ class InkGradePass extends Pass {
           vec4 c = texture2D(tDiffuse, vUv);
           vec3 col = c.rgb;
           // すみの陰（アンビエントオクルージョン）：壁と地面のきわ、軒の下、物のつけ根など、へこんだところを少し暗くする。
-          // 奥行きだけから求める：点をはさんだ両側がどちらも手前にあれば「へこみ」。平らな面は両側の平均がちょうど自分の奥行きになる
+          // 奥行きから、その点の位置と面の向きを求め、まわり（半径およそ0.8m）に、面より手前へ出ている物がどれだけあるかを数える。
+          // 調べる向きは点ごとに回して、決まった模様（物の形の写りこみ）が出ないようにする
           if (uAO > 0.0) {
             float d0a = lin(vUv);
-            if (d0a < uFar * 0.6) {
-              float fade = 1.0 - smoothstep(90.0, 220.0, d0a);
-              if (fade > 0.0) {
-                float occ = 0.0;
-                // 画面上の半径：およそ 0.9m と 0.35m（近くのものほど大きく見える）。大きくなりすぎないよう上限つき
-                for (int ring = 0; ring < 2; ring++) {
-                  if (ring == 1 && uAO < 0.9) break;   // 画質「中」は、大きい半径の1周だけ（軽く）
-                  float R = ring == 0 ? 0.9 : 0.35;
-                  float ry = min(R * uProj * 0.5 / d0a, 0.06);
-                  vec2 rad = vec2(ry / uAspect, ry);
-                  for (int k = 0; k < 4; k++) {
-                    float a = float(k) * 0.7854 + float(ring) * 0.3927;
-                    vec2 o = vec2(cos(a), sin(a)) * rad;
-                    float da = lin(vUv + o), db = lin(vUv - o);
-                    // 手前の別の物（遠く離れた奥行き）は数えない
-                    float wa = 1.0 - smoothstep(R * 1.2, R * 2.4, abs(d0a - da));
-                    float wb = 1.0 - smoothstep(R * 1.2, R * 2.4, abs(d0a - db));
-                    float bendIn = (2.0 * d0a - da - db) / R;
-                    occ += clamp(bendIn * 1.6 - 0.06, 0.0, 1.0) * wa * wb;
-                  }
-                }
-                float ao = clamp(occ / (uAO < 0.9 ? 4.0 : 8.0) * 2.4, 0.0, 1.0) * fade * uAO;
-                // 陰は、まっ黒でなく、少し青みのある暗さへ
-                col *= mix(vec3(1.0), vec3(0.52, 0.55, 0.66), ao);
+            float fade = 1.0 - smoothstep(70.0, 160.0, d0a);
+            if (d0a < uFar * 0.6 && fade > 0.0) {
+              vec2 k2 = vec2(uAspect / uProj, 1.0 / uProj);
+              vec3 P = vec3((vUv * 2.0 - 1.0) * k2 * d0a, -d0a);
+              vec3 N = normalize(cross(dFdx(P), dFdy(P)));
+              float R = 0.8;
+              float ry = min(R * uProj * 0.5 / d0a, 0.05);
+              vec2 rad = vec2(ry / uAspect, ry);
+              float rot = 6.2832 * fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+              float occ = 0.0;
+              int taps = uAO < 0.9 ? 5 : 8;
+              for (int k = 0; k < 8; k++) {
+                if (k >= taps) break;
+                float a = rot + float(k) * 2.39996;
+                float rr = sqrt((float(k) + 0.5) / float(taps));
+                vec2 uv2 = vUv + vec2(cos(a), sin(a)) * rad * rr;
+                float ds = lin(uv2);
+                vec3 v = vec3((uv2 * 2.0 - 1.0) * k2 * ds, -ds) - P;
+                float len = length(v);
+                // 面より上（手前）にある分だけ。遠すぎる物（半径の外）は数えない
+                occ += max(dot(N, v) / max(len, 1e-4) - 0.12, 0.0) * (1.0 - smoothstep(R * 0.7, R * 1.5, len));
               }
+              float ao = clamp(occ / float(taps) * 2.6, 0.0, 1.0) * fade * min(uAO, 1.0);
+              // 陰は、まっ黒でなく、少し青みのある暗さへ
+              col *= mix(vec3(1.0), vec3(0.5, 0.53, 0.64), ao);
+              if (uAO > 1.5) col = vec3(1.0 - ao);
             }
           }
           // 輪郭線：まわりより手前にある（奥行きが急に変わる）ところに、細い墨の線
@@ -134,7 +144,7 @@ class InkGradePass extends Pass {
             float edge = smoothstep(th, th * 2.8, e) * smoothstep(th * 0.5, th * 1.4, bend);
             // 遠くは細かい家が多くてうるさくなるので、だんだん薄く。空（いちばん奥）は対象外
             edge *= (1.0 - smoothstep(180.0, 900.0, d0)) * step(d0, uFar * 0.6);
-            col = mix(col, uInk * (0.5 + 0.5 * col), edge * 0.78);
+            col = mix(col, uInk * (0.5 + 0.5 * col), edge * uInkAmt);
           }
           // 色調補正：少し鮮やかに、ゆるいS字のコントラスト、陰は青紫に、光はあたたかく
           float l = dot(col, vec3(0.299, 0.587, 0.114));
@@ -176,7 +186,7 @@ export class Look {
     this.renderer = renderer;
     this.scene = scene;
     this.camera = camera;
-    this.enabled = look.name === 'anime' && q.post !== false;
+    this.enabled = look.name !== 'classic' && q.post !== false;
     if (!this.enabled) return;
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
     const isWebGL2 = renderer.capabilities.isWebGL2;
@@ -192,7 +202,8 @@ export class Look {
     this.composer.renderTarget2.dispose();
     this.composer.renderTarget2 = makeTarget();
     this.composer.addPass(new RenderPass(scene, camera));
-    this.ink = new InkGradePass(camera, { outline: q.outline, ao: q.ao });
+    // 'soft' は輪郭線をうすく（建物のふちが、ほんのり締まるくらい）
+    this.ink = new InkGradePass(camera, { outline: q.outline, ao: q.ao, ink: look.name === 'soft' ? 0.3 : 0.78 });
     this.composer.addPass(this.ink);
     if (q.bloom) {
       this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x * q.bloom, size.y * q.bloom), 0.3, 0.5, 0.88);
