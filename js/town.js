@@ -3565,6 +3565,13 @@ export class Town {
     g.rotation.y = downhillYaw(P.x, P.z, 8);
     this.group.add(g);
     addSolid(P.x, P.z, 16, 16, g.rotation.y);
+    // Blender で作った尾道城（assets/models/castle.glb）が読めたら差しかえる。石垣は、坂の下の側まで届くように少し埋める
+    const yaw = g.rotation.y;
+    this._swapModel('castle', g, (m) => {
+      const low = Math.min(...[[-8, -7], [8, -7], [8, 7], [-8, 7]].map(([a, b]) => terrainY(P.x + a, P.z + b)));
+      m.position.set(P.x, Math.max(low + 0.5, y - 2.5), P.z);
+      m.rotation.y = yaw;
+    });
   }
 
   /** 三重塔の下の斜面に広がる墓地（灰色の墓石が段々に並ぶ） */
@@ -6170,12 +6177,13 @@ export class Town {
       return grp;
     };
     // 本堂（国宝）：正面の奥。大きな屋根
-    hall(14, 11, 4.6, 0, 0, { big: true });
+    const hondoSimple = hall(14, 11, 4.6, 0, 0, { big: true });
     // 阿弥陀堂：本堂の西（南を向けているので、ローカルの +X が東、-X が西）
     hall(9, 7.5, 3.6, -15, 2);
     // 多宝塔（国宝）：本堂の東。下は方形、白い亀腹、上は円い塔身に方形の屋根、てっぺんに相輪
+    const tahotoSimple = new THREE.Group();
     {
-      const t = new THREE.Group();
+      const t = tahotoSimple;
       t.position.set(15, 0, 1);
       g.add(t);
       const A = (geo, c, x, y, z, ry = 0) => { const m = new THREE.Mesh(geo, typeof c === 'number' ? lam(c) : c); m.position.set(x, y, z); m.rotation.y = ry; m.castShadow = m.receiveShadow = true; t.add(m); return m; };
@@ -6236,6 +6244,14 @@ export class Town {
     for (const [u, v, w, d] of [[0, 0, 16, 13], [-15, 2, 10.5, 9], [15, 1, 7.6, 7.6]]) { const q = W(u, v); addSolid(q.x, q.z, w, d, 0); }
     const lampAt = W(0, 9);
     this.lampPositions.push([lampAt.x, y0 + 2, lampAt.z]);
+    // Blender で作った本堂と多宝塔（assets/models/jodoji_hondo.glb・jodoji_tahoto.glb）が読めたら差しかえる
+    for (const [name, simple, u, v] of [['jodoji_hondo', hondoSimple, 0, 0], ['jodoji_tahoto', tahotoSimple, 15, 1]]) {
+      this._swapModel(name, simple, (m) => {
+        const q = W(u, v);
+        m.position.set(q.x, y0, q.z);
+        m.rotation.y = face;
+      });
+    }
   }
 
   _lamps() {
