@@ -456,6 +456,11 @@ export class Town {
 
   /** 遠くの小物を隠す（カメラの位置から。数フレームに1回で十分） */
   cullDetails(cam) {
+    // 坂の家の屋根：近くのまとまりは細かい屋根、遠くは軽い三角柱
+    if (this.houseLOD) for (const L of this.houseLOD) {
+      const near = Math.hypot(cam.x - L.x, cam.z - L.z) - L.r < 110;
+      if (L.near[0].visible !== near) { for (const m of L.near) m.visible = near; L.far.visible = !near; }
+    }
     if (!this.detailMeshes) return;
     for (const m of this.detailMeshes) {
       const d = m.userData.detail;
@@ -1430,6 +1435,7 @@ export class Town {
     this.world.houseWallMap = this.wallTex;
     for (const items of bins.values()) win.push(...this.world._houses(items));
     this.world.scheduledWindows(win);
+    this._houseRoofLOD([...bins.values()]);
     // 坂の家の土台：石垣の段（尾道の斜面は、家ごとに石を積んで平らにしてある）。下り側に石垣が見える
     const tb = new TriBatch(), sc = new THREE.Color();
     for (const h of list) {
@@ -1455,6 +1461,145 @@ export class Town {
       const mesh = new THREE.Mesh(tb.build(), lam(0xffffff, { vertexColors: true, side: THREE.DoubleSide, map: this._texture('wall') }));
       mesh.castShadow = mesh.receiveShadow = true;
       this.group.add(mesh);
+    }
+  }
+
+  /**
+   * 坂の家の、近くで見る屋根。軒が深く出て、軒先へゆるく反る瓦屋根（切妻か寄棟）、瓦の段のすじ、暗い軒裏、
+   * 白っぽい鼻隠し、棟の瓦。2階建ての家には、1階の上に小さな庇も。
+   * 形は、家の大きさ（幅1×奥行1、壁の上から棟まで高さ1）にそろえて作り、家ごとに伸ばして並べる
+   */
+  _houseRoofGeo(kind) {
+    const pos = [], col = [];
+    const C = (v) => [v * 0.98, v, v * 1.02];
+    const quad = (a, b, c, d, ca, cb = ca, cc = cb, cd = cc) => { pos.push(...a, ...b, ...c, ...a, ...c, ...d); col.push(...ca, ...cb, ...cc, ...ca, ...cc, ...cd); };
+    const OX = 0.58, OZ = 0.62, T = 0.05, N = 6;
+    // 屋根の高さ：軒先（u=0）から棟（u=1）へ。少し反って、軒先はゆるく
+    const yAt = (u) => u * u * 0.35 + u * 0.65 - 0.08;
+    if (kind === 'gable') {
+      for (const sd of [-1, 1]) {
+        for (let k = 0; k < N; k++) {
+          const u0 = k / N, u1 = (k + 1) / N;
+          const z0 = sd * OZ * (1 - u0), z1 = sd * OZ * (1 - u1), y0 = yAt(u0), y1 = yAt(u1);
+          const c = C(k % 2 ? 0.86 : 1.0);
+          const a = [-OX, y0, z0], b = [OX, y0, z0], cc = [OX, y1, z1], d = [-OX, y1, z1];
+          if (sd > 0) quad(a, b, cc, d, c); else quad(b, a, d, cc, c);
+          // 軒裏（下の面、暗く）
+          const ua = [-OX, y0 - T, z0], ub = [OX, y0 - T, z0], uc = [OX, y1 - T, z1], ud = [-OX, y1 - T, z1];
+          if (sd > 0) quad(ub, ua, ud, uc, C(0.32)); else quad(ua, ub, uc, ud, C(0.32));
+          // 妻側のふち（けらば）
+          for (const ex of [-OX, OX]) {
+            const p = [[ex, y0 - T, z0], [ex, y0, z0], [ex, y1, z1], [ex, y1 - T, z1]];
+            if ((ex > 0) === (sd > 0)) quad(p[0], p[1], p[2], p[3], C(0.6)); else quad(p[1], p[0], p[3], p[2], C(0.6));
+          }
+        }
+        // 軒先の鼻隠し
+        const y0 = yAt(0), z0 = sd * OZ;
+        const f = [[-OX, y0 - T - 0.03, z0], [OX, y0 - T - 0.03, z0], [OX, y0 + 0.01, z0], [-OX, y0 + 0.01, z0]];
+        if (sd > 0) quad(f[0], f[1], f[2], f[3], C(0.7)); else quad(f[1], f[0], f[3], f[2], C(0.7));
+      }
+      // 妻の壁（三角、壁の色に近い明るさ）
+      for (const ex of [-0.5, 0.5]) {
+        const a = [ex, -0.02, -0.5], b = [ex, -0.02, 0.5], top = [ex, yAt(1) - 0.02, 0];
+        if (ex > 0) { pos.push(...a, ...top, ...b); } else { pos.push(...b, ...top, ...a); }
+        col.push(...C(0.9), ...C(0.9), ...C(0.9));
+      }
+      // 棟（少し高く、暗い瓦）
+      const yr = yAt(1);
+      const R = [[-OX - 0.02, yr - 0.02, -0.05], [OX + 0.02, yr - 0.02, -0.05], [OX + 0.02, yr + 0.07, -0.05], [-OX - 0.02, yr + 0.07, -0.05]];
+      const R2 = R.map(([x, y]) => [x, y, 0.05]);
+      quad(R[1], R[0], R[3], R[2], C(0.62)); quad(R2[0], R2[1], R2[2], R2[3], C(0.62)); quad(R[3], R2[3], R2[2], R[2], C(0.7));
+    } else {
+      // 寄棟：四方の屋根が、短い棟（x -RX〜RX）に集まる
+      const RX = 0.22;
+      const ring = (u) => ({ x: OX + (RX - OX) * u, z: OZ * (1 - u), y: yAt(u) });
+      for (let k = 0; k < N; k++) {
+        const A = ring(k / N), B = ring((k + 1) / N), c = C(k % 2 ? 0.86 : 1.0);
+        // 長い面（±z）と、短い面（±x、三角に近い台形）
+        quad([-A.x, A.y, A.z], [A.x, A.y, A.z], [B.x, B.y, B.z], [-B.x, B.y, B.z], c);
+        quad([A.x, A.y, -A.z], [-A.x, A.y, -A.z], [-B.x, B.y, -B.z], [B.x, B.y, -B.z], c);
+        const sx = (u) => OX - (OX - 0.0) * u;   // 短い面の x（軒先 OX → てっぺんで RX の位置まで）
+        const xa = OX - (OX - RX) * (k / N), xb = OX - (OX - RX) * ((k + 1) / N);
+        void sx;
+        quad([xa, A.y, A.z], [xa, A.y, -A.z], [xb, B.y, -B.z], [xb, B.y, B.z], c);
+        quad([-xa, A.y, -A.z], [-xa, A.y, A.z], [-xb, B.y, B.z], [-xb, B.y, -B.z], c);
+        // 軒裏
+        const d = C(0.32);
+        quad([A.x, A.y - T, A.z], [-A.x, A.y - T, A.z], [-B.x, B.y - T, B.z], [B.x, B.y - T, B.z], d);
+        quad([-A.x, A.y - T, -A.z], [A.x, A.y - T, -A.z], [B.x, B.y - T, -B.z], [-B.x, B.y - T, -B.z], d);
+        quad([xa, A.y - T, -A.z], [xa, A.y - T, A.z], [xb, B.y - T, B.z], [xb, B.y - T, -B.z], d);
+        quad([-xa, A.y - T, A.z], [-xa, A.y - T, -A.z], [-xb, B.y - T, -B.z], [-xb, B.y - T, B.z], d);
+      }
+      // 鼻隠し（四方）
+      const y0 = yAt(0), f = C(0.7);
+      quad([-OX, y0 - T - 0.03, OZ], [OX, y0 - T - 0.03, OZ], [OX, y0 + 0.01, OZ], [-OX, y0 + 0.01, OZ], f);
+      quad([OX, y0 - T - 0.03, -OZ], [-OX, y0 - T - 0.03, -OZ], [-OX, y0 + 0.01, -OZ], [OX, y0 + 0.01, -OZ], f);
+      quad([OX, y0 - T - 0.03, OZ], [OX, y0 - T - 0.03, -OZ], [OX, y0 + 0.01, -OZ], [OX, y0 + 0.01, OZ], f);
+      quad([-OX, y0 - T - 0.03, -OZ], [-OX, y0 - T - 0.03, OZ], [-OX, y0 + 0.01, OZ], [-OX, y0 + 0.01, -OZ], f);
+      // 棟と、四隅へ下りる隅棟（細い帯）
+      const yr = yAt(1);
+      quad([RX + 0.03, yr + 0.07, -0.05], [-RX - 0.03, yr + 0.07, -0.05], [-RX - 0.03, yr + 0.07, 0.05], [RX + 0.03, yr + 0.07, 0.05], C(0.66));
+      quad([-RX - 0.03, yr - 0.02, 0.05], [RX + 0.03, yr - 0.02, 0.05], [RX + 0.03, yr + 0.07, 0.05], [-RX - 0.03, yr + 0.07, 0.05], C(0.62));
+      quad([RX + 0.03, yr - 0.02, -0.05], [-RX - 0.03, yr - 0.02, -0.05], [-RX - 0.03, yr + 0.07, -0.05], [RX + 0.03, yr + 0.07, -0.05], C(0.62));
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    g.computeVertexNormals();
+    return g;
+  }
+
+  _houseRoofLOD(binList) {
+    const geos = { gable: this._houseRoofGeo('gable'), hip: this._houseRoofGeo('hip') };
+    const roofMat = lam(0xffffff, { vertexColors: true });
+    const hisaGeo = new THREE.BoxGeometry(1, 0.08, 1);
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), c = new THREE.Color(), v = new THREE.Vector3(), s = new THREE.Vector3();
+    this.houseLOD = [];
+    for (const list of binList) {
+      if (!list.roofMesh) continue;
+      const byKind = { gable: [], hip: [] }, hisa = [];
+      for (const h of list) {
+        // 家ごとに、切妻か寄棟（同じ家はいつも同じ）
+        const kind = ((Math.floor(h.x * 7.13) ^ Math.floor(h.z * 3.71)) & 3) === 0 ? 'hip' : 'gable';
+        byKind[kind].push(h);
+        if (h.h - 3 > 5) hisa.push(h);
+      }
+      const near = [];
+      for (const kind of ['gable', 'hip']) {
+        const arr = byKind[kind];
+        if (!arr.length) continue;
+        const im = new THREE.InstancedMesh(geos[kind], roofMat, arr.length);
+        arr.forEach((h, i) => {
+          q.setFromEuler(e.set(0, h.rot, 0));
+          m.compose(v.set(h.x, h.y + h.h, h.z), q, s.set(h.w, h.roofH * 1.1, h.d));
+          im.setMatrixAt(i, m);
+          im.setColorAt(i, c.set(h.roof));
+        });
+        im.castShadow = true; im.receiveShadow = true;
+        near.push(im);
+      }
+      if (hisa.length) {
+        // 1階の上の小さな庇（表の側、ゆるく下がる）
+        const im = new THREE.InstancedMesh(hisaGeo, roofMat, hisa.length);
+        const off = new THREE.Vector3();
+        hisa.forEach((h, i) => {
+          q.setFromEuler(e.set(0.2, h.rot, 0, 'YXZ'));
+          off.set(0, 0, h.d / 2 + 0.42).applyAxisAngle(new THREE.Vector3(0, 1, 0), h.rot);
+          m.compose(v.set(h.x + off.x, h.y + 3 + 2.75, h.z + off.z), q, s.set(h.w * 0.86, 1, 0.9));
+          im.setMatrixAt(i, m);
+          im.setColorAt(i, c.set(h.roof));
+        });
+        im.castShadow = true;
+        near.push(im);
+      }
+      if (!near.length) continue;
+      let cx = 0, cz = 0;
+      for (const h of list) { cx += h.x; cz += h.z; }
+      cx /= list.length; cz /= list.length;
+      let r = 0;
+      for (const h of list) r = Math.max(r, Math.hypot(h.x - cx, h.z - cz));
+      for (const im of near) { im.visible = false; this.group.add(im); }
+      this.houseLOD.push({ x: cx, z: cz, r, near, far: list.roofMesh });
     }
   }
 

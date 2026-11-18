@@ -46,6 +46,7 @@ export class World {
       this.roofTile.repeat.set(24, 22);
     }
     const roofs = new THREE.InstancedMesh(roofGeo, this.mat(0xffffff, { map: this.roofTile }), list.length);
+    list.roofMesh = roofs;   // 近くでは、町（town.js）が細かい屋根に差しかえる
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const c = new THREE.Color();
